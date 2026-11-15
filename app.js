@@ -48,7 +48,8 @@ const PRIORITIES = [
 ];
 const PRIO_ORDER = { hoch: 0, mittel: 1, niedrig: 2 };
 const INVEST_CATEGORIES = ['Material', 'Software', 'Hardware', 'Dienstleistung', 'Marketing', 'Weiterbildung', 'Sonstiges'];
-const COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#14b8a6'];
+// Standardfarben für neue Projekte – feste Reihenfolge, geprüft auf Unterscheidbarkeit (auch bei Farbsehschwäche)
+const COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
 
 const QUOTES = [
   'Fortschritt schlägt Perfektion.',
@@ -562,6 +563,7 @@ function parseRoute() {
 
 function render() {
   applyTheme();
+  if (typeof hideTip === 'function') hideTip();
   const r = parseRoute();
   const app = $('#app');
   let html;
@@ -792,7 +794,7 @@ function renderWidget(id, c, cfg) {
       return card('📈 Aktivität (12 Wochen)', heatmap(dayMap()));
 
     case 'weekChart':
-      return card('📊 Stunden pro Woche', weekBars());
+      return card('📊 Stunden pro Woche', stackedWeekBars());
 
     case 'weekProjects': {
       // Projekte mit Zeit diese Woche oder mit eigenem Wochenziel (aktiv)
@@ -1005,18 +1007,108 @@ function heatmap(map) {
     <span style="flex:1"></span>${active} aktive Tage</div>`;
 }
 
-function weekBars(pid) {
+function weekList() {
   const weeks = [];
   for (let i = -11; i <= 0; i++) {
-    const s = addDays(startOfWeek(new Date()), i * 7);
-    weeks.push({ label: `${pad(s.getDate())}.${pad(s.getMonth() + 1)}.`, min: weekMinutes(i, pid), current: i === 0 });
+    const start = addDays(startOfWeek(new Date()), i * 7);
+    weeks.push({ i, start, label: `${pad(start.getDate())}.${pad(start.getMonth() + 1)}.`, current: i === 0,
+      range: `${fmtDate(toISO(start))} – ${fmtDate(toISO(addDays(start, 6)))}` });
   }
+  return weeks;
+}
+
+/** Stunden pro Woche für ein einzelnes Projekt (eine Reihe, in der Projektfarbe). */
+function weekBars(pid) {
+  const p = getProject(pid);
+  const weeks = weekList().map((w) => ({ ...w, min: weekMinutes(w.i, pid) }));
   const max = Math.max(60, ...weeks.map((w) => w.min));
   return `<div class="bars">${weeks.map((w) => `
-    <div class="bar ${w.current ? 'current' : ''}" title="Woche ab ${w.label}: ${fmtDuration(w.min)}">
-      <span style="height:${(w.min / max) * 85}%"></span><small>${w.label.slice(0, 3)}</small>
+    <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-tip="${esc(`<b>${w.current ? 'Diese Woche' : `Woche ab ${w.label}`}</b><br>${fmtDuration(w.min)}`)}">
+      <span style="height:${(w.min / max) * 85}%;background:${esc(p?.color || 'var(--primary)')}"></span><small>${w.current ? 'jetzt' : w.label.slice(0, 3)}</small>
     </div>`).join('')}</div>`;
 }
+
+/** Stunden pro Woche über alle Projekte – gestapelt, jedes Projekt in seiner Farbe. */
+function stackedWeekBars() {
+  const weeks = weekList();
+  const projects = data.projects
+    .map((p) => ({ p, per: weeks.map((w) => weekMinutes(w.i, p.id)) }))
+    .map((x) => ({ ...x, total: sum(x.per, (m) => m) }))
+    .filter((x) => x.total > 0)
+    .sort((a, b) => b.total - a.total); // feste Stapel-Reihenfolge: größtes Projekt unten
+  if (!projects.length) return '<div class="empty">In den letzten 12 Wochen wurde noch keine Zeit erfasst.</div>';
+  const totals = weeks.map((_, wi) => sum(projects, (x) => x.per[wi]));
+  const max = Math.max(60, ...totals);
+  const scaleH = Math.ceil(max / 60);
+
+  const tip = (w, wi) => `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>`
+    + projects.filter((x) => x.per[wi]).map((x) => `<span class="tip-row"><span class="dot-color" style="background:${esc(x.p.color)}"></span>${esc(x.p.name)}<b>${fmtDuration(x.per[wi])}</b></span>`).join('')
+    + `<span class="tip-row tip-total">Gesamt<b>${fmtDuration(totals[wi])}</b></span>`;
+
+  return `
+    <div class="stack-chart" role="img" aria-label="Stunden pro Woche nach Projekt, letzte 12 Wochen">
+      <div class="stack-scale small muted"><span>${scaleH} Std</span><span>0</span></div>
+      <div class="bars stacked">${weeks.map((w, wi) => `
+        <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-tip="${esc(totals[wi] ? tip(w, wi) : `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>keine Zeit erfasst`)}">
+          <div class="stack" style="height:calc((100% - 22px) * ${(totals[wi] / (scaleH * 60)).toFixed(4)})">
+            ${projects.filter((x) => x.per[wi]).map((x) => `<span style="flex-grow:${x.per[wi]};background:${esc(x.p.color)}"></span>`).join('')}
+          </div>
+          <small>${w.current ? 'jetzt' : w.label.slice(0, 3)}</small>
+        </div>`).join('')}
+      </div>
+    </div>
+    <ul class="chart-legend">${projects.map((x) => `
+      <li><span class="dot-color" style="background:${esc(x.p.color)}"></span><span class="name">${esc(x.p.name)}</span><span class="val">${fmtHours(x.total)}</span></li>`).join('')}
+    </ul>
+    <details class="chart-table">
+      <summary class="small muted">Als Tabelle anzeigen</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Woche ab</th>${projects.map((x) => `<th class="num">${esc(x.p.name)}</th>`).join('')}<th class="num">Gesamt</th></tr></thead>
+        <tbody>${weeks.map((w, wi) => `<tr><td>${w.current ? 'diese Woche' : w.label}</td>${projects.map((x) => `<td class="num">${x.per[wi] ? fmtHours(x.per[wi]) : '–'}</td>`).join('')}<td class="num"><b>${fmtHours(totals[wi])}</b></td></tr>`).join('')}</tbody>
+      </table></div>
+    </details>`;
+}
+
+/* Hinweis-Fenster für Diagramme (Maus: Überfahren, Touch/Tastatur: Antippen/Fokus) */
+const chartTip = document.createElement('div');
+chartTip.className = 'chart-tip';
+chartTip.hidden = true;
+document.body.appendChild(chartTip);
+let tipTarget = null;
+function showTip(el) {
+  tipTarget = el;
+  chartTip.innerHTML = el.dataset.tip;
+  chartTip.hidden = false;
+  const r = el.getBoundingClientRect(), t = chartTip.getBoundingClientRect();
+  const left = Math.min(window.innerWidth - t.width - 8, Math.max(8, r.left + r.width / 2 - t.width / 2));
+  const top = r.top - t.height - 8 > 8 ? r.top - t.height - 8 : r.bottom + 8;
+  chartTip.style.left = `${left}px`;
+  chartTip.style.top = `${top}px`;
+  document.querySelectorAll('.bar.tip-active').forEach((b) => b.classList.remove('tip-active'));
+  el.classList.add('tip-active');
+}
+function hideTip() {
+  chartTip.hidden = true;
+  tipTarget?.classList.remove('tip-active');
+  tipTarget = null;
+}
+// Maus: Überfahren zeigt den Hinweis. Finger: Antippen schaltet ihn um (kein Doppel-Auslösen durch emulierte Mausereignisse).
+let lastPointer = 'mouse';
+document.addEventListener('pointerdown', (e) => { lastPointer = e.pointerType; }, true);
+document.addEventListener('pointerover', (e) => { if (e.pointerType !== 'mouse') return; const el = e.target.closest?.('[data-tip]'); if (el && el !== tipTarget) showTip(el); });
+document.addEventListener('pointerout', (e) => { if (e.pointerType !== 'mouse') return; const el = e.target.closest?.('[data-tip]'); if (el && !el.contains(e.relatedTarget)) hideTip(); });
+document.addEventListener('keyup', (e) => { if (e.key === 'Tab') { const el = document.activeElement?.closest?.('[data-tip]'); if (el) showTip(el); } });
+document.addEventListener('focusout', (e) => { if (lastPointer !== 'touch' && e.target.closest?.('[data-tip]')) hideTip(); });
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-tip]');
+  if (el) {
+    if (lastPointer === 'mouse') showTip(el);
+    else if (el === tipTarget && !chartTip.hidden) hideTip();
+    else showTip(el);
+  } else if (!e.target.closest('.chart-tip')) hideTip();
+});
+window.addEventListener('scroll', hideTip, { passive: true });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); });
 
 /* ---------------------------- Listeneinträge ----------------------------- */
 
@@ -2428,7 +2520,7 @@ function demoData() {
   const M = (projectId, title, due, done) => { const id = uid(); d.milestones.push({ id, projectId, title, dueDate: due, done: !!done, doneAt: done || null, createdAt: '' }); return id; };
   const K = (projectId, title, priority, o = {}) => d.tasks.push({ id: uid(), projectId, title, priority, done: false, doneAt: null, createdAt: new Date().toISOString(), subtasks: [], ...o });
 
-  const shop = P({ name: 'Online-Shop für Holzdeko', status: 'aktiv', category: 'Nebenprojekt', color: '#f59e0b',
+  const shop = P({ name: 'Online-Shop für Holzdeko', status: 'aktiv', category: 'Nebenprojekt', color: '#eb6834',
     description: 'Eigene Holzarbeiten über einen kleinen Online-Shop verkaufen.',
     why: 'Ich möchte mir ein zweites Standbein aufbauen und mein Hobby zum Beruf machen.',
     goal: 'Shop ist online und die ersten 10 Bestellungen sind verschickt.', hourGoal: 80, weeklyHours: 4, budget: 600, targetDate: ahead(45) });
@@ -2451,7 +2543,7 @@ function demoData() {
   I(shop, 29, 5, 'Shop-Abo (Monat)', 'Software');
   I(shop, 140, 12, 'Holz & Lack', 'Material');
 
-  const app = P({ name: 'Fitness-App lernen', status: 'aktiv', category: 'Weiterbildung', color: '#6366f1',
+  const app = P({ name: 'Fitness-App lernen', status: 'aktiv', category: 'Weiterbildung', color: '#2a78d6',
     description: 'Programmieren lernen, indem ich eine eigene kleine Trainings-App baue.',
     why: 'Ich will verstehen, wie Apps funktionieren – und endlich meine eigenen Trainingsdaten auswerten.', hourGoal: 50, weeklyHours: 2 });
   M(app, 'Grundkurs abgeschlossen', ago(35), ago(33));
@@ -2461,12 +2553,12 @@ function demoData() {
   [[60, 21, 'Kurs Kapitel 6'], [45, 24, ''], [90, 30, ''], [60, 34, '']].forEach(([m, n, title]) => T(app, m, n, title));
   I(app, 19.99, 40, 'Online-Kurs', 'Weiterbildung');
 
-  const garden = P({ name: 'Hochbeet bauen', status: 'abgeschlossen', category: 'Haus & Garten', color: '#10b981', createdAt: ago(80) });
+  const garden = P({ name: 'Hochbeet bauen', status: 'abgeschlossen', category: 'Haus & Garten', color: '#008300', createdAt: ago(80) });
   M(garden, 'Hochbeet steht', ago(50), ago(50));
   T(garden, 240, 52, 'Aufbau'); T(garden, 120, 55, 'Material besorgt');
   I(garden, 185.5, 55, 'Lärchenholz & Schrauben', 'Material');
 
-  P({ name: 'Podcast starten', status: 'idee', category: 'Kreativ', color: '#ec4899', description: 'Gespräche mit Handwerkern aus der Region.' });
+  P({ name: 'Podcast starten', status: 'idee', category: 'Kreativ', color: '#e87ba4', description: 'Gespräche mit Handwerkern aus der Region.' });
 
   d.notes.push({ id: uid(), projectId: shop, date: ago(3), createdAt: '', text: 'Idee: Gutscheincode für die ersten Kunden anbieten.' });
   return d;
