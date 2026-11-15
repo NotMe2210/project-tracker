@@ -561,3 +561,6 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
 .settings-section[open] .sec-chev { transform: rotate(90deg); }
 .sec-body { padding: 16px; }
 @media (prefers-reduced-motion: reduce) { .sec-chev { transition: none; } }
+
+.task-group { display: flex; align-items: center; gap: 8px; margin: 16px 0 2px; font-size: .9rem; }
+.card-head + .task-group { margin-top: 4px; }

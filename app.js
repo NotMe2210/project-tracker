@@ -308,9 +308,22 @@ const getProject = (id) => data.projects.find((p) => p.id === id);
    Auswertungen
    ------------------------------------------------------------------------ */
 
+/** Reihenfolge der Meilensteine: nächstes Zieldatum zuerst, ohne Datum danach, erledigte zuletzt. */
+function milestoneRanks() {
+  const ranked = [...data.milestones].sort((a, b) =>
+    Number(!!a.done) - Number(!!b.done) ||
+    (a.dueDate || '9999').localeCompare(b.dueDate || '9999') ||
+    (a.createdAt || '').localeCompare(b.createdAt || ''));
+  return new Map(ranked.map((m, i) => [m.id, i]));
+}
+
+/** Aufgaben sortieren: Priorität › Meilenstein (ohne Meilenstein zuletzt) › Fälligkeit › Anlagedatum. */
 function sortTasks(tasks) {
+  const rank = milestoneRanks();
+  const msRank = (t) => (t.milestoneId && rank.has(t.milestoneId) ? rank.get(t.milestoneId) : Infinity);
   return [...tasks].sort((a, b) =>
     (PRIO_ORDER[a.priority] ?? 1) - (PRIO_ORDER[b.priority] ?? 1) ||
+    (msRank(a) === msRank(b) ? 0 : msRank(a) < msRank(b) ? -1 : 1) ||
     (a.dueDate || '9999').localeCompare(b.dueDate || '9999') ||
     (a.createdAt || '').localeCompare(b.createdAt || ''));
 }
@@ -1144,7 +1157,11 @@ function projectTasks(p) {
   const done = tasks.filter((t) => t.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
   return `<section class="card">
     <div class="card-head"><h2>Offene Aufgaben (${open.length})</h2><button class="btn primary small" data-action="addTask" data-id="${p.id}">+ Aufgabe</button></div>
-    ${open.length ? `<ul class="list">${open.map((t) => taskItem(t)).join('')}</ul>` : '<div class="empty">Keine offenen Aufgaben. 🎉</div>'}
+    ${open.length ? PRIORITIES.map(({ value, label }) => {
+      const group = open.filter((t) => (t.priority || 'mittel') === value);
+      return group.length ? `<h3 class="task-group"><span class="badge ${value}">${label}</span> <span class="muted small">${group.length}</span></h3>
+        <ul class="list">${group.map((t) => taskItem(t)).join('')}</ul>` : '';
+    }).join('') : '<div class="empty">Keine offenen Aufgaben. 🎉</div>'}
     ${done.length ? `<details class="done-list"><summary>Erledigt (${done.length})</summary><ul class="list">${done.map((t) => taskItem(t)).join('')}</ul></details>` : ''}
   </section>`;
 }
