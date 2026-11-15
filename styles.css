@@ -419,3 +419,12 @@ dialog { max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); }
 /* Seite hinter einem offenen Formular sperren (verhindert Mitscrollen auf iOS) */
 html.modal-open, html.modal-open body { overflow: hidden; }
 html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
+
+/* Erinnerungs-Einstellungen */
+.form label.check-row { flex-direction: row; align-items: center; gap: 10px; font-weight: 400; }
+.form label.check-row input { width: 20px; height: 20px; flex: none; accent-color: var(--primary); }
+.placeholders { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.placeholders .hint { width: 100%; }
+.placeholders .chip { font-size: .8rem; padding: 4px 10px; }
+.placeholders .chip .muted { font-size: .75rem; }
+.list .why { margin-top: 2px; }

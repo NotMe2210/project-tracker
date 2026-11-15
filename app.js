@@ -9,7 +9,14 @@ const META_KEY = 'projekttracker.meta';
 
 const DEFAULT_DATA = {
   version: 1,
-  settings: { weeklyHoursGoal: 5, staleDays: 7 },
+  settings: {
+    weeklyHoursGoal: 5,
+    staleDays: 7,
+    reminderTexts: null, // null = Standardtexte (DEFAULT_REMINDERS)
+    reminderMinutes: 25,
+    reminderShowWhy: true,
+    reminderShowNext: true,
+  },
   projects: [],
   timeEntries: [],
   investments: [],
@@ -44,6 +51,23 @@ const QUOTES = [
   'Jede Stunde, die du investierst, bringt dich deinem Ziel näher.',
   'Konzentriere dich auf den nächsten Schritt, nicht auf den ganzen Berg.',
 ];
+// Standard-Erinnerungen für eingeschlafene Projekte – in den Einstellungen anpassbar.
+// Platzhalter: {projekt} {tage} {warum} {schritt} {ziel} {stunden}
+const DEFAULT_REMINDERS = [
+  '„{projekt}“ ruht seit {tage} Tagen.',
+  '„{projekt}“ vermisst dich – {tage} Tage ist es schon her.',
+  '{tage} Tage Pause bei „{projekt}“. Zeit für einen kleinen Schritt?',
+  'Weißt du noch, warum du „{projekt}“ angefangen hast?',
+];
+const PLACEHOLDERS = [
+  ['{projekt}', 'Name des Projekts'],
+  ['{tage}', 'Tage ohne Aktivität'],
+  ['{warum}', 'dein „Warum“'],
+  ['{schritt}', 'nächste offene Aufgabe'],
+  ['{ziel}', 'Ziel des Projekts'],
+  ['{stunden}', 'bisher investierte Zeit'],
+];
+
 const CHEERS = ['Stark! 💪', 'Erledigt! ✅', 'Weiter so! 🚀', 'Super gemacht! 🎉', 'Ein Schritt näher am Ziel! 🏁', 'Läuft bei dir! 🔥'];
 
 let data = load();
@@ -231,12 +255,66 @@ function lastActivity(p) {
   return last;
 }
 
+const staleDaysOf = (p) => Number(p.staleDays) || Number(data.settings.staleDays) || 7;
+
 function healthOf(p, idle) {
   if (p.status !== 'aktiv') return null;
-  const s = Number(data.settings.staleDays) || 7;
+  const s = staleDaysOf(p);
   if (idle < s) return 'gut';
   if (idle < s * 2) return 'warn';
   return 'kritisch';
+}
+
+/* ---------------------------- Erinnerungstexte -------------------------- */
+
+const splitLines = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean);
+
+function reminderTemplates(p) {
+  const own = splitLines(p.reminderText);
+  if (own.length) return own;
+  const general = data.settings.reminderTexts;
+  return Array.isArray(general) && general.length ? general : DEFAULT_REMINDERS;
+}
+
+function fillReminder(tpl, p, s) {
+  const values = {
+    projekt: p.name, tage: s.idle, warum: p.why || '', schritt: s.next?.title || '',
+    ziel: p.goal || '', stunden: fmtHours(s.minutes),
+  };
+  return tpl
+    .replace(/\{(\w+)\}/g, (m, k) => (k.toLowerCase() in values ? String(values[k.toLowerCase()]) : m))
+    .replace(/„\s*“/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** Wählt pro Projekt und Tag einen Text aus – bleibt also den ganzen Tag gleich und wechselt täglich. */
+function reminderFor(p, s) {
+  const list = reminderTemplates(p);
+  let h = 0;
+  for (const c of p.id + todayISO()) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const tpl = list[h % list.length];
+  return { tpl, text: fillReminder(tpl, p, s) };
+}
+
+function staleBanner(p, s, { withOpen = true } = {}) {
+  const set = data.settings;
+  const { tpl, text } = reminderFor(p, s);
+  const min = Number(set.reminderMinutes) || 25;
+  const showWhy = set.reminderShowWhy !== false && p.why && !/\{warum\}/i.test(tpl);
+  const showNext = set.reminderShowNext !== false && !/\{schritt\}/i.test(tpl);
+  return `<div class="banner warn">
+      <div class="emoji">😴</div>
+      <div class="text">
+        <strong>${esc(text)}</strong>
+        ${showWhy ? `<div class="why">Dein Warum: „${esc(p.why)}“</div>` : ''}
+        ${showNext ? `<div>${s.next ? `Kleinster nächster Schritt: <b>${esc(s.next.title)}</b>` : 'Lege einen kleinen, konkreten nächsten Schritt fest.'}</div>` : ''}
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" data-action="startTimer" data-id="${p.id}">▶ Nur ${min} Minuten</button>
+        ${withOpen ? `<a class="btn" href="#/projekt/${p.id}">Öffnen</a>` : ''}
+      </div>
+    </div>`;
 }
 
 function projectStats(p) {
@@ -442,9 +520,10 @@ function renderDashboard() {
               <span class="dot-color" style="background:${esc(p.color)}"></span>
               <div class="grow">
                 <div class="title"><a href="#/projekt/${p.id}">${esc(p.name)}</a></div>
+                <div class="small why">${esc(reminderFor(p, s).text)}</div>
                 <div class="meta">${healthBadge(s)}${s.next ? `<span>Nächster Schritt: ${esc(s.next.title)}</span>` : ''}</div>
               </div>
-              <button class="btn small" data-action="startTimer" data-id="${p.id}">▶ 25 Min</button>
+              <button class="btn small" data-action="startTimer" data-id="${p.id}">▶ ${Number(data.settings.reminderMinutes) || 25} Min</button>
             </li>`).join('')}</ul>`
             : '<div class="empty">Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉</div>'}
         </section>
@@ -496,21 +575,7 @@ function renderDashboard() {
 
 function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
   const critical = stale.find((x) => x.s.health === 'kritisch');
-  if (critical) {
-    const { p, s } = critical;
-    return `<div class="banner warn">
-      <div class="emoji">😴</div>
-      <div class="text">
-        <strong>„${esc(p.name)}“ ruht seit ${s.idle} Tagen.</strong>
-        ${p.why ? `<div class="why">Dein Warum: „${esc(p.why)}“</div>` : ''}
-        <div>${s.next ? `Kleinster nächster Schritt: <b>${esc(s.next.title)}</b>` : 'Lege einen kleinen, konkreten nächsten Schritt fest.'}</div>
-      </div>
-      <div class="btn-row">
-        <button class="btn primary" data-action="startTimer" data-id="${p.id}">▶ Nur 25 Minuten</button>
-        <a class="btn" href="#/projekt/${p.id}">Öffnen</a>
-      </div>
-    </div>`;
-  }
+  if (critical) return staleBanner(critical.p, critical.s);
   if (goalMin && thisWeek >= goalMin) {
     return `<div class="banner good"><div class="emoji">🏆</div><div class="text"><strong>Wochenziel erreicht!</strong>${fmtHours(thisWeek)} investiert – richtig stark. Alles darüber ist Bonus.</div></div>`;
   }
@@ -704,6 +769,7 @@ function projectOverview(p, s) {
   const recent = recentActivity(p.id).slice(0, 8);
 
   return `
+    ${s.health === 'warn' || s.health === 'kritisch' ? staleBanner(p, s, { withOpen: false }) : ''}
     ${p.why || p.goal ? `<div class="card" style="margin-bottom:16px">
       ${p.why ? `<h3>💭 Warum ist mir das wichtig?</h3><p class="why" style="font-size:1rem">„${esc(p.why)}“</p>` : ''}
       ${p.goal ? `<h3>🎯 Ziel / Wann ist es fertig?</h3><p>${esc(p.goal)}</p>` : ''}
@@ -835,20 +901,92 @@ function projectNotes(p) {
 
 /* ---------------------------- Einstellungen ------------------------------ */
 
+function renderReminderSettings() {
+  const set = data.settings;
+  const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : DEFAULT_REMINDERS;
+  return `<section class="card">
+    <h2>😴 Erinnerungen bei eingeschlafenen Projekten</h2>
+    <p class="small muted">Diese Hinweise erscheinen auf der Übersicht und im Projekt, wenn ein aktives Projekt zu lange ruht.
+    Pro Projekt kannst du unter <i>Bearbeiten</i> zusätzlich einen eigenen Text und eine eigene Anzahl Tage festlegen.</p>
+    <div class="grid-2">
+      <form class="form" style="padding:0" data-form="reminders">
+        <label>Projekt gilt als „eingeschlafen“ nach … Tagen ohne Aktivität
+          <input type="number" min="1" step="1" name="staleDays" value="${esc(set.staleDays)}">
+          <span class="hint">Ab dem doppelten Wert wird das Projekt rot markiert und oben auf der Übersicht angezeigt.</span>
+        </label>
+        <label>Deine Erinnerungstexte – ein Text pro Zeile
+          <textarea name="reminderTexts" rows="6">${esc(texts.join('\n'))}</textarea>
+          <span class="hint">Bei mehreren Texten wechselt die Erinnerung jeden Tag.</span>
+        </label>
+        <div class="placeholders">
+          <span class="hint">Platzhalter antippen zum Einfügen:</span>
+          ${PLACEHOLDERS.map(([k, d]) => `<button type="button" class="chip" data-insert="${k}" title="${esc(d)}">${k} <span class="muted">${esc(d)}</span></button>`).join('')}
+        </div>
+        <label class="check-row"><input type="checkbox" name="reminderShowWhy" ${set.reminderShowWhy !== false ? 'checked' : ''}> Mein „Warum“ unter der Erinnerung anzeigen</label>
+        <label class="check-row"><input type="checkbox" name="reminderShowNext" ${set.reminderShowNext !== false ? 'checked' : ''}> Nächsten Schritt anzeigen</label>
+        <label>Minuten im Knopf „Nur … Minuten“
+          <input type="number" min="1" max="240" step="1" name="reminderMinutes" value="${esc(set.reminderMinutes || 25)}">
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn" data-action="resetReminders">Standardtexte</button>
+          <button class="btn primary" type="submit">Speichern</button>
+        </div>
+      </form>
+      <div>
+        <h3>Vorschau</h3>
+        <div id="reminder-preview">${reminderPreview(texts, set)}</div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function previewProject() {
+  const active = data.projects.filter((p) => p.status === 'aktiv').map((p) => ({ p, s: projectStats(p) }));
+  active.sort((a, b) => b.s.idle - a.s.idle);
+  if (active.length) return { ...active[0], s: { ...active[0].s, idle: Math.max(active[0].s.idle, 14) } };
+  return { p: { id: 'preview', name: 'Mein Projekt', why: 'Weil es mir Freude macht.', goal: 'Fertig und veröffentlicht' },
+    s: { idle: 14, minutes: 600, next: { title: 'Erste Skizze machen' } } };
+}
+
+function reminderPreview(texts, set) {
+  const { p, s } = previewProject();
+  const min = Number(set.reminderMinutes) || 25;
+  const lines = texts.length ? texts : DEFAULT_REMINDERS;
+  return `<p class="small muted">Beispiel mit „${esc(p.name)}“ nach ${s.idle} Tagen:</p>
+    <ul class="list">${lines.map((tpl) => {
+      const showWhy = set.reminderShowWhy !== false && p.why && !/\{warum\}/i.test(tpl);
+      const showNext = set.reminderShowNext !== false && !/\{schritt\}/i.test(tpl);
+      return `<li><div class="grow">
+        <div class="title">😴 ${esc(fillReminder(tpl, p, s))}</div>
+        ${showWhy ? `<div class="small why">Dein Warum: „${esc(p.why)}“</div>` : ''}
+        ${showNext && s.next ? `<div class="small muted">Kleinster nächster Schritt: ${esc(s.next.title)}</div>` : ''}
+      </div></li>`;
+    }).join('')}</ul>
+    <p class="small muted">Knopf: <span class="badge">▶ Nur ${min} Minuten</span></p>`;
+}
+
+function readReminderForm(form) {
+  const fd = new FormData(form);
+  return {
+    staleDays: Math.max(1, Math.round(Number(fd.get('staleDays')) || 7)),
+    reminderTexts: splitLines(fd.get('reminderTexts')),
+    reminderShowWhy: fd.get('reminderShowWhy') === 'on',
+    reminderShowNext: fd.get('reminderShowNext') === 'on',
+    reminderMinutes: Math.min(240, Math.max(1, Math.round(Number(fd.get('reminderMinutes')) || 25))),
+  };
+}
+
 function renderSettings() {
   const size = new Blob([JSON.stringify(data)]).size;
   return `
-    <div class="page-head"><div><h1>Einstellungen</h1><p>Ziele, Datensicherung und Import</p></div></div>
-    <div class="grid-2">
+    <div class="page-head"><div><h1>Einstellungen</h1><p>Ziele, Erinnerungen, Datensicherung und Import</p></div></div>
+    ${renderReminderSettings()}
+    <div class="grid-2" style="margin-top:16px">
       <section class="card">
-        <h2>Ziele & Erinnerungen</h2>
+        <h2>🎯 Wochenziel</h2>
         <form class="form" style="padding:0" data-form="settings">
           <label>Wochenziel (Stunden für alle Projekte)
             <input type="number" min="0" step="0.5" name="weeklyHoursGoal" value="${esc(data.settings.weeklyHoursGoal)}">
-          </label>
-          <label>Projekt gilt als „eingeschlafen“ nach … Tagen ohne Aktivität
-            <input type="number" min="1" step="1" name="staleDays" value="${esc(data.settings.staleDays)}">
-            <span class="hint">Ab dem doppelten Wert wird das Projekt rot markiert und im Motivationsbanner angezeigt.</span>
           </label>
           <div class="form-actions"><button class="btn primary" type="submit">Speichern</button></div>
         </form>
@@ -1116,6 +1254,13 @@ const actions = {
     render();
     toast('Sicherung exportiert ✔ – lege die Datei in iCloud Drive ab.');
   },
+  resetReminders() {
+    const ta = document.querySelector('[data-form="reminders"] textarea[name="reminderTexts"]');
+    if (!ta) return;
+    ta.value = DEFAULT_REMINDERS.join('\n');
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    toast('Standardtexte eingesetzt – zum Übernehmen „Speichern“ tippen.');
+  },
   dismissSyncHint() {
     syncHintDismissed = true;
     renderBackupBar();
@@ -1192,6 +1337,11 @@ function projectForm(p) {
       { name: 'category', label: 'Kategorie', value: p.category, list: cats, placeholder: 'z. B. Beruf, Hobby', half: true },
       { name: 'why', label: 'Warum ist mir dieses Projekt wichtig?', type: 'textarea', value: p.why, hint: 'Wird dir angezeigt, wenn das Projekt einzuschlafen droht.' },
       { name: 'goal', label: 'Ziel – wann ist das Projekt fertig?', type: 'textarea', value: p.goal },
+      { name: 'reminderText', label: 'Eigene Erinnerung, wenn das Projekt einschläft', type: 'textarea', value: p.reminderText,
+        placeholder: 'z. B. {tage} Tage ohne „{projekt}“? Deine Kunden warten!',
+        hint: 'Leer = allgemeine Texte aus den Einstellungen. Platzhalter: {projekt}, {tage}, {warum}, {schritt}, {ziel}, {stunden}. Mehrere Zeilen = wechselt täglich.' },
+      { name: 'staleDays', label: 'Erinnern nach … Tagen ohne Aktivität', type: 'number', value: p.staleDays,
+        placeholder: `Standard: ${data.settings.staleDays}`, hint: 'Leer = Standard aus den Einstellungen.' },
       { name: 'hourGoal', label: 'Geplante Zeit (Std)', type: 'number', value: p.hourGoal, half: true },
       { name: 'budget', label: 'Budget (€)', type: 'decimal', value: p.budget != null ? String(p.budget).replace('.', ',') : '', half: true },
       { name: 'targetDate', label: 'Zieltermin', type: 'date', value: p.targetDate, half: true },
@@ -1467,9 +1617,39 @@ document.addEventListener('submit', (e) => {
   e.preventDefault();
   const fd = new FormData(form);
   data.settings.weeklyHoursGoal = Math.max(0, Number(fd.get('weeklyHoursGoal')) || 0);
-  data.settings.staleDays = Math.max(1, Math.round(Number(fd.get('staleDays')) || 7));
   commit();
   toast('Einstellungen gespeichert');
+});
+
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-form="reminders"]');
+  if (!form) return;
+  e.preventDefault();
+  const v = readReminderForm(form);
+  if (!v.reminderTexts.length) v.reminderTexts = null; // leer = Standardtexte
+  Object.assign(data.settings, v);
+  commit();
+  toast('Erinnerungen gespeichert');
+});
+
+// Live-Vorschau der Erinnerungstexte
+document.addEventListener('input', (e) => {
+  const form = e.target.closest('[data-form="reminders"]');
+  if (!form) return;
+  const v = readReminderForm(form);
+  $('#reminder-preview').innerHTML = reminderPreview(v.reminderTexts, v);
+});
+
+// Platzhalter an der Cursorposition einfügen
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-insert]');
+  if (!chip) return;
+  const ta = chip.closest('form').querySelector('textarea[name="reminderTexts"]');
+  const start = ta.selectionStart ?? ta.value.length, end = ta.selectionEnd ?? ta.value.length;
+  ta.value = ta.value.slice(0, start) + chip.dataset.insert + ta.value.slice(end);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = start + chip.dataset.insert.length;
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
 });
 
 // Änderungen aus einem anderen Tab übernehmen
