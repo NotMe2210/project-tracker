@@ -306,9 +306,35 @@ td .progress { width: 90px; display: inline-block; vertical-align: middle; }
 /* Bar chart */
 .bars { display: flex; align-items: flex-end; gap: 6px; height: 110px; }
 .bars .bar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; }
-.bars .bar span { width: 100%; max-width: 32px; background: var(--primary); border-radius: 4px 4px 0 0; min-height: 2px; }
-.bars .bar.current span { background: var(--good); }
+.bars .bar { cursor: default; outline: none; border-radius: 6px; }
+.bars .bar > span { width: 100%; max-width: 32px; background: var(--primary); border-radius: 4px 4px 0 0; min-height: 2px; }
 .bars .bar small { font-size: .65rem; color: var(--muted); }
+.bars .bar.current small { color: var(--text); font-weight: 600; }
+.bars .bar.tip-active, .bars .bar:focus-visible { background: var(--surface-2); }
+
+/* Gestapeltes Wochendiagramm: Projekte in ihren Farben, 2px Abstand zwischen Segmenten */
+.stack-chart { display: flex; gap: 6px; }
+.stack-scale { display: flex; flex-direction: column; justify-content: space-between; height: 128px; padding-bottom: 18px; font-size: .65rem; text-align: right; white-space: nowrap; }
+.bars.stacked { flex: 1; height: 128px; border-bottom: 1px solid var(--border); min-width: 0; gap: 4px; }
+.bars.stacked .bar { gap: 4px; padding-top: 4px; }
+.bars.stacked .stack { width: 100%; max-width: 30px; display: flex; flex-direction: column-reverse; gap: 2px; min-height: 0; }
+.bars.stacked .stack > span { display: block; min-height: 2px; flex-basis: 0; }
+.bars.stacked .stack > span:last-child { border-radius: 4px 4px 0 0; }
+.chart-legend { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .82rem; }
+.chart-legend li { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.chart-legend .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+.chart-legend .val { color: var(--muted); font-variant-numeric: tabular-nums; }
+.chart-table { margin-top: 8px; }
+.chart-table summary { cursor: pointer; padding: 4px 0; }
+.chart-tip {
+  position: fixed; z-index: 300; max-width: min(320px, calc(100vw - 16px)); pointer-events: none;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18); padding: 8px 10px; font-size: .8rem; line-height: 1.5;
+}
+.chart-tip .tip-row { display: flex; align-items: center; gap: 6px; }
+.chart-tip .tip-row b { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-tip .tip-row .dot-color { flex: none; }
+.chart-tip .tip-total { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; }
 
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: .9rem; }
 .kv dt { color: var(--muted); }
@@ -572,3 +598,23 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
 
 .weekly-list li { padding: 8px 0; }
 .weekly-list .weekly-total { border-top: 2px solid var(--border); }
+
+/* Pomodoro */
+.timer-indicator.pomo { overflow: hidden; gap: 6px; padding-bottom: 7px; }
+@media (min-width: 641px) { .timer-indicator.pomo { position: relative; } }
+.timer-indicator.pomo .t { font-size: 1.05rem; }
+.timer-indicator.pomo-work { background: var(--bad-soft); color: var(--bad); }
+.timer-indicator.pomo-work .dot, .timer-indicator.pomo .dot { display: none; }
+.timer-indicator.pomo-short, .timer-indicator.pomo-long { background: var(--good-soft); color: var(--good); }
+.timer-indicator.pomo-ready { background: var(--primary-soft); color: var(--primary); }
+.timer-indicator.paused .t { opacity: .55; }
+.pomo-label { font-weight: 600; white-space: nowrap; }
+.pomo-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(127, 127, 127, .2); }
+.pomo-bar > span { display: block; height: 100%; width: 0; background: currentColor; transition: width 1s linear; }
+.timer-indicator .btn.icon { min-width: 0; min-height: 0; padding: 4px 8px; }
+@media (max-width: 640px) {
+  .timer-indicator.pomo { border-color: currentColor; }
+  .timer-indicator.pomo-work { background: var(--surface); }
+  .timer-indicator.pomo-short, .timer-indicator.pomo-long, .timer-indicator.pomo-ready { background: var(--surface); }
+  .timer-indicator .btn.icon { min-width: 36px; min-height: 34px; }
+}

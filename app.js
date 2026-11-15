@@ -19,6 +19,12 @@ const DEFAULT_DATA = {
     theme: 'system', // 'system' | 'light' | 'dark'
     accent: '#4f46e5',
     syncService: 'icloud', // Dienst für den Gerätewechsel (nur für Anleitung & Hinweise)
+    pomoWork: 25, // Minuten Fokus
+    pomoShort: 5, // kurze Pause
+    pomoLong: 15, // lange Pause
+    pomoEvery: 4, // lange Pause nach jedem n-ten Pomodoro
+    pomoSound: true,
+    pomoNotify: true,
   },
   projects: [],
   timeEntries: [],
@@ -42,7 +48,8 @@ const PRIORITIES = [
 ];
 const PRIO_ORDER = { hoch: 0, mittel: 1, niedrig: 2 };
 const INVEST_CATEGORIES = ['Material', 'Software', 'Hardware', 'Dienstleistung', 'Marketing', 'Weiterbildung', 'Sonstiges'];
-const COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#14b8a6'];
+// Standardfarben für neue Projekte – feste Reihenfolge, geprüft auf Unterscheidbarkeit (auch bei Farbsehschwäche)
+const COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
 
 const QUOTES = [
   'Fortschritt schlägt Perfektion.',
@@ -556,6 +563,7 @@ function parseRoute() {
 
 function render() {
   applyTheme();
+  if (typeof hideTip === 'function') hideTip();
   const r = parseRoute();
   const app = $('#app');
   let html;
@@ -786,7 +794,7 @@ function renderWidget(id, c, cfg) {
       return card('📈 Aktivität (12 Wochen)', heatmap(dayMap()));
 
     case 'weekChart':
-      return card('📊 Stunden pro Woche', weekBars());
+      return card('📊 Stunden pro Woche', stackedWeekBars());
 
     case 'weekProjects': {
       // Projekte mit Zeit diese Woche oder mit eigenem Wochenziel (aktiv)
@@ -999,18 +1007,108 @@ function heatmap(map) {
     <span style="flex:1"></span>${active} aktive Tage</div>`;
 }
 
-function weekBars(pid) {
+function weekList() {
   const weeks = [];
   for (let i = -11; i <= 0; i++) {
-    const s = addDays(startOfWeek(new Date()), i * 7);
-    weeks.push({ label: `${pad(s.getDate())}.${pad(s.getMonth() + 1)}.`, min: weekMinutes(i, pid), current: i === 0 });
+    const start = addDays(startOfWeek(new Date()), i * 7);
+    weeks.push({ i, start, label: `${pad(start.getDate())}.${pad(start.getMonth() + 1)}.`, current: i === 0,
+      range: `${fmtDate(toISO(start))} – ${fmtDate(toISO(addDays(start, 6)))}` });
   }
+  return weeks;
+}
+
+/** Stunden pro Woche für ein einzelnes Projekt (eine Reihe, in der Projektfarbe). */
+function weekBars(pid) {
+  const p = getProject(pid);
+  const weeks = weekList().map((w) => ({ ...w, min: weekMinutes(w.i, pid) }));
   const max = Math.max(60, ...weeks.map((w) => w.min));
   return `<div class="bars">${weeks.map((w) => `
-    <div class="bar ${w.current ? 'current' : ''}" title="Woche ab ${w.label}: ${fmtDuration(w.min)}">
-      <span style="height:${(w.min / max) * 85}%"></span><small>${w.label.slice(0, 3)}</small>
+    <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-tip="${esc(`<b>${w.current ? 'Diese Woche' : `Woche ab ${w.label}`}</b><br>${fmtDuration(w.min)}`)}">
+      <span style="height:${(w.min / max) * 85}%;background:${esc(p?.color || 'var(--primary)')}"></span><small>${w.current ? 'jetzt' : w.label.slice(0, 3)}</small>
     </div>`).join('')}</div>`;
 }
+
+/** Stunden pro Woche über alle Projekte – gestapelt, jedes Projekt in seiner Farbe. */
+function stackedWeekBars() {
+  const weeks = weekList();
+  const projects = data.projects
+    .map((p) => ({ p, per: weeks.map((w) => weekMinutes(w.i, p.id)) }))
+    .map((x) => ({ ...x, total: sum(x.per, (m) => m) }))
+    .filter((x) => x.total > 0)
+    .sort((a, b) => b.total - a.total); // feste Stapel-Reihenfolge: größtes Projekt unten
+  if (!projects.length) return '<div class="empty">In den letzten 12 Wochen wurde noch keine Zeit erfasst.</div>';
+  const totals = weeks.map((_, wi) => sum(projects, (x) => x.per[wi]));
+  const max = Math.max(60, ...totals);
+  const scaleH = Math.ceil(max / 60);
+
+  const tip = (w, wi) => `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>`
+    + projects.filter((x) => x.per[wi]).map((x) => `<span class="tip-row"><span class="dot-color" style="background:${esc(x.p.color)}"></span>${esc(x.p.name)}<b>${fmtDuration(x.per[wi])}</b></span>`).join('')
+    + `<span class="tip-row tip-total">Gesamt<b>${fmtDuration(totals[wi])}</b></span>`;
+
+  return `
+    <div class="stack-chart" role="img" aria-label="Stunden pro Woche nach Projekt, letzte 12 Wochen">
+      <div class="stack-scale small muted"><span>${scaleH} Std</span><span>0</span></div>
+      <div class="bars stacked">${weeks.map((w, wi) => `
+        <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-tip="${esc(totals[wi] ? tip(w, wi) : `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>keine Zeit erfasst`)}">
+          <div class="stack" style="height:calc((100% - 22px) * ${(totals[wi] / (scaleH * 60)).toFixed(4)})">
+            ${projects.filter((x) => x.per[wi]).map((x) => `<span style="flex-grow:${x.per[wi]};background:${esc(x.p.color)}"></span>`).join('')}
+          </div>
+          <small>${w.current ? 'jetzt' : w.label.slice(0, 3)}</small>
+        </div>`).join('')}
+      </div>
+    </div>
+    <ul class="chart-legend">${projects.map((x) => `
+      <li><span class="dot-color" style="background:${esc(x.p.color)}"></span><span class="name">${esc(x.p.name)}</span><span class="val">${fmtHours(x.total)}</span></li>`).join('')}
+    </ul>
+    <details class="chart-table">
+      <summary class="small muted">Als Tabelle anzeigen</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Woche ab</th>${projects.map((x) => `<th class="num">${esc(x.p.name)}</th>`).join('')}<th class="num">Gesamt</th></tr></thead>
+        <tbody>${weeks.map((w, wi) => `<tr><td>${w.current ? 'diese Woche' : w.label}</td>${projects.map((x) => `<td class="num">${x.per[wi] ? fmtHours(x.per[wi]) : '–'}</td>`).join('')}<td class="num"><b>${fmtHours(totals[wi])}</b></td></tr>`).join('')}</tbody>
+      </table></div>
+    </details>`;
+}
+
+/* Hinweis-Fenster für Diagramme (Maus: Überfahren, Touch/Tastatur: Antippen/Fokus) */
+const chartTip = document.createElement('div');
+chartTip.className = 'chart-tip';
+chartTip.hidden = true;
+document.body.appendChild(chartTip);
+let tipTarget = null;
+function showTip(el) {
+  tipTarget = el;
+  chartTip.innerHTML = el.dataset.tip;
+  chartTip.hidden = false;
+  const r = el.getBoundingClientRect(), t = chartTip.getBoundingClientRect();
+  const left = Math.min(window.innerWidth - t.width - 8, Math.max(8, r.left + r.width / 2 - t.width / 2));
+  const top = r.top - t.height - 8 > 8 ? r.top - t.height - 8 : r.bottom + 8;
+  chartTip.style.left = `${left}px`;
+  chartTip.style.top = `${top}px`;
+  document.querySelectorAll('.bar.tip-active').forEach((b) => b.classList.remove('tip-active'));
+  el.classList.add('tip-active');
+}
+function hideTip() {
+  chartTip.hidden = true;
+  tipTarget?.classList.remove('tip-active');
+  tipTarget = null;
+}
+// Maus: Überfahren zeigt den Hinweis. Finger: Antippen schaltet ihn um (kein Doppel-Auslösen durch emulierte Mausereignisse).
+let lastPointer = 'mouse';
+document.addEventListener('pointerdown', (e) => { lastPointer = e.pointerType; }, true);
+document.addEventListener('pointerover', (e) => { if (e.pointerType !== 'mouse') return; const el = e.target.closest?.('[data-tip]'); if (el && el !== tipTarget) showTip(el); });
+document.addEventListener('pointerout', (e) => { if (e.pointerType !== 'mouse') return; const el = e.target.closest?.('[data-tip]'); if (el && !el.contains(e.relatedTarget)) hideTip(); });
+document.addEventListener('keyup', (e) => { if (e.key === 'Tab') { const el = document.activeElement?.closest?.('[data-tip]'); if (el) showTip(el); } });
+document.addEventListener('focusout', (e) => { if (lastPointer !== 'touch' && e.target.closest?.('[data-tip]')) hideTip(); });
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-tip]');
+  if (el) {
+    if (lastPointer === 'mouse') showTip(el);
+    else if (el === tipTarget && !chartTip.hidden) hideTip();
+    else showTip(el);
+  } else if (!e.target.closest('.chart-tip')) hideTip();
+});
+window.addEventListener('scroll', hideTip, { passive: true });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); });
 
 /* ---------------------------- Listeneinträge ----------------------------- */
 
@@ -1172,8 +1270,9 @@ function renderProject(id, tab) {
       </div>
       <div class="btn-row">
         ${data.timer?.projectId === p.id
-          ? `<button class="btn primary" data-action="stopTimer">■ Timer stoppen</button>`
-          : `<button class="btn primary" data-action="startTimer" data-id="${p.id}">▶ Timer starten</button>`}
+          ? `<button class="btn primary" data-action="stopTimer">■ ${data.timer.mode === 'pomodoro' ? 'Pomodoro beenden' : 'Timer stoppen'}</button>`
+          : `<button class="btn primary" data-action="startPomodoro" data-id="${p.id}" title="${pomoCfg().work} Min Fokus, dann Pause">🍅 Pomodoro</button>
+             <button class="btn" data-action="startTimer" data-id="${p.id}" title="Stoppuhr ohne feste Dauer">▶ Stoppuhr</button>`}
         <button class="btn" data-action="addTime" data-id="${p.id}">+ Zeit</button>
         <button class="btn" data-action="editProject" data-id="${p.id}">Bearbeiten</button>
         <button class="btn danger" data-action="deleteProject" data-id="${p.id}">Löschen</button>
@@ -1501,7 +1600,36 @@ function renderWeeklyGoalSettings() {
     </form>`;
 }
 
-const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'erinnerungen', 'sicherung', 'sync'];
+const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'pomodoro', 'erinnerungen', 'sicherung', 'sync'];
+
+function renderPomodoroSettings() {
+  const st = data.settings, cfg = pomoCfg();
+  const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+  const permText = { granted: '✔ Mitteilungen sind erlaubt.', denied: '✖ Mitteilungen sind im Browser blockiert – du kannst sie in den Website-Einstellungen des Browsers wieder erlauben.',
+    default: 'Mitteilungen wurden noch nicht erlaubt.', unsupported: 'Dieser Browser unterstützt hier keine Mitteilungen. Auf dem iPhone/iPad funktionieren sie nur, wenn der Tracker über den Home-Bildschirm geöffnet wird.' }[perm];
+  return `
+    <p class="small muted">Arbeite in festen Fokus-Abschnitten mit Pausen dazwischen. Starte einen Pomodoro auf der Projektseite über <b>🍅 Pomodoro</b>.
+    Nach einer Pause startet der nächste Pomodoro erst auf Knopfdruck – so zählt nur echte Fokuszeit. Beim Beenden wird die gesammelte Fokuszeit als Zeiteintrag gespeichert.</p>
+    <form class="form" style="padding:0" data-form="pomodoro" novalidate>
+      <div class="row2">
+        <label>Fokus (Minuten)<input type="number" min="1" max="180" step="1" name="pomoWork" value="${cfg.work}"></label>
+        <label>Kurze Pause (Minuten)<input type="number" min="1" max="60" step="1" name="pomoShort" value="${cfg.short}"></label>
+      </div>
+      <div class="row2">
+        <label>Lange Pause (Minuten)<input type="number" min="1" max="120" step="1" name="pomoLong" value="${cfg.long}"></label>
+        <label>Lange Pause nach … Pomodoros<input type="number" min="1" max="12" step="1" name="pomoEvery" value="${cfg.every}"></label>
+      </div>
+      <label class="check-row"><input type="checkbox" name="pomoSound" ${st.pomoSound !== false ? 'checked' : ''}> Ton am Ende von Fokus und Pause</label>
+      <label class="check-row"><input type="checkbox" name="pomoNotify" ${st.pomoNotify !== false ? 'checked' : ''}> Mitteilung anzeigen, wenn der Tracker im Hintergrund ist</label>
+      <div class="hint">${permText}
+        ${perm === 'default' ? ' <button type="button" class="btn small" data-action="askNotify">Mitteilungen erlauben</button>' : ''}</div>
+      <div class="hint">Hinweis: Auf iPhone und iPad hält Safari Webseiten im Hintergrund an. Das Signal kommt dort, sobald du den Tracker wieder öffnest – die Zeit stimmt trotzdem.</div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-action="testChime">🔔 Ton testen</button>
+        <button class="btn primary" type="submit">Speichern</button>
+      </div>
+    </form>`;
+}
 
 function renderSyncGuide() {
   const svc = syncService();
@@ -1573,6 +1701,10 @@ function renderSettings() {
       </div>`)}
 
     ${settingsSection('wochenziel', '🎯', 'Wochenziel', weeklyGoalSummary(), renderWeeklyGoalSettings())}
+
+    ${settingsSection('pomodoro', '🍅', 'Pomodoro-Timer',
+      `${pomoCfg().work} Min Fokus · ${pomoCfg().short} / ${pomoCfg().long} Min Pause · lange Pause nach ${pomoCfg().every}`,
+      renderPomodoroSettings())}
 
     ${settingsSection('erinnerungen', '😴', 'Erinnerungen bei eingeschlafenen Projekten',
       `nach ${esc(set.staleDays)} Tagen · ${texts.length} ${texts.length === 1 ? 'Text' : 'Texte'}`,
@@ -1761,6 +1893,11 @@ const projectOptions = () => data.projects
 const actions = {
   newProject() { projectForm(); },
   customizeDashboard() { openDashboardEditor(); },
+  askNotify() {
+    if (!('Notification' in window)) return;
+    Notification.requestPermission().then(() => render()).catch(() => {});
+  },
+  testChime() { unlockAudio(); playChime(); if (data.settings.pomoSound === false) toast('Der Ton ist ausgeschaltet.'); },
   toggleAllSections() {
     const allOpen = SECTION_IDS.every((id) => openSections.has(id));
     openSections = new Set(allOpen ? [] : SECTION_IDS);
@@ -1870,8 +2007,48 @@ const actions = {
   stopTimer() {
     const t = data.timer;
     if (!t) return;
+    if (t.mode === 'pomodoro') {
+      const focus = pomoFocusMs(t);
+      const minutes = Math.max(1, Math.round(focus / 60000));
+      const title = t.count ? `${t.count} × Pomodoro` : 'Pomodoro';
+      return timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.start)), title,
+        description: t.count ? `${t.count} Pomodoro${t.count === 1 ? '' : 's'} à ${pomoCfg().work} Min` : '' }, { fromTimer: true });
+    }
     const minutes = Math.max(1, Math.round((Date.now() - t.start) / 60000));
     timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.start)) }, { fromTimer: true });
+  },
+  startPomodoro({ id }) {
+    if (data.timer && !confirm('Es läuft bereits ein Timer. Diesen verwerfen und einen Pomodoro starten?')) return;
+    unlockAudio();
+    requestNotifyPermission();
+    const now = Date.now();
+    data.timer = { projectId: id, start: now, mode: 'pomodoro', phase: 'work', phaseStart: now,
+      phaseEnd: now + pomoCfg().work * 60000, count: 0, focusMs: 0, pausedAt: null };
+    commit();
+    toast(`🍅 Pomodoro für „${getProject(id).name}“ – ${pomoCfg().work} Minuten volle Konzentration!`);
+  },
+  pomoPause() {
+    const t = data.timer;
+    if (!t || t.mode !== 'pomodoro' || t.phase === 'ready') return;
+    if (t.pausedAt) {
+      const delta = Date.now() - t.pausedAt;
+      t.phaseStart += delta; t.phaseEnd += delta; t.pausedAt = null;
+    } else t.pausedAt = Date.now();
+    save(); renderTimer(true);
+  },
+  pomoNext() {
+    const t = data.timer;
+    if (!t || t.mode !== 'pomodoro') return;
+    unlockAudio();
+    const now = Date.now();
+    if (t.phase === 'work') {
+      // Fokus vorzeitig beenden: bisherige Zeit zählt, dann Pause
+      t.focusMs += (t.pausedAt || now) - t.phaseStart;
+      startBreak(t, now, false);
+    } else {
+      Object.assign(t, { phase: 'work', phaseStart: now, phaseEnd: now + pomoCfg().work * 60000, pausedAt: null });
+    }
+    save(); renderTimer(true);
   },
   discardTimer() {
     if (!confirm('Laufenden Timer verwerfen?')) return;
@@ -2154,25 +2331,148 @@ function celebrateProject(p) {
    Timer-Anzeige, Toasts, Konfetti, Download
    ------------------------------------------------------------------------ */
 
-function renderTimer() {
+/* ---------------------------- Pomodoro ----------------------------------- */
+
+function pomoCfg() {
+  const st = data.settings;
+  const n = (v, d, max) => Math.min(max, Math.max(1, Math.round(Number(v) || d)));
+  return { work: n(st.pomoWork, 25, 180), short: n(st.pomoShort, 5, 60), long: n(st.pomoLong, 15, 120), every: n(st.pomoEvery, 4, 12) };
+}
+
+/** Gesammelte Fokuszeit inkl. des laufenden Fokus-Abschnitts. */
+function pomoFocusMs(t) {
+  const running = t.phase === 'work' ? Math.max(0, Math.min(t.pausedAt || Date.now(), t.phaseEnd) - t.phaseStart) : 0;
+  return (t.focusMs || 0) + running;
+}
+
+function startBreak(t, from, completed) {
+  const cfg = pomoCfg();
+  const long = completed && t.count > 0 && t.count % cfg.every === 0;
+  Object.assign(t, { phase: long ? 'long' : 'short', phaseStart: from, phaseEnd: from + (long ? cfg.long : cfg.short) * 60000, pausedAt: null });
+}
+
+/** Phasenwechsel anhand der Uhrzeit nachziehen (funktioniert auch nach längerer Abwesenheit). */
+function tickPomodoro() {
+  const t = data.timer;
+  if (!t || t.mode !== 'pomodoro' || t.pausedAt || t.phase === 'ready') return;
+  const now = Date.now();
+  let signalMsg = null;
+  while (t.phase !== 'ready' && now >= t.phaseEnd) {
+    if (t.phase === 'work') {
+      t.focusMs += t.phaseEnd - t.phaseStart;
+      t.count += 1;
+      startBreak(t, t.phaseEnd, true);
+      signalMsg = t.phase === 'long'
+        ? [`🍅 ${t.count} Pomodoros geschafft!`, `Zeit für eine lange Pause (${pomoCfg().long} Min).`]
+        : [`🍅 Pomodoro ${t.count} geschafft!`, `Kurze Pause (${pomoCfg().short} Min) – steh auf, trink etwas.`];
+    } else {
+      Object.assign(t, { phase: 'ready', phaseStart: null, phaseEnd: null });
+      signalMsg = ['☕ Pause vorbei', 'Bereit für den nächsten Pomodoro?'];
+    }
+  }
+  if (signalMsg) {
+    save();
+    renderTimer(true);
+    pomoSignal(...signalMsg);
+  }
+}
+
+let audioCtx = null;
+function unlockAudio() {
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch { /* kein Audio verfügbar */ }
+}
+function playChime() {
+  if (!audioCtx || data.settings.pomoSound === false) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    [880, 1175, 1568].forEach((f, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      const t0 = audioCtx.currentTime + i * 0.22;
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t0); o.stop(t0 + 0.55);
+    });
+  } catch { /* ignorieren */ }
+}
+function requestNotifyPermission() {
+  if (data.settings.pomoNotify === false || !('Notification' in window)) return;
+  if (Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+}
+function pomoSignal(title, body) {
+  playChime();
+  navigator.vibrate?.([200, 100, 200]);
+  toast(`${title} ${body}`);
+  if (data.settings.pomoNotify !== false && 'Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+    try { new Notification(title, { body, icon: 'icon-180.png', tag: 'pomodoro' }); } catch { /* ignorieren */ }
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Timer-Anzeige, Toasts, Konfetti, Download
+   ------------------------------------------------------------------------ */
+
+const fmtClock = (secs) => {
+  secs = Math.max(0, Math.round(secs));
+  const h = Math.floor(secs / 3600), m = Math.floor(secs / 60) % 60, s = secs % 60;
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+};
+
+function renderTimer(force = false) {
   const el = $('#timer-indicator');
   const t = data.timer;
-  if (!t || !getProject(t.projectId)) { el.hidden = true; return; }
-  const secs = Math.floor((Date.now() - t.start) / 1000);
-  const time = `${Math.floor(secs / 3600)}:${pad(Math.floor(secs / 60) % 60)}:${pad(secs % 60)}`;
+  if (!t || !getProject(t.projectId)) { el.hidden = true; el.dataset.key = ''; return; }
   const name = getProject(t.projectId).name;
-  if (el.hidden || el.dataset.pid !== t.projectId) {
-    el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small name">${esc(name)}</span><button class="btn small" data-action="stopTimer">■ Stopp</button>`;
-    el.dataset.pid = t.projectId;
+  const pomo = t.mode === 'pomodoro';
+  const key = [t.projectId, t.mode, t.phase, !!t.pausedAt].join('|');
+
+  if (force || el.hidden || el.dataset.key !== key) {
+    el.className = 'timer-indicator' + (pomo ? ` pomo pomo-${t.phase}${t.pausedAt ? ' paused' : ''}` : '');
+    if (!pomo) {
+      el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small name">${esc(name)}</span><button class="btn small" data-action="stopTimer">■ Stopp</button>`;
+    } else {
+      const label = { work: `🍅 Fokus #${t.count + 1}`, short: '☕ Pause', long: '🌴 Lange Pause', ready: '✅ Pause vorbei' }[t.phase];
+      const next = { work: ['⏭', 'Fokus beenden & Pause'], short: ['⏭', 'Pause überspringen'], long: ['⏭', 'Pause überspringen'], ready: ['▶ Weiter', 'Nächsten Pomodoro starten'] }[t.phase];
+      el.innerHTML = `<span class="pomo-label small">${label}</span><span class="t"></span><span class="small name">${esc(name)}</span>
+        ${t.phase === 'ready' ? '' : `<button class="btn small icon" data-action="pomoPause" title="${t.pausedAt ? 'Fortsetzen' : 'Pausieren'}">${t.pausedAt ? '▶' : '⏸'}</button>`}
+        <button class="btn small ${t.phase === 'ready' ? 'primary' : 'icon'}" data-action="pomoNext" title="${next[1]}">${next[0]}</button>
+        <button class="btn small icon" data-action="stopTimer" title="Beenden & Zeit speichern">■</button>
+        <span class="pomo-bar"><span></span></span>`;
+    }
+    el.dataset.key = key;
     el.hidden = false;
   }
-  el.querySelector('.t').textContent = time;
-  document.title = `⏱ ${time} · ${name}`;
+
+  let text, title;
+  if (!pomo) {
+    text = fmtClock((Date.now() - t.start) / 1000);
+    title = `⏱ ${text} · ${name}`;
+  } else if (t.phase === 'ready') {
+    text = `${t.count} 🍅`;
+    title = Math.floor(Date.now() / 1000) % 2 ? '✅ Pause vorbei!' : `🍅 ${name}`;
+  } else {
+    const now = t.pausedAt || Date.now();
+    const left = (t.phaseEnd - now) / 1000;
+    const total = (t.phaseEnd - t.phaseStart) / 1000;
+    text = fmtClock(left);
+    title = `${t.phase === 'work' ? '🍅' : '☕'} ${text}${t.pausedAt ? ' ⏸' : ''} · ${name}`;
+    el.querySelector('.pomo-bar > span').style.width = `${Math.min(100, (1 - left / total) * 100)}%`;
+  }
+  el.querySelector('.t').textContent = text;
+  document.title = title;
 }
 setInterval(() => {
+  tickPomodoro();
   if (data.timer) renderTimer();
   else if (document.title !== 'Projekttracker') document.title = 'Projekttracker';
 }, 1000);
+// Beim Zurückkehren zur App sofort nachziehen (Handy pausiert Timer im Hintergrund)
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { tickPomodoro(); if (data.timer) renderTimer(true); } });
 
 function toast(msg, type = '') {
   const el = document.createElement('div');
@@ -2220,7 +2520,7 @@ function demoData() {
   const M = (projectId, title, due, done) => { const id = uid(); d.milestones.push({ id, projectId, title, dueDate: due, done: !!done, doneAt: done || null, createdAt: '' }); return id; };
   const K = (projectId, title, priority, o = {}) => d.tasks.push({ id: uid(), projectId, title, priority, done: false, doneAt: null, createdAt: new Date().toISOString(), subtasks: [], ...o });
 
-  const shop = P({ name: 'Online-Shop für Holzdeko', status: 'aktiv', category: 'Nebenprojekt', color: '#f59e0b',
+  const shop = P({ name: 'Online-Shop für Holzdeko', status: 'aktiv', category: 'Nebenprojekt', color: '#eb6834',
     description: 'Eigene Holzarbeiten über einen kleinen Online-Shop verkaufen.',
     why: 'Ich möchte mir ein zweites Standbein aufbauen und mein Hobby zum Beruf machen.',
     goal: 'Shop ist online und die ersten 10 Bestellungen sind verschickt.', hourGoal: 80, weeklyHours: 4, budget: 600, targetDate: ahead(45) });
@@ -2243,7 +2543,7 @@ function demoData() {
   I(shop, 29, 5, 'Shop-Abo (Monat)', 'Software');
   I(shop, 140, 12, 'Holz & Lack', 'Material');
 
-  const app = P({ name: 'Fitness-App lernen', status: 'aktiv', category: 'Weiterbildung', color: '#6366f1',
+  const app = P({ name: 'Fitness-App lernen', status: 'aktiv', category: 'Weiterbildung', color: '#2a78d6',
     description: 'Programmieren lernen, indem ich eine eigene kleine Trainings-App baue.',
     why: 'Ich will verstehen, wie Apps funktionieren – und endlich meine eigenen Trainingsdaten auswerten.', hourGoal: 50, weeklyHours: 2 });
   M(app, 'Grundkurs abgeschlossen', ago(35), ago(33));
@@ -2253,12 +2553,12 @@ function demoData() {
   [[60, 21, 'Kurs Kapitel 6'], [45, 24, ''], [90, 30, ''], [60, 34, '']].forEach(([m, n, title]) => T(app, m, n, title));
   I(app, 19.99, 40, 'Online-Kurs', 'Weiterbildung');
 
-  const garden = P({ name: 'Hochbeet bauen', status: 'abgeschlossen', category: 'Haus & Garten', color: '#10b981', createdAt: ago(80) });
+  const garden = P({ name: 'Hochbeet bauen', status: 'abgeschlossen', category: 'Haus & Garten', color: '#008300', createdAt: ago(80) });
   M(garden, 'Hochbeet steht', ago(50), ago(50));
   T(garden, 240, 52, 'Aufbau'); T(garden, 120, 55, 'Material besorgt');
   I(garden, 185.5, 55, 'Lärchenholz & Schrauben', 'Material');
 
-  P({ name: 'Podcast starten', status: 'idee', category: 'Kreativ', color: '#ec4899', description: 'Gespräche mit Handwerkern aus der Region.' });
+  P({ name: 'Podcast starten', status: 'idee', category: 'Kreativ', color: '#e87ba4', description: 'Gespräche mit Handwerkern aus der Region.' });
 
   d.notes.push({ id: uid(), projectId: shop, date: ago(3), createdAt: '', text: 'Idee: Gutscheincode für die ersten Kunden anbieten.' });
   return d;
@@ -2296,6 +2596,22 @@ document.addEventListener('submit', (e) => {
   data.settings.weeklyHoursGoal = Math.max(0, Number(fd.get('weeklyHoursGoal')) || 0);
   commit();
   toast('Einstellungen gespeichert');
+});
+
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-form="pomodoro"]');
+  if (!form) return;
+  e.preventDefault();
+  const fd = new FormData(form);
+  Object.assign(data.settings, {
+    pomoWork: Number(fd.get('pomoWork')), pomoShort: Number(fd.get('pomoShort')),
+    pomoLong: Number(fd.get('pomoLong')), pomoEvery: Number(fd.get('pomoEvery')),
+    pomoSound: fd.get('pomoSound') === 'on', pomoNotify: fd.get('pomoNotify') === 'on',
+  });
+  Object.assign(data.settings, { pomoWork: pomoCfg().work, pomoShort: pomoCfg().short, pomoLong: pomoCfg().long, pomoEvery: pomoCfg().every });
+  if (data.settings.pomoNotify) requestNotifyPermission();
+  commit();
+  toast('Pomodoro-Einstellungen gespeichert');
 });
 
 document.addEventListener('submit', (e) => {
