@@ -9,7 +9,14 @@ const META_KEY = 'projekttracker.meta';
 
 const DEFAULT_DATA = {
   version: 1,
-  settings: { weeklyHoursGoal: 5, staleDays: 7 },
+  settings: {
+    weeklyHoursGoal: 5,
+    staleDays: 7,
+    reminderTexts: null, // null = Standardtexte (DEFAULT_REMINDERS)
+    reminderMinutes: 25,
+    reminderShowWhy: true,
+    reminderShowNext: true,
+  },
   projects: [],
   timeEntries: [],
   investments: [],
@@ -44,6 +51,23 @@ const QUOTES = [
   'Jede Stunde, die du investierst, bringt dich deinem Ziel näher.',
   'Konzentriere dich auf den nächsten Schritt, nicht auf den ganzen Berg.',
 ];
+// Standard-Erinnerungen für eingeschlafene Projekte – in den Einstellungen anpassbar.
+// Platzhalter: {projekt} {tage} {warum} {schritt} {ziel} {stunden}
+const DEFAULT_REMINDERS = [
+  '„{projekt}“ ruht seit {tage} Tagen.',
+  '„{projekt}“ vermisst dich – {tage} Tage ist es schon her.',
+  '{tage} Tage Pause bei „{projekt}“. Zeit für einen kleinen Schritt?',
+  'Weißt du noch, warum du „{projekt}“ angefangen hast?',
+];
+const PLACEHOLDERS = [
+  ['{projekt}', 'Name des Projekts'],
+  ['{tage}', 'Tage ohne Aktivität'],
+  ['{warum}', 'dein „Warum“'],
+  ['{schritt}', 'nächste offene Aufgabe'],
+  ['{ziel}', 'Ziel des Projekts'],
+  ['{stunden}', 'bisher investierte Zeit'],
+];
+
 const CHEERS = ['Stark! 💪', 'Erledigt! ✅', 'Weiter so! 🚀', 'Super gemacht! 🎉', 'Ein Schritt näher am Ziel! 🏁', 'Läuft bei dir! 🔥'];
 
 let data = load();
@@ -69,6 +93,12 @@ function normalize(d) {
   const out = structuredClone(DEFAULT_DATA);
   for (const k of Object.keys(out)) if (d && d[k] !== undefined) out[k] = d[k];
   out.settings = { ...DEFAULT_DATA.settings, ...((d && d.settings) || {}) };
+  // Ältere Zeiteinträge hatten nur eine Notiz -> wird zum Titel
+  out.timeEntries = (out.timeEntries || []).map((e) => {
+    if (e.title !== undefined) return e;
+    const { note, ...rest } = e;
+    return { ...rest, title: note || autoTimeTitle(e.date), autoTitle: !note, description: '' };
+  });
   return out;
 }
 
@@ -138,6 +168,15 @@ function startOfWeek(d) {
 function fmtDate(iso) {
   if (!iso) return '';
   return parseISO(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/** Automatischer Titel für Zeiteinträge ohne Titel, z. B. „Montag, 16.11.2026“. */
+function autoTimeTitle(iso) {
+  // bewusst ohne andere Helfer – wird schon beim Laden (Migration) aufgerufen
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/^(\p{L}+)\s*,?\s*/u, '$1, ');
 }
 
 function fmtRelative(iso) {
@@ -231,12 +270,66 @@ function lastActivity(p) {
   return last;
 }
 
+const staleDaysOf = (p) => Number(p.staleDays) || Number(data.settings.staleDays) || 7;
+
 function healthOf(p, idle) {
   if (p.status !== 'aktiv') return null;
-  const s = Number(data.settings.staleDays) || 7;
+  const s = staleDaysOf(p);
   if (idle < s) return 'gut';
   if (idle < s * 2) return 'warn';
   return 'kritisch';
+}
+
+/* ---------------------------- Erinnerungstexte -------------------------- */
+
+const splitLines = (t) => String(t || '').split('\n').map((l) => l.trim()).filter(Boolean);
+
+function reminderTemplates(p) {
+  const own = splitLines(p.reminderText);
+  if (own.length) return own;
+  const general = data.settings.reminderTexts;
+  return Array.isArray(general) && general.length ? general : DEFAULT_REMINDERS;
+}
+
+function fillReminder(tpl, p, s) {
+  const values = {
+    projekt: p.name, tage: s.idle, warum: p.why || '', schritt: s.next?.title || '',
+    ziel: p.goal || '', stunden: fmtHours(s.minutes),
+  };
+  return tpl
+    .replace(/\{(\w+)\}/g, (m, k) => (k.toLowerCase() in values ? String(values[k.toLowerCase()]) : m))
+    .replace(/„\s*“/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/** Wählt pro Projekt und Tag einen Text aus – bleibt also den ganzen Tag gleich und wechselt täglich. */
+function reminderFor(p, s) {
+  const list = reminderTemplates(p);
+  let h = 0;
+  for (const c of p.id + todayISO()) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const tpl = list[h % list.length];
+  return { tpl, text: fillReminder(tpl, p, s) };
+}
+
+function staleBanner(p, s, { withOpen = true } = {}) {
+  const set = data.settings;
+  const { tpl, text } = reminderFor(p, s);
+  const min = Number(set.reminderMinutes) || 25;
+  const showWhy = set.reminderShowWhy !== false && p.why && !/\{warum\}/i.test(tpl);
+  const showNext = set.reminderShowNext !== false && !/\{schritt\}/i.test(tpl);
+  return `<div class="banner warn">
+      <div class="emoji">😴</div>
+      <div class="text">
+        <strong>${esc(text)}</strong>
+        ${showWhy ? `<div class="why">Dein Warum: „${esc(p.why)}“</div>` : ''}
+        ${showNext ? `<div>${s.next ? `Kleinster nächster Schritt: <b>${esc(s.next.title)}</b>` : 'Lege einen kleinen, konkreten nächsten Schritt fest.'}</div>` : ''}
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" data-action="startTimer" data-id="${p.id}">▶ Nur ${min} Minuten</button>
+        ${withOpen ? `<a class="btn" href="#/projekt/${p.id}">Öffnen</a>` : ''}
+      </div>
+    </div>`;
 }
 
 function projectStats(p) {
@@ -319,7 +412,7 @@ function renderBackupBar() {
     bar.className = 'backup-bar info';
     bar.innerHTML = `<div class="container">
       <span>🔄 Du hast den Tracker auf diesem Gerät zuletzt <b>${esc(fmtDateTime(previousOpen))}</b> geöffnet.
-      Hast du seitdem auf einem anderen Gerät gearbeitet? Dann importiere zuerst die neueste Sicherung aus iCloud Drive.</span>
+      Hast du seitdem auf einem anderen Gerät gearbeitet?<span class="long"> Dann importiere zuerst die neueste Sicherung aus iCloud Drive.</span></span>
       <span class="btn-row">
         <button class="btn primary small" data-action="importData">⬆ Sicherung importieren</button>
         <button class="btn small" data-action="dismissSyncHint">Nein, weiter</button>
@@ -328,7 +421,7 @@ function renderBackupBar() {
   } else if (dirty) {
     bar.className = 'backup-bar warn';
     bar.innerHTML = `<div class="container">
-      <span>💾 <b>Ungesicherte Änderungen.</b> Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))}. Exportiere vor dem Schließen, damit deine anderen Geräte aktuell bleiben.</span>
+      <span>💾 <b>Ungesicherte Änderungen.</b> Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))}.<span class="long"> Exportiere vor dem Schließen, damit deine anderen Geräte aktuell bleiben.</span></span>
       <span class="btn-row"><button class="btn primary small" data-action="exportData">⬇ Jetzt sichern</button></span></div>`;
     bar.hidden = false;
   } else {
@@ -442,9 +535,10 @@ function renderDashboard() {
               <span class="dot-color" style="background:${esc(p.color)}"></span>
               <div class="grow">
                 <div class="title"><a href="#/projekt/${p.id}">${esc(p.name)}</a></div>
+                <div class="small why">${esc(reminderFor(p, s).text)}</div>
                 <div class="meta">${healthBadge(s)}${s.next ? `<span>Nächster Schritt: ${esc(s.next.title)}</span>` : ''}</div>
               </div>
-              <button class="btn small" data-action="startTimer" data-id="${p.id}">▶ 25 Min</button>
+              <button class="btn small" data-action="startTimer" data-id="${p.id}">▶ ${Number(data.settings.reminderMinutes) || 25} Min</button>
             </li>`).join('')}</ul>`
             : '<div class="empty">Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉</div>'}
         </section>
@@ -496,21 +590,7 @@ function renderDashboard() {
 
 function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
   const critical = stale.find((x) => x.s.health === 'kritisch');
-  if (critical) {
-    const { p, s } = critical;
-    return `<div class="banner warn">
-      <div class="emoji">😴</div>
-      <div class="text">
-        <strong>„${esc(p.name)}“ ruht seit ${s.idle} Tagen.</strong>
-        ${p.why ? `<div class="why">Dein Warum: „${esc(p.why)}“</div>` : ''}
-        <div>${s.next ? `Kleinster nächster Schritt: <b>${esc(s.next.title)}</b>` : 'Lege einen kleinen, konkreten nächsten Schritt fest.'}</div>
-      </div>
-      <div class="btn-row">
-        <button class="btn primary" data-action="startTimer" data-id="${p.id}">▶ Nur 25 Minuten</button>
-        <a class="btn" href="#/projekt/${p.id}">Öffnen</a>
-      </div>
-    </div>`;
-  }
+  if (critical) return staleBanner(critical.p, critical.s);
   if (goalMin && thisWeek >= goalMin) {
     return `<div class="banner good"><div class="emoji">🏆</div><div class="text"><strong>Wochenziel erreicht!</strong>${fmtHours(thisWeek)} investiert – richtig stark. Alles darüber ist Bonus.</div></div>`;
   }
@@ -704,6 +784,7 @@ function projectOverview(p, s) {
   const recent = recentActivity(p.id).slice(0, 8);
 
   return `
+    ${s.health === 'warn' || s.health === 'kritisch' ? staleBanner(p, s, { withOpen: false }) : ''}
     ${p.why || p.goal ? `<div class="card" style="margin-bottom:16px">
       ${p.why ? `<h3>💭 Warum ist mir das wichtig?</h3><p class="why" style="font-size:1rem">„${esc(p.why)}“</p>` : ''}
       ${p.goal ? `<h3>🎯 Ziel / Wann ist es fertig?</h3><p>${esc(p.goal)}</p>` : ''}
@@ -744,7 +825,7 @@ function projectOverview(p, s) {
 
 function recentActivity(pid) {
   const out = [];
-  data.timeEntries.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '⏱', text: `${fmtDuration(e.minutes)}${e.note ? ' – ' + e.note : ''}` }));
+  data.timeEntries.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '⏱', text: `${fmtDuration(e.minutes)} – ${e.title || autoTimeTitle(e.date)}` }));
   data.investments.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '💶', text: `${fmtEUR(e.amount)} – ${e.description}` }));
   data.tasks.filter((t) => t.projectId === pid && t.done).forEach((t) => out.push({ date: t.doneAt, icon: '✅', text: t.title }));
   data.milestones.filter((m) => m.projectId === pid && m.done).forEach((m) => out.push({ date: m.doneAt, icon: '🏁', text: `Meilenstein erreicht: ${m.title}` }));
@@ -780,8 +861,11 @@ function projectTime(p) {
     <div class="card-head"><h2>Zeiteinträge · ${fmtHours(total)}</h2><button class="btn primary small" data-action="addTime" data-id="${p.id}">+ Zeit</button></div>
     ${entries.length ? `<ul class="list">${entries.map((e) => `
       <li>
-        <div class="grow"><div class="title">${esc(e.note || 'Ohne Beschreibung')}</div><div class="meta">${fmtDate(e.date)}</div></div>
-        <span class="amount">${fmtDuration(e.minutes)}</span>
+        <div class="grow">
+          <div class="title">${esc(e.title || autoTimeTitle(e.date))}</div>
+          <div class="meta"><span class="amount">⏱ ${fmtDuration(e.minutes)}</span>${e.autoTitle ? '' : `<span>${esc(autoTimeTitle(e.date))}</span>`}</div>
+          ${e.description ? `<div class="entry-desc">${esc(e.description)}</div>` : ''}
+        </div>
         <div class="actions">
           <button class="btn ghost icon" data-action="editTime" data-id="${e.id}" title="Bearbeiten">✎</button>
           <button class="btn ghost icon danger" data-action="deleteTime" data-id="${e.id}" title="Löschen">🗑</button>
@@ -835,20 +919,92 @@ function projectNotes(p) {
 
 /* ---------------------------- Einstellungen ------------------------------ */
 
+function renderReminderSettings() {
+  const set = data.settings;
+  const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : DEFAULT_REMINDERS;
+  return `<section class="card">
+    <h2>😴 Erinnerungen bei eingeschlafenen Projekten</h2>
+    <p class="small muted">Diese Hinweise erscheinen auf der Übersicht und im Projekt, wenn ein aktives Projekt zu lange ruht.
+    Pro Projekt kannst du unter <i>Bearbeiten</i> zusätzlich einen eigenen Text und eine eigene Anzahl Tage festlegen.</p>
+    <div class="grid-2">
+      <form class="form" style="padding:0" data-form="reminders">
+        <label>Projekt gilt als „eingeschlafen“ nach … Tagen ohne Aktivität
+          <input type="number" min="1" step="1" name="staleDays" value="${esc(set.staleDays)}">
+          <span class="hint">Ab dem doppelten Wert wird das Projekt rot markiert und oben auf der Übersicht angezeigt.</span>
+        </label>
+        <label>Deine Erinnerungstexte – ein Text pro Zeile
+          <textarea name="reminderTexts" rows="6">${esc(texts.join('\n'))}</textarea>
+          <span class="hint">Bei mehreren Texten wechselt die Erinnerung jeden Tag.</span>
+        </label>
+        <div class="placeholders">
+          <span class="hint">Platzhalter antippen zum Einfügen:</span>
+          ${PLACEHOLDERS.map(([k, d]) => `<button type="button" class="chip" data-insert="${k}" title="${esc(d)}">${k} <span class="muted">${esc(d)}</span></button>`).join('')}
+        </div>
+        <label class="check-row"><input type="checkbox" name="reminderShowWhy" ${set.reminderShowWhy !== false ? 'checked' : ''}> Mein „Warum“ unter der Erinnerung anzeigen</label>
+        <label class="check-row"><input type="checkbox" name="reminderShowNext" ${set.reminderShowNext !== false ? 'checked' : ''}> Nächsten Schritt anzeigen</label>
+        <label>Minuten im Knopf „Nur … Minuten“
+          <input type="number" min="1" max="240" step="1" name="reminderMinutes" value="${esc(set.reminderMinutes || 25)}">
+        </label>
+        <div class="form-actions">
+          <button type="button" class="btn" data-action="resetReminders">Standardtexte</button>
+          <button class="btn primary" type="submit">Speichern</button>
+        </div>
+      </form>
+      <div>
+        <h3>Vorschau</h3>
+        <div id="reminder-preview">${reminderPreview(texts, set)}</div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function previewProject() {
+  const active = data.projects.filter((p) => p.status === 'aktiv').map((p) => ({ p, s: projectStats(p) }));
+  active.sort((a, b) => b.s.idle - a.s.idle);
+  if (active.length) return { ...active[0], s: { ...active[0].s, idle: Math.max(active[0].s.idle, 14) } };
+  return { p: { id: 'preview', name: 'Mein Projekt', why: 'Weil es mir Freude macht.', goal: 'Fertig und veröffentlicht' },
+    s: { idle: 14, minutes: 600, next: { title: 'Erste Skizze machen' } } };
+}
+
+function reminderPreview(texts, set) {
+  const { p, s } = previewProject();
+  const min = Number(set.reminderMinutes) || 25;
+  const lines = texts.length ? texts : DEFAULT_REMINDERS;
+  return `<p class="small muted">Beispiel mit „${esc(p.name)}“ nach ${s.idle} Tagen:</p>
+    <ul class="list">${lines.map((tpl) => {
+      const showWhy = set.reminderShowWhy !== false && p.why && !/\{warum\}/i.test(tpl);
+      const showNext = set.reminderShowNext !== false && !/\{schritt\}/i.test(tpl);
+      return `<li><div class="grow">
+        <div class="title">😴 ${esc(fillReminder(tpl, p, s))}</div>
+        ${showWhy ? `<div class="small why">Dein Warum: „${esc(p.why)}“</div>` : ''}
+        ${showNext && s.next ? `<div class="small muted">Kleinster nächster Schritt: ${esc(s.next.title)}</div>` : ''}
+      </div></li>`;
+    }).join('')}</ul>
+    <p class="small muted">Knopf: <span class="badge">▶ Nur ${min} Minuten</span></p>`;
+}
+
+function readReminderForm(form) {
+  const fd = new FormData(form);
+  return {
+    staleDays: Math.max(1, Math.round(Number(fd.get('staleDays')) || 7)),
+    reminderTexts: splitLines(fd.get('reminderTexts')),
+    reminderShowWhy: fd.get('reminderShowWhy') === 'on',
+    reminderShowNext: fd.get('reminderShowNext') === 'on',
+    reminderMinutes: Math.min(240, Math.max(1, Math.round(Number(fd.get('reminderMinutes')) || 25))),
+  };
+}
+
 function renderSettings() {
   const size = new Blob([JSON.stringify(data)]).size;
   return `
-    <div class="page-head"><div><h1>Einstellungen</h1><p>Ziele, Datensicherung und Import</p></div></div>
-    <div class="grid-2">
+    <div class="page-head"><div><h1>Einstellungen</h1><p>Ziele, Erinnerungen, Datensicherung und Import</p></div></div>
+    ${renderReminderSettings()}
+    <div class="grid-2" style="margin-top:16px">
       <section class="card">
-        <h2>Ziele & Erinnerungen</h2>
+        <h2>🎯 Wochenziel</h2>
         <form class="form" style="padding:0" data-form="settings">
           <label>Wochenziel (Stunden für alle Projekte)
             <input type="number" min="0" step="0.5" name="weeklyHoursGoal" value="${esc(data.settings.weeklyHoursGoal)}">
-          </label>
-          <label>Projekt gilt als „eingeschlafen“ nach … Tagen ohne Aktivität
-            <input type="number" min="1" step="1" name="staleDays" value="${esc(data.settings.staleDays)}">
-            <span class="hint">Ab dem doppelten Wert wird das Projekt rot markiert und im Motivationsbanner angezeigt.</span>
           </label>
           <div class="form-actions"><button class="btn primary" type="submit">Speichern</button></div>
         </form>
@@ -970,12 +1126,31 @@ function openForm({ title, fields, submitLabel = 'Speichern', onSubmit }) {
     const err = onSubmit(values);
     if (err) return showError(err);
     dlg.close();
+    unlockScroll();
   });
   const showError = (msg) => { form.querySelector('.form-error').textContent = msg; };
-  form.querySelector('[data-close]').addEventListener('click', () => dlg.close());
+  form.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
+  lockScroll();
   dlg.showModal();
-  form.querySelector('input,textarea,select')?.focus();
+  // Auf Touch-Geräten nicht automatisch fokussieren – sonst springt die Tastatur auf und verschiebt die Ansicht.
+  if (!matchMedia('(hover: none)').matches) form.querySelector('input,textarea,select')?.focus();
+  else form.scrollTop = 0;
 }
+
+let lockedScrollY = 0;
+function lockScroll() {
+  if (document.documentElement.classList.contains('modal-open')) return;
+  lockedScrollY = window.scrollY;
+  document.body.style.top = `-${lockedScrollY}px`;
+  document.documentElement.classList.add('modal-open');
+}
+function unlockScroll() {
+  if (!document.documentElement.classList.contains('modal-open')) return;
+  document.documentElement.classList.remove('modal-open');
+  document.body.style.top = '';
+  window.scrollTo(0, lockedScrollY);
+}
+$('#modal').addEventListener('close', unlockScroll);
 
 const projectOptions = () => data.projects
   .filter((p) => p.status !== 'abgeschlossen')
@@ -1097,6 +1272,13 @@ const actions = {
     render();
     toast('Sicherung exportiert ✔ – lege die Datei in iCloud Drive ab.');
   },
+  resetReminders() {
+    const ta = document.querySelector('[data-form="reminders"] textarea[name="reminderTexts"]');
+    if (!ta) return;
+    ta.value = DEFAULT_REMINDERS.join('\n');
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    toast('Standardtexte eingesetzt – zum Übernehmen „Speichern“ tippen.');
+  },
   dismissSyncHint() {
     syncHintDismissed = true;
     renderBackupBar();
@@ -1104,9 +1286,9 @@ const actions = {
   exportCsv() {
     const q = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
     const name = (pid) => getProject(pid)?.name || '';
-    const rows = [['Typ', 'Datum', 'Projekt', 'Beschreibung', 'Kategorie', 'Minuten', 'Stunden', 'Betrag (EUR)'].map(q).join(';')];
-    data.timeEntries.forEach((e) => rows.push(['Zeit', e.date, name(e.projectId), e.note, '', e.minutes, (e.minutes / 60).toFixed(2).replace('.', ','), ''].map(q).join(';')));
-    data.investments.forEach((e) => rows.push(['Investition', e.date, name(e.projectId), e.description, e.category, '', '', String(e.amount.toFixed(2)).replace('.', ',')].map(q).join(';')));
+    const rows = [['Typ', 'Datum', 'Projekt', 'Titel', 'Beschreibung', 'Kategorie', 'Minuten', 'Stunden', 'Betrag (EUR)'].map(q).join(';')];
+    data.timeEntries.forEach((e) => rows.push(['Zeit', e.date, name(e.projectId), e.title, e.description, '', e.minutes, (e.minutes / 60).toFixed(2).replace('.', ','), ''].map(q).join(';')));
+    data.investments.forEach((e) => rows.push(['Investition', e.date, name(e.projectId), e.description, '', e.category, '', '', String(e.amount.toFixed(2)).replace('.', ',')].map(q).join(';')));
     download(`projekttracker-${todayISO()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv');
   },
   importData() {
@@ -1173,6 +1355,11 @@ function projectForm(p) {
       { name: 'category', label: 'Kategorie', value: p.category, list: cats, placeholder: 'z. B. Beruf, Hobby', half: true },
       { name: 'why', label: 'Warum ist mir dieses Projekt wichtig?', type: 'textarea', value: p.why, hint: 'Wird dir angezeigt, wenn das Projekt einzuschlafen droht.' },
       { name: 'goal', label: 'Ziel – wann ist das Projekt fertig?', type: 'textarea', value: p.goal },
+      { name: 'reminderText', label: 'Eigene Erinnerung, wenn das Projekt einschläft', type: 'textarea', value: p.reminderText,
+        placeholder: 'z. B. {tage} Tage ohne „{projekt}“? Deine Kunden warten!',
+        hint: 'Leer = allgemeine Texte aus den Einstellungen. Platzhalter: {projekt}, {tage}, {warum}, {schritt}, {ziel}, {stunden}. Mehrere Zeilen = wechselt täglich.' },
+      { name: 'staleDays', label: 'Erinnern nach … Tagen ohne Aktivität', type: 'number', value: p.staleDays,
+        placeholder: `Standard: ${data.settings.staleDays}`, hint: 'Leer = Standard aus den Einstellungen.' },
       { name: 'hourGoal', label: 'Geplante Zeit (Std)', type: 'number', value: p.hourGoal, half: true },
       { name: 'budget', label: 'Budget (€)', type: 'decimal', value: p.budget != null ? String(p.budget).replace('.', ',') : '', half: true },
       { name: 'targetDate', label: 'Zieltermin', type: 'date', value: p.targetDate, half: true },
@@ -1252,10 +1439,15 @@ function timeForm(e, { fromTimer = false } = {}) {
       { name: 'projectId', label: 'Projekt', type: 'select', options: opts, value: e.projectId },
       { name: 'date', label: 'Datum', type: 'date', value: e.date || todayISO(), required: true, half: true },
       { name: 'minutes', label: 'Dauer', type: 'duration', required: true, value: e.minutes ? `${Math.floor(e.minutes / 60)}:${pad(e.minutes % 60)}` : '', placeholder: '1:30', hint: 'z. B. 1:30, 1,5 oder 45 min', half: true },
-      { name: 'note', label: 'Was hast du gemacht?', value: e.note },
+      { name: 'title', label: 'Titel', value: e.autoTitle ? '' : e.title,
+        placeholder: autoTimeTitle(e.date || todayISO()), hint: 'Leer lassen = Wochentag und Datum werden als Titel verwendet.' },
+      { name: 'description', label: 'Beschreibung', type: 'textarea', value: e.description,
+        placeholder: 'Was hast du gemacht? Details, Ergebnisse, offene Punkte …' },
     ],
     submitLabel: 'Speichern',
     onSubmit(v) {
+      v.autoTitle = !v.title;
+      if (v.autoTitle) v.title = autoTimeTitle(v.date);
       if (isNew) data.timeEntries.push({ id: uid(), ...v });
       else Object.assign(e, v);
       if (fromTimer) data.timer = null;
@@ -1263,6 +1455,9 @@ function timeForm(e, { fromTimer = false } = {}) {
       if (isNew) toast(`⏱ ${fmtDuration(v.minutes)} gespeichert. ${pick(CHEERS)}`);
     },
   });
+  // Platzhalter des Titels folgt dem gewählten Datum
+  const dateInput = $('#f_date'), titleInput = $('#f_title');
+  dateInput.addEventListener('input', () => { titleInput.placeholder = autoTimeTitle(dateInput.value); });
   if (fromTimer) {
     const actionsEl = $('#modal .form-actions');
     actionsEl.insertAdjacentHTML('afterbegin', '<button type="button" class="btn danger" data-action="discardTimer" style="margin-right:auto">Verwerfen</button>');
@@ -1322,7 +1517,7 @@ function renderTimer() {
   const time = `${Math.floor(secs / 3600)}:${pad(Math.floor(secs / 60) % 60)}:${pad(secs % 60)}`;
   const name = getProject(t.projectId).name;
   if (el.hidden || el.dataset.pid !== t.projectId) {
-    el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span><button class="btn small" data-action="stopTimer">■ Stopp</button>`;
+    el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small name">${esc(name)}</span><button class="btn small" data-action="stopTimer">■ Stopp</button>`;
     el.dataset.pid = t.projectId;
     el.hidden = false;
   }
@@ -1374,7 +1569,8 @@ function demoData() {
   const ago = (n) => toISO(addDays(new Date(), -n));
   const ahead = (n) => toISO(addDays(new Date(), n));
   const P = (o) => { const p = { id: uid(), createdAt: ago(60), ...o }; d.projects.push(p); return p.id; };
-  const T = (projectId, minutes, n, note) => d.timeEntries.push({ id: uid(), projectId, minutes, date: ago(n), note });
+  const T = (projectId, minutes, n, title, description = '') => d.timeEntries.push({
+    id: uid(), projectId, minutes, date: ago(n), title: title || autoTimeTitle(ago(n)), autoTitle: !title, description });
   const I = (projectId, amount, n, description, category) => d.investments.push({ id: uid(), projectId, amount, date: ago(n), description, category });
   const M = (projectId, title, due, done) => { const id = uid(); d.milestones.push({ id, projectId, title, dueDate: due, done: !!done, doneAt: done || null, createdAt: '' }); return id; };
   const K = (projectId, title, priority, o = {}) => d.tasks.push({ id: uid(), projectId, title, priority, done: false, doneAt: null, createdAt: new Date().toISOString(), ...o });
@@ -1392,7 +1588,8 @@ function demoData() {
   K(shop, 'Instagram-Account anlegen', 'niedrig');
   K(shop, 'Fotostudio aufbauen', 'mittel', { milestoneId: m1, done: true, doneAt: ago(25) });
   [[90, 1, 'Shop-Theme angepasst'], [60, 2, 'Produkte angelegt'], [45, 4, ''], [120, 6, 'Fotos bearbeitet'], [30, 9, ''], [150, 13, 'Fotoshooting'], [60, 16, ''], [90, 20, ''], [45, 27, 'Recherche Shopsysteme']]
-    .forEach(([m, n, note]) => T(shop, m, n, note));
+    .forEach(([m, n, title]) => T(shop, m, n, title));
+  T(shop, 75, 0, 'Zahlungsanbieter eingerichtet', 'PayPal und Kreditkarte verbunden.\nTestbestellung erfolgreich – Rückerstattung muss noch geprüft werden.');
   I(shop, 89, 30, 'Fotolicht-Set', 'Hardware');
   I(shop, 29, 5, 'Shop-Abo (Monat)', 'Software');
   I(shop, 140, 12, 'Holz & Lack', 'Material');
@@ -1404,7 +1601,7 @@ function demoData() {
   M(app, 'Erste Version auf dem Handy', ahead(20));
   K(app, 'Kapitel 7 (Datenbanken) durcharbeiten', 'mittel');
   K(app, 'Datenmodell für Workouts skizzieren', 'hoch');
-  [[60, 21, 'Kurs Kapitel 6'], [45, 24, ''], [90, 30, ''], [60, 34, '']].forEach(([m, n, note]) => T(app, m, n, note));
+  [[60, 21, 'Kurs Kapitel 6'], [45, 24, ''], [90, 30, ''], [60, 34, '']].forEach(([m, n, title]) => T(app, m, n, title));
   I(app, 19.99, 40, 'Online-Kurs', 'Weiterbildung');
 
   const garden = P({ name: 'Hochbeet bauen', status: 'abgeschlossen', category: 'Haus & Garten', color: '#10b981', createdAt: ago(80) });
@@ -1448,9 +1645,39 @@ document.addEventListener('submit', (e) => {
   e.preventDefault();
   const fd = new FormData(form);
   data.settings.weeklyHoursGoal = Math.max(0, Number(fd.get('weeklyHoursGoal')) || 0);
-  data.settings.staleDays = Math.max(1, Math.round(Number(fd.get('staleDays')) || 7));
   commit();
   toast('Einstellungen gespeichert');
+});
+
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-form="reminders"]');
+  if (!form) return;
+  e.preventDefault();
+  const v = readReminderForm(form);
+  if (!v.reminderTexts.length) v.reminderTexts = null; // leer = Standardtexte
+  Object.assign(data.settings, v);
+  commit();
+  toast('Erinnerungen gespeichert');
+});
+
+// Live-Vorschau der Erinnerungstexte
+document.addEventListener('input', (e) => {
+  const form = e.target.closest('[data-form="reminders"]');
+  if (!form) return;
+  const v = readReminderForm(form);
+  $('#reminder-preview').innerHTML = reminderPreview(v.reminderTexts, v);
+});
+
+// Platzhalter an der Cursorposition einfügen
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-insert]');
+  if (!chip) return;
+  const ta = chip.closest('form').querySelector('textarea[name="reminderTexts"]');
+  const start = ta.selectionStart ?? ta.value.length, end = ta.selectionEnd ?? ta.value.length;
+  ta.value = ta.value.slice(0, start) + chip.dataset.insert + ta.value.slice(end);
+  ta.focus();
+  ta.selectionStart = ta.selectionEnd = start + chip.dataset.insert.length;
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
 });
 
 // Änderungen aus einem anderen Tab übernehmen
