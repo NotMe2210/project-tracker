@@ -323,10 +323,75 @@ dialog::backdrop { background: rgba(15, 18, 24, .5); }
 .welcome p { color: var(--muted); max-width: 520px; margin: 0 auto 20px; }
 .welcome .btn-row { justify-content: center; }
 
+/* ---------- Robustheit für schmale Bildschirme & iOS ---------- */
+html { -webkit-text-size-adjust: 100%; }
+body { overflow-x: clip; }
+.nav .ico { display: none; }
+.topbar-actions { min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.timer-indicator { min-width: 0; }
+.timer-indicator .name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.form .row2 > * { min-width: 0; }
+.form input, .form select, .form textarea { min-width: 0; max-width: 100%; }
+/* iOS: Datumsfelder sonst breiter als ihre Spalte und ohne Höhe, wenn leer */
+.form input[type=date] { -webkit-appearance: none; appearance: none; min-height: 40px; display: block; text-align: left; }
+.form input[type=date]::-webkit-date-and-time-value { text-align: left; }
+dialog { max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); }
+.form { max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); }
+
+/* Touch-Geräte: Aktionen immer sichtbar und groß genug zum Tippen */
+@media (hover: none) {
+  .list .actions { opacity: 1; }
+  .btn.icon { min-width: 40px; min-height: 40px; }
+  .check { width: 28px; height: 28px; }
+}
+
 @media (max-width: 640px) {
-  .topbar { gap: 8px; }
-  .brand span { display: none; }
-  .nav a { padding: 6px 8px; }
+  /* iOS zoomt bei Schrift < 16px in Eingabefelder hinein – das verschiebt die Seite */
+  .form input, .form select, .form textarea, .inline-select { font-size: 16px; }
+
+  .container { padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); }
+  .topbar {
+    gap: 8px; flex-wrap: nowrap;
+    padding: calc(8px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+  }
+  .brand { flex: 1; min-width: 0; }
+  .brand span { display: inline; }
+  .topbar-actions { flex-wrap: nowrap; }
+  .backup-btn span { display: none; }
+
+  /* Navigation als Leiste unten – mit dem Daumen erreichbar */
+  .nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom));
+  }
+  .nav a { display: flex; flex-direction: column; align-items: center; gap: 0; padding: 6px 4px; font-size: .75rem; }
+  .nav .ico { display: block; font-size: 1.25rem; line-height: 1.2; }
+
+  /* Laufender Timer: eigene Zeile unter der Kopfleiste statt die Leiste zu sprengen */
+  .timer-indicator { position: fixed; left: 12px; right: 12px; bottom: calc(72px + env(safe-area-inset-bottom)); z-index: 15; justify-content: space-between; box-shadow: var(--shadow); border: 1px solid var(--good); background: var(--surface); }
+  .timer-indicator .name { flex: 1; max-width: none; }
+
+  .toasts { left: 16px; right: 16px; bottom: auto; top: calc(64px + env(safe-area-inset-top)); }
+  .backup-bar .long { display: none; }
+  .toast { max-width: none; }
+
+  .page-head { margin-bottom: 14px; }
+  .page-head .btn-row .btn { flex: 1 1 auto; }
+  h1 { font-size: 1.35rem; }
   .form .row2 { grid-template-columns: 1fr; }
   .stat .value { font-size: 1.25rem; }
+  .card { padding: 14px; }
+  .project-grid { grid-template-columns: 1fr; }
+  .banner { padding: 14px; }
+  .banner .btn-row { width: 100%; }
+  .banner .btn-row .btn { flex: 1; }
+  .list .meta { gap: 4px 8px; }
+  .backup-bar .container { padding-top: 8px; padding-bottom: 8px; }
+  .backup-bar .btn-row { width: 100%; }
+  .backup-bar .btn-row .btn { flex: 1; }
+  .form { padding: 16px; }
+  .form-actions { position: sticky; bottom: -16px; background: var(--surface); padding: 12px 0 4px; margin-bottom: -4px; }
+  .form-actions .btn { flex: 1; }
 }

@@ -319,7 +319,7 @@ function renderBackupBar() {
     bar.className = 'backup-bar info';
     bar.innerHTML = `<div class="container">
       <span>🔄 Du hast den Tracker auf diesem Gerät zuletzt <b>${esc(fmtDateTime(previousOpen))}</b> geöffnet.
-      Hast du seitdem auf einem anderen Gerät gearbeitet? Dann importiere zuerst die neueste Sicherung aus iCloud Drive.</span>
+      Hast du seitdem auf einem anderen Gerät gearbeitet?<span class="long"> Dann importiere zuerst die neueste Sicherung aus iCloud Drive.</span></span>
       <span class="btn-row">
         <button class="btn primary small" data-action="importData">⬆ Sicherung importieren</button>
         <button class="btn small" data-action="dismissSyncHint">Nein, weiter</button>
@@ -328,7 +328,7 @@ function renderBackupBar() {
   } else if (dirty) {
     bar.className = 'backup-bar warn';
     bar.innerHTML = `<div class="container">
-      <span>💾 <b>Ungesicherte Änderungen.</b> Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))}. Exportiere vor dem Schließen, damit deine anderen Geräte aktuell bleiben.</span>
+      <span>💾 <b>Ungesicherte Änderungen.</b> Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))}.<span class="long"> Exportiere vor dem Schließen, damit deine anderen Geräte aktuell bleiben.</span></span>
       <span class="btn-row"><button class="btn primary small" data-action="exportData">⬇ Jetzt sichern</button></span></div>`;
     bar.hidden = false;
   } else {
@@ -1322,7 +1322,7 @@ function renderTimer() {
   const time = `${Math.floor(secs / 3600)}:${pad(Math.floor(secs / 60) % 60)}:${pad(secs % 60)}`;
   const name = getProject(t.projectId).name;
   if (el.hidden || el.dataset.pid !== t.projectId) {
-    el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</span><button class="btn small" data-action="stopTimer">■ Stopp</button>`;
+    el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small name">${esc(name)}</span><button class="btn small" data-action="stopTimer">■ Stopp</button>`;
     el.dataset.pid = t.projectId;
     el.hidden = false;
   }
