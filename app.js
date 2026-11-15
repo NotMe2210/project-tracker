@@ -16,6 +16,8 @@ const DEFAULT_DATA = {
     reminderMinutes: 25,
     reminderShowWhy: true,
     reminderShowNext: true,
+    theme: 'system', // 'system' | 'light' | 'dark'
+    accent: '#4f46e5',
   },
   projects: [],
   timeEntries: [],
@@ -67,6 +69,13 @@ const PLACEHOLDERS = [
   ['{ziel}', 'Ziel des Projekts'],
   ['{stunden}', 'bisher investierte Zeit'],
 ];
+
+const ACCENTS = [
+  ['#4f46e5', 'Indigo'], ['#2563eb', 'Blau'], ['#0891b2', 'Cyan'], ['#0d9488', 'Türkis'],
+  ['#16a34a', 'Grün'], ['#ca8a04', 'Gold'], ['#ea580c', 'Orange'], ['#dc2626', 'Rot'],
+  ['#db2777', 'Pink'], ['#7c3aed', 'Violett'], ['#475569', 'Schiefer'],
+];
+const THEMES = [['light', '☀️ Hell'], ['dark', '🌙 Dunkel'], ['system', '📱 Wie Gerät']];
 
 const CHEERS = ['Stark! 💪', 'Erledigt! ✅', 'Weiter so! 🚀', 'Super gemacht! 🎉', 'Ein Schritt näher am Ziel! 🏁', 'Läuft bei dir! 🔥'];
 
@@ -138,6 +147,73 @@ function commit() {
   save();
   render();
 }
+
+/* ------------------------------------------------------------------------
+   Darstellung: Hell/Dunkel & Akzentfarbe
+   ------------------------------------------------------------------------ */
+
+function hexToRgb(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rgbToHex(rgb) {
+  return '#' + rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+}
+/** Mischt Farbe a mit Farbe b; t = Anteil von b (0..1). */
+function mixColor(a, b, t) {
+  const x = hexToRgb(a), y = hexToRgb(b);
+  return rgbToHex(x.map((v, i) => v + (y[i] - v) * t));
+}
+function luminance(hex) {
+  return hexToRgb(hex).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+    .reduce((acc, v, i) => acc + v * [0.2126, 0.7152, 0.0722][i], 0);
+}
+function contrastRatio(a, b) {
+  const [l1, l2] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (l1 + 0.05) / (l2 + 0.05);
+}
+
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+function isDarkTheme(theme) {
+  return theme === 'dark' || (theme !== 'light' && darkQuery.matches);
+}
+
+/** Setzt Hell/Dunkel und leitet alle Akzent-Farbtöne aus der gewählten Farbe ab (lesbar in beiden Modi). */
+function applyTheme(settings = data.settings) {
+  const root = document.documentElement;
+  const theme = settings.theme || 'system';
+  if (theme === 'system') root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', theme);
+
+  const accent = hexToRgb(settings.accent) ? settings.accent : '#4f46e5';
+  const dark = isDarkTheme(theme);
+  const surface = dark ? '#181c25' : '#ffffff';
+  const heat0 = dark ? '#232836' : '#e8ebf0';
+
+  // Text-/Linkfarbe: so lange abdunkeln bzw. aufhellen, bis sie auf dem Hintergrund gut lesbar ist
+  let primary = dark ? mixColor(accent, '#ffffff', 0.25) : accent;
+  for (let i = 0; i < 12 && contrastRatio(primary, surface) < (dark ? 4.5 : 3.2); i++) {
+    primary = mixColor(primary, dark ? '#ffffff' : '#000000', 0.12);
+  }
+  // Weiße Schrift auf Knöpfen, solange sie gut lesbar ist (≥ 3:1 für fette Schrift), sonst dunkle Schrift
+  const onPrimary = contrastRatio(primary, '#ffffff') >= 3 ? '#ffffff' : '#111827';
+
+  const vars = {
+    '--primary': primary,
+    '--primary-contrast': onPrimary,
+    '--primary-soft': mixColor(surface, accent, dark ? 0.24 : 0.12),
+    '--heat-1': mixColor(heat0, accent, dark ? 0.35 : 0.3),
+    '--heat-2': mixColor(heat0, accent, dark ? 0.6 : 0.55),
+    '--heat-3': dark ? mixColor(accent, '#ffffff', 0.1) : accent,
+    '--heat-4': dark ? mixColor(accent, '#ffffff', 0.45) : mixColor(accent, '#000000', 0.3),
+  };
+  for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#181c25' : primary);
+}
+darkQuery.addEventListener?.('change', () => applyTheme());
 
 /* ------------------------------------------------------------------------
    Hilfsfunktionen
@@ -384,6 +460,7 @@ function parseRoute() {
 }
 
 function render() {
+  applyTheme();
   const r = parseRoute();
   const app = $('#app');
   let html;
@@ -1098,6 +1175,44 @@ function projectNotes(p) {
 
 /* ---------------------------- Einstellungen ------------------------------ */
 
+function renderAppearanceSettings() {
+  const set = data.settings;
+  const theme = set.theme || 'system';
+  const accent = (set.accent || '#4f46e5').toLowerCase();
+  const isPreset = ACCENTS.some(([c]) => c === accent);
+  return `<section class="card">
+    <h2>🎨 Darstellung</h2>
+    <div class="form" style="padding:0">
+      <div>
+        <div class="field-label">Hintergrund</div>
+        <div class="segmented" role="radiogroup" aria-label="Hintergrund">
+          ${THEMES.map(([v, l]) => `<label><input type="radio" name="theme" value="${v}" data-theme-opt ${v === theme ? 'checked' : ''}>${l}</label>`).join('')}
+        </div>
+        <div class="hint" style="margin-top:6px">„Wie Gerät“ folgt automatisch dem Hell-/Dunkelmodus deines iPhones, iPads, Macs oder PCs.</div>
+      </div>
+      <div>
+        <div class="field-label">Akzentfarbe</div>
+        <div class="swatches">
+          ${ACCENTS.map(([c, name]) => `<button type="button" class="swatch ${c === accent ? 'active' : ''}" style="background:${c}" data-accent="${c}" title="${name}" aria-label="${name}"></button>`).join('')}
+          <label class="swatch-custom ${isPreset ? '' : 'active'}">
+            <input type="color" id="accent-custom" value="${esc(accent)}" aria-label="Eigene Farbe"> Eigene Farbe
+          </label>
+        </div>
+      </div>
+      <div>
+        <div class="field-label">Vorschau</div>
+        <div class="theme-preview">
+          <button type="button" class="btn primary small">Primärer Knopf</button>
+          <span class="badge abgeschlossen">Abgeschlossen</span>
+          <a href="#/einstellungen">Link</a>
+          <div style="width:120px">${progressBar(65)}</div>
+          <span class="chip active">Filter</span>
+        </div>
+      </div>
+    </div>
+  </section>`;
+}
+
 function renderReminderSettings() {
   const set = data.settings;
   const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : DEFAULT_REMINDERS;
@@ -1177,7 +1292,8 @@ function renderSettings() {
   const size = new Blob([JSON.stringify(data)]).size;
   return `
     <div class="page-head"><div><h1>Einstellungen</h1><p>Ziele, Erinnerungen, Datensicherung und Import</p></div></div>
-    ${renderReminderSettings()}
+    ${renderAppearanceSettings()}
+    <div style="margin-top:16px">${renderReminderSettings()}</div>
     <div class="grid-2" style="margin-top:16px">
       <section class="card">
         <h2>🎯 Wochenziel</h2>
@@ -1838,6 +1954,26 @@ document.addEventListener('submit', (e) => {
   Object.assign(data.settings, v);
   commit();
   toast('Erinnerungen gespeichert');
+});
+
+// Darstellung: Hell/Dunkel und Akzentfarbe – wird sofort angewendet und gespeichert
+document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-theme-opt]')) {
+    data.settings.theme = e.target.value;
+    commit();
+  } else if (e.target.id === 'accent-custom') {
+    data.settings.accent = e.target.value;
+    commit();
+  }
+});
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'accent-custom') applyTheme({ ...data.settings, accent: e.target.value }); // Live-Vorschau beim Ziehen
+});
+document.addEventListener('click', (e) => {
+  const sw = e.target.closest('[data-accent]');
+  if (!sw) return;
+  data.settings.accent = sw.dataset.accent;
+  commit();
 });
 
 // Live-Vorschau der Erinnerungstexte
