@@ -970,12 +970,31 @@ function openForm({ title, fields, submitLabel = 'Speichern', onSubmit }) {
     const err = onSubmit(values);
     if (err) return showError(err);
     dlg.close();
+    unlockScroll();
   });
   const showError = (msg) => { form.querySelector('.form-error').textContent = msg; };
-  form.querySelector('[data-close]').addEventListener('click', () => dlg.close());
+  form.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
+  lockScroll();
   dlg.showModal();
-  form.querySelector('input,textarea,select')?.focus();
+  // Auf Touch-Geräten nicht automatisch fokussieren – sonst springt die Tastatur auf und verschiebt die Ansicht.
+  if (!matchMedia('(hover: none)').matches) form.querySelector('input,textarea,select')?.focus();
+  else form.scrollTop = 0;
 }
+
+let lockedScrollY = 0;
+function lockScroll() {
+  if (document.documentElement.classList.contains('modal-open')) return;
+  lockedScrollY = window.scrollY;
+  document.body.style.top = `-${lockedScrollY}px`;
+  document.documentElement.classList.add('modal-open');
+}
+function unlockScroll() {
+  if (!document.documentElement.classList.contains('modal-open')) return;
+  document.documentElement.classList.remove('modal-open');
+  document.body.style.top = '';
+  window.scrollTo(0, lockedScrollY);
+}
+$('#modal').addEventListener('close', unlockScroll);
 
 const projectOptions = () => data.projects
   .filter((p) => p.status !== 'abgeschlossen')
