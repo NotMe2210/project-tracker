@@ -38,10 +38,10 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - Aktivitäts-Heatmap (12 Wochen) und Stunden-pro-Woche-Diagramm je Projekt
 - Konfetti und Erfolgsmeldungen, wenn du Meilensteine erreichst oder Projekte abschließt
 
-## Daten & mehrere Geräte (iCloud)
+## Daten & mehrere Geräte
 
 Alle Daten liegen im `localStorage` des Browsers, also nur auf dem jeweiligen Gerät.
-Zwischen Geräten wechselst du über eine **Sicherungsdatei in iCloud Drive**:
+Zwischen Geräten wechselst du über eine **Sicherungsdatei** in deinem Cloud-Speicher (**iCloud Drive, OneDrive, Google Drive, Dropbox**) oder ohne Cloud per AirDrop, USB-Stick oder E-Mail:
 
 > **Beim Aufhören sichern (💾), beim Anfangen importieren.**
 
@@ -51,7 +51,7 @@ Der Tracker erinnert dich daran:
 - **Blaue Leiste beim Öffnen**, wenn das Gerät länger als 4 Stunden nicht benutzt wurde: Sie erinnert daran, zuerst die neueste Sicherung zu importieren.
 - Beim Import warnt der Tracker, wenn die Daten auf dem Gerät ungesicherte Änderungen enthalten oder neuer als die Sicherung sind.
 
-Die Schritt-für-Schritt-Einrichtung für iPhone, iPad, Mac und Windows (Download-Ordner auf *iCloud Drive › Downloads*) steht in der App unter **Einstellungen**.
+Die Schritt-für-Schritt-Anleitung steht in der App unter **Einstellungen › Zwischen Geräten wechseln**. Dort wählst du deinen Dienst und siehst die Schritte für iPhone/iPad, Mac, Windows und Android. Der Trick: Auf allen Geräten wird ein Ordner im Cloud-Speicher als Download-Ordner eingestellt, dann landet jede Sicherung automatisch dort.
 
 Wichtig für iPhone und iPad: Füge den Tracker über *Teilen › Zum Home-Bildschirm* hinzu und öffne ihn darüber. Sonst kann Safari die gespeicherten Daten nach 7 Tagen ohne Besuch löschen.
 

@@ -18,6 +18,7 @@ const DEFAULT_DATA = {
     reminderShowNext: true,
     theme: 'system', // 'system' | 'light' | 'dark'
     accent: '#4f46e5',
+    syncService: 'icloud', // Dienst für den Gerätewechsel (nur für Anleitung & Hinweise)
   },
   projects: [],
   timeEntries: [],
@@ -75,6 +76,73 @@ const ACCENTS = [
   ['#16a34a', 'Grün'], ['#ca8a04', 'Gold'], ['#ea580c', 'Orange'], ['#dc2626', 'Rot'],
   ['#db2777', 'Pink'], ['#7c3aed', 'Violett'], ['#475569', 'Schiefer'],
 ];
+// Anleitungen für den Gerätewechsel. Schritte sind statisches HTML (keine Nutzereingaben).
+const SAFARI_IOS = '<i>Einstellungen › Apps › Safari › Downloads</i>';
+const SAFARI_MAC = '<i>Safari › Einstellungen › Allgemein › Speicherort für geladene Dateien</i>';
+const EDGE_DL = '<i>Edge › Einstellungen › Downloads › Speicherort</i>';
+const SYNC_SERVICES = [
+  { id: 'icloud', name: 'iCloud Drive', cloud: true, folder: 'iCloud Drive › Downloads', steps: {
+    ios: [`${SAFARI_IOS} › „iCloud Drive“ wählen (ist meist schon so eingestellt).`,
+      'Import: im Dateidialog <i>Durchsuchen › iCloud Drive › Downloads</i> öffnen.'],
+    mac: [`${SAFARI_MAC} › „Andere …“ › <i>iCloud Drive › Downloads</i> wählen.`,
+      'Falls iCloud Drive fehlt: <i>Systemeinstellungen › [dein Name] › iCloud › iCloud Drive</i> aktivieren.'],
+    win: ['„iCloud für Windows“ aus dem Microsoft Store installieren, anmelden und iCloud Drive aktivieren.',
+      `${EDGE_DL} › <code>iCloud Drive\\Downloads</code> wählen.`],
+    android: ['Für Android gibt es keine iCloud-Drive-App. Nutze <i>icloud.com › Drive</i> im Browser: Sicherung dort hochladen bzw. herunterladen.',
+      'Wenn du regelmäßig Android nutzt, ist einer der anderen Dienste bequemer.'],
+  } },
+  { id: 'onedrive', name: 'OneDrive', cloud: true, folder: 'OneDrive › Projekttracker', steps: {
+    ios: ['OneDrive-App aus dem App Store installieren und anmelden.',
+      'In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „OneDrive“ einschalten.',
+      `${SAFARI_IOS} › „Andere …“ › <i>OneDrive › Projekttracker</i> wählen.`],
+    mac: ['OneDrive-App aus dem App Store installieren und anmelden.',
+      `${SAFARI_MAC} › „Andere …“ › <i>OneDrive › Projekttracker</i> wählen.`],
+    win: ['OneDrive ist in Windows enthalten – mit deinem Microsoft-Konto anmelden.',
+      `${EDGE_DL} › <code>OneDrive\\Projekttracker</code> wählen.`],
+    android: ['OneDrive-App installieren und anmelden.',
+      'Nach dem Export: Download öffnen › <i>Teilen › OneDrive</i> › Ordner „Projekttracker“.',
+      'Import: im Dateidialog über das Menü ☰ „OneDrive“ wählen.'],
+  } },
+  { id: 'gdrive', name: 'Google Drive', cloud: true, folder: 'Google Drive › Meine Ablage › Projekttracker', steps: {
+    ios: ['Google-Drive-App aus dem App Store installieren und anmelden.',
+      'In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „Drive“ einschalten.',
+      `${SAFARI_IOS} › „Andere …“ › <i>Drive › Meine Ablage › Projekttracker</i> wählen.`],
+    mac: ['„Google Drive für Desktop“ installieren und anmelden.',
+      `${SAFARI_MAC} › „Andere …“ › <i>Google Drive › Meine Ablage › Projekttracker</i> wählen.`],
+    win: ['„Google Drive für Desktop“ installieren – danach gibt es das Laufwerk „Google Drive (G:)“.',
+      `${EDGE_DL} › <code>G:\\Meine Ablage\\Projekttracker</code> wählen.`],
+    android: ['Google Drive ist meist vorinstalliert.',
+      'Nach dem Export: Download öffnen › <i>Teilen › Drive</i> › Ordner „Projekttracker“.',
+      'Import: im Dateidialog über das Menü ☰ „Drive“ wählen.'],
+  } },
+  { id: 'dropbox', name: 'Dropbox', cloud: true, folder: 'Dropbox › Projekttracker', steps: {
+    ios: ['Dropbox-App aus dem App Store installieren und anmelden.',
+      'In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „Dropbox“ einschalten.',
+      `${SAFARI_IOS} › „Andere …“ › <i>Dropbox › Projekttracker</i> wählen.`],
+    mac: ['Dropbox-App für macOS installieren und anmelden.',
+      `${SAFARI_MAC} › „Andere …“ › <i>Dropbox › Projekttracker</i> wählen.`],
+    win: ['Dropbox-App für Windows installieren und anmelden.',
+      `${EDGE_DL} › <code>Dropbox\\Projekttracker</code> wählen.`],
+    android: ['Dropbox-App installieren und anmelden.',
+      'Nach dem Export: Download öffnen › <i>Teilen › Dropbox</i> › Ordner „Projekttracker“.',
+      'Import: im Dateidialog über das Menü ☰ „Dropbox“ wählen.'],
+  } },
+  { id: 'none', name: 'Ohne Cloud', cloud: false, folder: 'Download-Ordner', steps: {
+    ios: ['Die Sicherung landet in der Dateien-App unter <i>Downloads</i>.',
+      'Zum Mac: Datei in der Dateien-App lange drücken › <i>Teilen › AirDrop</i>.'],
+    mac: ['Die Sicherung landet im Ordner „Downloads“.',
+      'Zu iPhone/iPad per AirDrop (Rechtsklick › Teilen › AirDrop), zum PC per USB-Stick oder E-Mail an dich selbst.'],
+    win: ['Die Sicherung landet im Ordner „Downloads“.',
+      'Weitergeben per USB-Stick, E-Mail an dich selbst oder „Freigabe in der Nähe“ (andere Windows-Geräte).'],
+    android: ['Die Sicherung landet im Ordner „Download“.',
+      'Weitergeben per „Quick Share“, USB-Kabel oder E-Mail an dich selbst.'],
+  } },
+];
+const SYNC_DEVICES = [
+  ['ios', '📱 iPhone & iPad (Safari)'], ['mac', '💻 Mac (Safari)'], ['win', '🖥 Windows-PC (Edge)'], ['android', '🤖 Android (Chrome)'],
+];
+const syncService = () => SYNC_SERVICES.find((x) => x.id === data.settings.syncService) || SYNC_SERVICES[0];
+
 const THEMES = [['light', '☀️ Hell'], ['dark', '🌙 Dunkel'], ['system', '📱 Wie Gerät']];
 
 const CHEERS = ['Stark! 💪', 'Erledigt! ✅', 'Weiter so! 🚀', 'Super gemacht! 🎉', 'Ein Schritt näher am Ziel! 🏁', 'Läuft bei dir! 🔥'];
@@ -505,7 +573,7 @@ function renderBackupBar() {
     bar.className = 'backup-bar info';
     bar.innerHTML = `<div class="container">
       <span>🔄 Du hast den Tracker auf diesem Gerät zuletzt <b>${esc(fmtDateTime(previousOpen))}</b> geöffnet.
-      Hast du seitdem auf einem anderen Gerät gearbeitet?<span class="long"> Dann importiere zuerst die neueste Sicherung aus iCloud Drive.</span></span>
+      Hast du seitdem auf einem anderen Gerät gearbeitet?<span class="long"> Dann importiere zuerst die neueste Sicherung${syncService().cloud ? ` aus ${esc(syncService().name)}` : ''}.</span></span>
       <span class="btn-row">
         <button class="btn primary small" data-action="importData">⬆ Sicherung importieren</button>
         <button class="btn small" data-action="dismissSyncHint">Nein, weiter</button>
@@ -1369,7 +1437,42 @@ function settingsSection(id, icon, title, summary, body) {
   </details>`;
 }
 
-const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'erinnerungen', 'sicherung', 'icloud'];
+const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'erinnerungen', 'sicherung', 'sync'];
+
+function renderSyncGuide() {
+  const svc = syncService();
+  return `<div class="help">
+    <p>Die Regel ist einfach: <b>Beim Aufhören sichern (💾), beim Anfangen importieren.</b>
+    Der Tracker erinnert dich daran: mit der gelben Leiste bei ungesicherten Änderungen, mit der blauen Leiste,
+    wenn du ein Gerät länger nicht benutzt hast, und am Computer zusätzlich mit einer Rückfrage beim Schließen.</p>
+
+    <div class="field-label">Welchen Dienst nutzt du?</div>
+    <div class="segmented" role="radiogroup" aria-label="Dienst">
+      ${SYNC_SERVICES.map((x) => `<label><input type="radio" name="syncService" value="${x.id}" data-sync-opt ${x.id === svc.id ? 'checked' : ''}>${esc(x.name)}</label>`).join('')}
+    </div>
+
+    <p class="small muted" style="margin-top:12px">${svc.cloud
+      ? `Stelle auf allen Geräten denselben Ordner als Download-Ordner ein: <b>${esc(svc.folder)}</b>.
+         Dann landet jede Sicherung automatisch dort und ist auf deinen anderen Geräten verfügbar.
+         Beim Import wählst du die neueste Datei – der Dateiname enthält Datum und Uhrzeit.`
+      : 'Ohne Cloud-Dienst überträgst du die Sicherungsdatei selbst auf das andere Gerät und importierst sie dort. Der Dateiname enthält Datum und Uhrzeit.'}</p>
+
+    <div class="grid-2 sync-devices">
+      ${SYNC_DEVICES.map(([key, label]) => `<div>
+        <h3>${label}</h3>
+        <ol>${svc.steps[key].map((step) => `<li>${step}</li>`).join('')}</ol>
+      </div>`).join('')}
+    </div>
+
+    <h3>Gut zu wissen</h3>
+    <ul>
+      <li><b>iPhone & iPad:</b> Füge den Tracker über <i>Teilen › Zum Home-Bildschirm</i> hinzu und öffne ihn immer darüber.
+        Sonst kann Safari die Daten nach 7 Tagen ohne Besuch löschen. Beim Schließen gibt es dort keine Rückfrage – achte auf die gelbe Leiste und den 💾-Knopf.</li>
+      <li><b>Chrome oder Edge am Mac:</b> Download-Ordner unter <i>Einstellungen › Downloads › Speicherort</i> festlegen.</li>
+      <li><b>Rückfrage beim Schließen:</b> Browser erlauben dort keinen eigenen Text. Bei „Diese Website verlassen?“ wähle „Abbrechen“ bzw. „Bleiben“ und tippe auf 💾 Sichern.</li>
+    </ul>
+  </div>`;
+}
 
 function renderSettings() {
   const set = data.settings;
@@ -1421,7 +1524,8 @@ function renderSettings() {
     ${settingsSection('sicherung', '💾', 'Datensicherung',
       `Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : ''}`,
       `<p class="small muted">Alle Daten werden nur lokal in diesem Browser gespeichert (${(size / 1024).toFixed(1)} KB).
-      Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung nach iCloud Drive und importierst sie dort.</p>
+      Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung${syncService().cloud ? ` nach ${esc(syncService().name)}` : ' und überträgst sie'} und importierst sie dort.
+      Wie das geht, steht unter „Zwischen Geräten wechseln“.</p>
       <dl class="kv" style="margin-bottom:16px">
         <dt>Letzte Sicherung</dt><dd>${esc(fmtDateTime(meta.lastExport))}</dd>
         <dt>Letzte Änderung</dt><dd>${esc(fmtDateTime(meta.lastChange))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : '<span class="badge aktiv">gesichert</span>'}</dd>
@@ -1435,40 +1539,9 @@ function renderSettings() {
       <h3>Gefahrenzone</h3>
       <button class="btn danger" data-action="resetData">Alle Daten löschen</button>`)}
 
-    ${settingsSection('icloud', '☁️', 'Mit iCloud zwischen Geräten wechseln', 'Anleitung für iPhone, iPad, Mac und Windows',
-      `<div class="help">
-      <p>Die Regel ist einfach: <b>Beim Aufhören sichern, beim Anfangen importieren.</b>
-      Der Tracker erinnert dich daran: mit der gelben Leiste bei ungesicherten Änderungen, mit der blauen Leiste,
-      wenn du ein Gerät länger nicht benutzt hast, und am Mac bzw. PC zusätzlich mit einer Rückfrage beim Schließen.</p>
-      <p class="small muted">Damit alle Geräte im selben Ordner landen, stelle überall <b>iCloud Drive › Downloads</b> als Download-Ordner ein.
-      Beim Import wählst du dort einfach die neueste Datei (der Dateiname enthält Datum und Uhrzeit).</p>
-      <div class="grid-2">
-        <div>
-          <h3>📱 iPhone & iPad (Safari)</h3>
-          <ol>
-            <li><b>Zum Home-Bildschirm hinzufügen</b> (Teilen-Symbol › „Zum Home-Bildschirm“) und den Tracker immer darüber öffnen.
-              Sonst kann Safari die Daten nach 7 Tagen ohne Besuch löschen.</li>
-            <li>Download-Ordner prüfen: <i>Einstellungen › Apps › Safari › Downloads</i> › „iCloud Drive“ (ist meist schon so eingestellt).</li>
-            <li>Beim Schließen gibt es auf iPhone/iPad <b>keine Rückfrage</b> – achte auf die gelbe Leiste und den 💾-Knopf mit dem orangefarbenen Punkt.</li>
-          </ol>
-        </div>
-        <div>
-          <h3>💻 Mac (Safari)</h3>
-          <ol>
-            <li><i>Safari › Einstellungen › Allgemein › Speicherort für geladene Dateien</i> › Ordner „Downloads“ in iCloud Drive wählen.</li>
-            <li>Beim Schließen des Tabs oder von Safari fragt der Browser nach, falls noch nicht gesichert wurde.</li>
-          </ol>
-          <h3>🖥 Windows-PC (Edge)</h3>
-          <ol>
-            <li>„iCloud für Windows“ aus dem Microsoft Store installieren und iCloud Drive aktivieren.</li>
-            <li><i>Edge › Einstellungen › Downloads › Speicherort</i> › <code>iCloud Drive\\Downloads</code> wählen.</li>
-            <li>Beim Schließen des Tabs oder von Edge fragt der Browser nach, falls noch nicht gesichert wurde.</li>
-          </ol>
-        </div>
-      </div>
-      <p class="small muted" style="margin-top:12px">Hinweis: Browser erlauben bei der Rückfrage keinen eigenen Text. Es erscheint die Standardmeldung
-      („Diese Website verlassen?“ o. Ä.). Wähle dann „Abbrechen“ / „Bleiben“ und klicke auf 💾 Sichern.</p>
-      </div>`)}`;
+    ${settingsSection('sync', '🔄', 'Zwischen Geräten wechseln',
+      `Anleitung für iCloud, OneDrive, Google Drive, Dropbox · gewählt: ${esc(syncService().name)}`,
+      renderSyncGuide())}`;
 }
 
 /* ------------------------------------------------------------------------
@@ -1775,7 +1848,8 @@ const actions = {
     meta.lastExport = Date.now();
     saveMeta();
     render();
-    toast('Sicherung exportiert ✔ – lege die Datei in iCloud Drive ab.');
+    const svc = syncService();
+    toast(`Sicherung exportiert ✔ – sie liegt in deinem Download-Ordner${svc.cloud ? ` (ideal: ${svc.folder})` : ''}.`);
   },
   resetReminders() {
     const ta = document.querySelector('[data-form="reminders"] textarea[name="reminderTexts"]');
@@ -2172,6 +2246,13 @@ document.addEventListener('submit', (e) => {
   Object.assign(data.settings, v);
   commit();
   toast('Erinnerungen gespeichert');
+});
+
+// Dienst für den Gerätewechsel
+document.addEventListener('change', (e) => {
+  if (!e.target.matches('[data-sync-opt]')) return;
+  data.settings.syncService = e.target.value;
+  commit();
 });
 
 // Darstellung: Hell/Dunkel und Akzentfarbe – wird sofort angewendet und gespeichert
