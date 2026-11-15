@@ -18,6 +18,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 
 **Erfassen**
 - ⏱ **Zeit**: per Timer (läuft im Hintergrund weiter, auch nach einem Neuladen) oder manuell (`1:30`, `1,5`, `45 min`)
+  - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
 - 💶 **Investitionen** mit Kategorie, Budgetvergleich und Aufteilung nach Kategorien
 - 🏁 **Meilensteine** mit Zieldatum. Aufgaben lassen sich einem Meilenstein zuordnen.
 - ✅ **Aufgaben** mit Priorität, Fälligkeitsdatum und Notiz

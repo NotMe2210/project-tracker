@@ -93,6 +93,12 @@ function normalize(d) {
   const out = structuredClone(DEFAULT_DATA);
   for (const k of Object.keys(out)) if (d && d[k] !== undefined) out[k] = d[k];
   out.settings = { ...DEFAULT_DATA.settings, ...((d && d.settings) || {}) };
+  // Ältere Zeiteinträge hatten nur eine Notiz -> wird zum Titel
+  out.timeEntries = (out.timeEntries || []).map((e) => {
+    if (e.title !== undefined) return e;
+    const { note, ...rest } = e;
+    return { ...rest, title: note || autoTimeTitle(e.date), autoTitle: !note, description: '' };
+  });
   return out;
 }
 
@@ -162,6 +168,15 @@ function startOfWeek(d) {
 function fmtDate(iso) {
   if (!iso) return '';
   return parseISO(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/** Automatischer Titel für Zeiteinträge ohne Titel, z. B. „Montag, 16.11.2026“. */
+function autoTimeTitle(iso) {
+  // bewusst ohne andere Helfer – wird schon beim Laden (Migration) aufgerufen
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/^(\p{L}+)\s*,?\s*/u, '$1, ');
 }
 
 function fmtRelative(iso) {
@@ -810,7 +825,7 @@ function projectOverview(p, s) {
 
 function recentActivity(pid) {
   const out = [];
-  data.timeEntries.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '⏱', text: `${fmtDuration(e.minutes)}${e.note ? ' – ' + e.note : ''}` }));
+  data.timeEntries.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '⏱', text: `${fmtDuration(e.minutes)} – ${e.title || autoTimeTitle(e.date)}` }));
   data.investments.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '💶', text: `${fmtEUR(e.amount)} – ${e.description}` }));
   data.tasks.filter((t) => t.projectId === pid && t.done).forEach((t) => out.push({ date: t.doneAt, icon: '✅', text: t.title }));
   data.milestones.filter((m) => m.projectId === pid && m.done).forEach((m) => out.push({ date: m.doneAt, icon: '🏁', text: `Meilenstein erreicht: ${m.title}` }));
@@ -846,8 +861,11 @@ function projectTime(p) {
     <div class="card-head"><h2>Zeiteinträge · ${fmtHours(total)}</h2><button class="btn primary small" data-action="addTime" data-id="${p.id}">+ Zeit</button></div>
     ${entries.length ? `<ul class="list">${entries.map((e) => `
       <li>
-        <div class="grow"><div class="title">${esc(e.note || 'Ohne Beschreibung')}</div><div class="meta">${fmtDate(e.date)}</div></div>
-        <span class="amount">${fmtDuration(e.minutes)}</span>
+        <div class="grow">
+          <div class="title">${esc(e.title || autoTimeTitle(e.date))}</div>
+          <div class="meta"><span class="amount">⏱ ${fmtDuration(e.minutes)}</span>${e.autoTitle ? '' : `<span>${esc(autoTimeTitle(e.date))}</span>`}</div>
+          ${e.description ? `<div class="entry-desc">${esc(e.description)}</div>` : ''}
+        </div>
         <div class="actions">
           <button class="btn ghost icon" data-action="editTime" data-id="${e.id}" title="Bearbeiten">✎</button>
           <button class="btn ghost icon danger" data-action="deleteTime" data-id="${e.id}" title="Löschen">🗑</button>
@@ -1268,9 +1286,9 @@ const actions = {
   exportCsv() {
     const q = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
     const name = (pid) => getProject(pid)?.name || '';
-    const rows = [['Typ', 'Datum', 'Projekt', 'Beschreibung', 'Kategorie', 'Minuten', 'Stunden', 'Betrag (EUR)'].map(q).join(';')];
-    data.timeEntries.forEach((e) => rows.push(['Zeit', e.date, name(e.projectId), e.note, '', e.minutes, (e.minutes / 60).toFixed(2).replace('.', ','), ''].map(q).join(';')));
-    data.investments.forEach((e) => rows.push(['Investition', e.date, name(e.projectId), e.description, e.category, '', '', String(e.amount.toFixed(2)).replace('.', ',')].map(q).join(';')));
+    const rows = [['Typ', 'Datum', 'Projekt', 'Titel', 'Beschreibung', 'Kategorie', 'Minuten', 'Stunden', 'Betrag (EUR)'].map(q).join(';')];
+    data.timeEntries.forEach((e) => rows.push(['Zeit', e.date, name(e.projectId), e.title, e.description, '', e.minutes, (e.minutes / 60).toFixed(2).replace('.', ','), ''].map(q).join(';')));
+    data.investments.forEach((e) => rows.push(['Investition', e.date, name(e.projectId), e.description, '', e.category, '', '', String(e.amount.toFixed(2)).replace('.', ',')].map(q).join(';')));
     download(`projekttracker-${todayISO()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv');
   },
   importData() {
@@ -1421,10 +1439,15 @@ function timeForm(e, { fromTimer = false } = {}) {
       { name: 'projectId', label: 'Projekt', type: 'select', options: opts, value: e.projectId },
       { name: 'date', label: 'Datum', type: 'date', value: e.date || todayISO(), required: true, half: true },
       { name: 'minutes', label: 'Dauer', type: 'duration', required: true, value: e.minutes ? `${Math.floor(e.minutes / 60)}:${pad(e.minutes % 60)}` : '', placeholder: '1:30', hint: 'z. B. 1:30, 1,5 oder 45 min', half: true },
-      { name: 'note', label: 'Was hast du gemacht?', value: e.note },
+      { name: 'title', label: 'Titel', value: e.autoTitle ? '' : e.title,
+        placeholder: autoTimeTitle(e.date || todayISO()), hint: 'Leer lassen = Wochentag und Datum werden als Titel verwendet.' },
+      { name: 'description', label: 'Beschreibung', type: 'textarea', value: e.description,
+        placeholder: 'Was hast du gemacht? Details, Ergebnisse, offene Punkte …' },
     ],
     submitLabel: 'Speichern',
     onSubmit(v) {
+      v.autoTitle = !v.title;
+      if (v.autoTitle) v.title = autoTimeTitle(v.date);
       if (isNew) data.timeEntries.push({ id: uid(), ...v });
       else Object.assign(e, v);
       if (fromTimer) data.timer = null;
@@ -1432,6 +1455,9 @@ function timeForm(e, { fromTimer = false } = {}) {
       if (isNew) toast(`⏱ ${fmtDuration(v.minutes)} gespeichert. ${pick(CHEERS)}`);
     },
   });
+  // Platzhalter des Titels folgt dem gewählten Datum
+  const dateInput = $('#f_date'), titleInput = $('#f_title');
+  dateInput.addEventListener('input', () => { titleInput.placeholder = autoTimeTitle(dateInput.value); });
   if (fromTimer) {
     const actionsEl = $('#modal .form-actions');
     actionsEl.insertAdjacentHTML('afterbegin', '<button type="button" class="btn danger" data-action="discardTimer" style="margin-right:auto">Verwerfen</button>');
@@ -1543,7 +1569,8 @@ function demoData() {
   const ago = (n) => toISO(addDays(new Date(), -n));
   const ahead = (n) => toISO(addDays(new Date(), n));
   const P = (o) => { const p = { id: uid(), createdAt: ago(60), ...o }; d.projects.push(p); return p.id; };
-  const T = (projectId, minutes, n, note) => d.timeEntries.push({ id: uid(), projectId, minutes, date: ago(n), note });
+  const T = (projectId, minutes, n, title, description = '') => d.timeEntries.push({
+    id: uid(), projectId, minutes, date: ago(n), title: title || autoTimeTitle(ago(n)), autoTitle: !title, description });
   const I = (projectId, amount, n, description, category) => d.investments.push({ id: uid(), projectId, amount, date: ago(n), description, category });
   const M = (projectId, title, due, done) => { const id = uid(); d.milestones.push({ id, projectId, title, dueDate: due, done: !!done, doneAt: done || null, createdAt: '' }); return id; };
   const K = (projectId, title, priority, o = {}) => d.tasks.push({ id: uid(), projectId, title, priority, done: false, doneAt: null, createdAt: new Date().toISOString(), ...o });
@@ -1561,7 +1588,8 @@ function demoData() {
   K(shop, 'Instagram-Account anlegen', 'niedrig');
   K(shop, 'Fotostudio aufbauen', 'mittel', { milestoneId: m1, done: true, doneAt: ago(25) });
   [[90, 1, 'Shop-Theme angepasst'], [60, 2, 'Produkte angelegt'], [45, 4, ''], [120, 6, 'Fotos bearbeitet'], [30, 9, ''], [150, 13, 'Fotoshooting'], [60, 16, ''], [90, 20, ''], [45, 27, 'Recherche Shopsysteme']]
-    .forEach(([m, n, note]) => T(shop, m, n, note));
+    .forEach(([m, n, title]) => T(shop, m, n, title));
+  T(shop, 75, 0, 'Zahlungsanbieter eingerichtet', 'PayPal und Kreditkarte verbunden.\nTestbestellung erfolgreich – Rückerstattung muss noch geprüft werden.');
   I(shop, 89, 30, 'Fotolicht-Set', 'Hardware');
   I(shop, 29, 5, 'Shop-Abo (Monat)', 'Software');
   I(shop, 140, 12, 'Holz & Lack', 'Material');
@@ -1573,7 +1601,7 @@ function demoData() {
   M(app, 'Erste Version auf dem Handy', ahead(20));
   K(app, 'Kapitel 7 (Datenbanken) durcharbeiten', 'mittel');
   K(app, 'Datenmodell für Workouts skizzieren', 'hoch');
-  [[60, 21, 'Kurs Kapitel 6'], [45, 24, ''], [90, 30, ''], [60, 34, '']].forEach(([m, n, note]) => T(app, m, n, note));
+  [[60, 21, 'Kurs Kapitel 6'], [45, 24, ''], [90, 30, ''], [60, 34, '']].forEach(([m, n, title]) => T(app, m, n, title));
   I(app, 19.99, 40, 'Online-Kurs', 'Weiterbildung');
 
   const garden = P({ name: 'Hochbeet bauen', status: 'abgeschlossen', category: 'Haus & Garten', color: '#10b981', createdAt: ago(80) });

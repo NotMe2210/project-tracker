@@ -201,7 +201,8 @@ p { margin: 0 0 .75rem; }
 .list > li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .list > li:last-child { border-bottom: none; }
 .list .grow { flex: 1; min-width: 0; }
-.list .title { font-weight: 500; overflow-wrap: anywhere; }
+.list .title { font-weight: 500; overflow-wrap: break-word; hyphens: auto; }
+.list .meta .amount { color: var(--text); }
 .list .meta { color: var(--muted); font-size: .8rem; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .list .amount { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
 .list li.done .title { text-decoration: line-through; color: var(--muted); }
@@ -428,3 +429,5 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
 .placeholders .chip { font-size: .8rem; padding: 4px 10px; }
 .placeholders .chip .muted { font-size: .75rem; }
 .list .why { margin-top: 2px; }
+
+.entry-desc { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .85rem; color: var(--muted); margin-top: 4px; }
