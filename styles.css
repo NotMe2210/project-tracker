@@ -618,3 +618,8 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
   .timer-indicator.pomo-short, .timer-indicator.pomo-long, .timer-indicator.pomo-ready { background: var(--surface); }
   .timer-indicator .btn.icon { min-width: 36px; min-height: 34px; }
 }
+
+/* Vorschläge unter einem Eingabefeld */
+.fill-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+.fill-chips .chip { font-size: .82rem; padding: 4px 10px; }
+@media (hover: none) { .fill-chips .chip { padding: 7px 12px; } }

@@ -47,7 +47,31 @@ const PRIORITIES = [
   { value: 'niedrig', label: 'Niedrig' },
 ];
 const PRIO_ORDER = { hoch: 0, mittel: 1, niedrig: 2 };
+// Vorschläge für Investitions-Kategorien – eigene Kategorien sind jederzeit möglich
 const INVEST_CATEGORIES = ['Material', 'Software', 'Hardware', 'Dienstleistung', 'Marketing', 'Weiterbildung', 'Sonstiges'];
+
+/** Alle Kategorien: bereits verwendete (häufigste zuerst), dann die übrigen Vorschläge. Ohne Dubletten (Groß/Klein egal). */
+function investmentCategories() {
+  const count = new Map();
+  for (const i of data.investments) {
+    const c = (i.category || '').trim();
+    if (!c) continue;
+    const key = c.toLocaleLowerCase('de');
+    const cur = count.get(key) || { name: c, n: 0 };
+    cur.n += 1;
+    count.set(key, cur);
+  }
+  const used = [...count.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, 'de')).map((x) => x.name);
+  const rest = INVEST_CATEGORIES.filter((c) => !count.has(c.toLocaleLowerCase('de')));
+  return [...used, ...rest];
+}
+
+/** Eingabe vereinheitlichen: vorhandene Schreibweise übernehmen, leer = „Sonstiges“. */
+function normalizeCategory(input) {
+  const c = String(input || '').replace(/\s+/g, ' ').trim();
+  if (!c) return 'Sonstiges';
+  return investmentCategories().find((x) => x.toLocaleLowerCase('de') === c.toLocaleLowerCase('de')) || c;
+}
 // Standardfarben für neue Projekte – feste Reihenfolge, geprüft auf Unterscheidbarkeit (auch bei Farbsehschwäche)
 const COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
 
@@ -1760,7 +1784,9 @@ function fieldHTML(f) {
     input = `<input id="${id}" type="${type}" name="${f.name}" value="${esc(v)}" ${req} ${extra} placeholder="${esc(f.placeholder || '')}" ${f.list ? `list="${id}_list"` : ''}>`;
     if (f.list) input += `<datalist id="${id}_list">${f.list.map((o) => `<option value="${esc(o)}">`).join('')}</datalist>`;
   }
-  return `<label for="${id}">${esc(f.label)}${f.required ? ' *' : ''}${input}${hint}</label>`;
+  const chips = f.chips?.length ? `<div class="fill-chips">${f.chips.map((c) =>
+    `<button type="button" class="chip ${String(c).toLocaleLowerCase('de') === String(v).toLocaleLowerCase('de') ? 'active' : ''}" data-fill="${id}" data-value="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '';
+  return `<label for="${id}">${esc(f.label)}${f.required ? ' *' : ''}${input}${hint}</label>${chips}`;
 }
 
 function subtaskRowHTML(st = {}) {
@@ -1836,6 +1862,21 @@ function openForm({ title, fields, submitLabel = 'Speichern', onSubmit }) {
   });
   const showError = (msg) => { form.querySelector('.form-error').textContent = msg; };
   form.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
+
+  // Vorschlags-Chips füllen das zugehörige Feld
+  form.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-fill]');
+    if (!chip) return;
+    const input = form.querySelector('#' + chip.dataset.fill);
+    input.value = chip.dataset.value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  form.addEventListener('input', (e) => {
+    const box = e.target.id && form.querySelector(`.fill-chips [data-fill="${e.target.id}"]`)?.parentElement;
+    if (!box) return;
+    const val = e.target.value.trim().toLocaleLowerCase('de');
+    box.querySelectorAll('.chip').forEach((c) => c.classList.toggle('active', c.dataset.value.toLocaleLowerCase('de') === val));
+  });
 
   // Unterpunkte-Editor
   form.addEventListener('click', (e) => {
@@ -2295,10 +2336,12 @@ function investmentForm(e) {
       { name: 'description', label: 'Wofür?', required: true, value: e.description },
       { name: 'amount', label: 'Betrag (€)', type: 'decimal', required: true, value: e.amount != null ? String(e.amount).replace('.', ',') : '', placeholder: '49,99', half: true },
       { name: 'date', label: 'Datum', type: 'date', required: true, value: e.date || todayISO(), half: true },
-      { name: 'category', label: 'Kategorie', type: 'select', options: INVEST_CATEGORIES.map((c) => ({ value: c, label: c })), value: e.category || 'Sonstiges' },
+      { name: 'category', label: 'Kategorie', value: e.category || '', list: investmentCategories(), chips: investmentCategories(),
+        placeholder: 'z. B. Werkzeug, Messe …', hint: 'Eigenen Namen eintippen oder einen Vorschlag antippen. Leer = „Sonstiges“.' },
     ],
     onSubmit(v) {
       if (v.amount == null) return 'Bitte einen Betrag angeben.';
+      v.category = normalizeCategory(v.category);
       if (isNew) data.investments.push({ id: uid(), projectId: e.projectId, ...v });
       else Object.assign(e, v);
       commit();
