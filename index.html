@@ -6,6 +6,12 @@
   <title>Projekttracker</title>
   <meta name="description" content="Persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben – mit Motivationshilfen.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Projekte">
+  <meta name="theme-color" content="#4f46e5">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -18,9 +24,11 @@
     </nav>
     <div class="topbar-actions">
       <div id="timer-indicator" class="timer-indicator" hidden></div>
+      <button id="backup-btn" class="btn small backup-btn" data-action="exportData">💾 <span>Sichern</span></button>
       <button class="btn primary small" data-action="addTime">+ Zeit</button>
     </div>
   </header>
+  <div id="backup-bar" class="backup-bar" hidden></div>
 
   <main id="app" class="container"></main>
 

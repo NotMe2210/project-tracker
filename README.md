@@ -31,14 +31,29 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - Aktivitäts-Heatmap (12 Wochen) und Stunden-pro-Woche-Diagramm je Projekt
 - Konfetti und Erfolgsmeldungen, wenn du Meilensteine erreichst oder Projekte abschließt
 
-## Daten & Backup
+## Daten & mehrere Geräte (iCloud)
 
-Alle Daten liegen im `localStorage` deines Browsers, also nur auf diesem Gerät und in diesem Browser.
-Unter **Einstellungen** kannst du:
-- ein **JSON-Backup exportieren und importieren**, etwa um es auf ein anderes Gerät zu übertragen
-- Zeiten und Investitionen als **CSV** exportieren (z. B. für Excel)
+Alle Daten liegen im `localStorage` des Browsers, also nur auf dem jeweiligen Gerät.
+Zwischen Geräten wechselst du über eine **Sicherungsdatei in iCloud Drive**:
 
-> Tipp: Exportiere regelmäßig ein Backup. Wenn du die Browserdaten löschst, ist auch der Tracker leer.
+> **Beim Aufhören sichern (💾), beim Anfangen importieren.**
+
+Der Tracker erinnert dich daran:
+- 💾-Knopf mit orangefarbenem Punkt und **gelbe Leiste**, solange es ungesicherte Änderungen gibt
+- **Rückfrage beim Schließen** von Tab oder Browser (Safari auf dem Mac, Edge unter Windows). Die Browser zeigen dabei nur ihren Standardtext („Seite verlassen?“), eigener Text ist technisch nicht möglich. Auf **iPhone und iPad** unterstützt Safari diese Rückfrage nicht, dort übernimmt die gelbe Leiste die Erinnerung.
+- **Blaue Leiste beim Öffnen**, wenn das Gerät länger als 4 Stunden nicht benutzt wurde: Sie erinnert daran, zuerst die neueste Sicherung zu importieren.
+- Beim Import warnt der Tracker, wenn die Daten auf dem Gerät ungesicherte Änderungen enthalten oder neuer als die Sicherung sind.
+
+Die Schritt-für-Schritt-Einrichtung für iPhone, iPad, Mac und Windows (Download-Ordner auf *iCloud Drive › Downloads*) steht in der App unter **Einstellungen**.
+
+Wichtig für iPhone und iPad: Füge den Tracker über *Teilen › Zum Home-Bildschirm* hinzu und öffne ihn darüber. Sonst kann Safari die gespeicherten Daten nach 7 Tagen ohne Besuch löschen.
+
+Außerdem kannst du Zeiten und Investitionen als **CSV** exportieren (z. B. für Excel).
+
+## Online stellen
+
+Damit du den Tracker auf iPhone und iPad öffnen kannst, muss er eine Internetadresse haben, z. B. über **GitHub Pages**. Bei einem privaten Repository ist dafür GitHub Pro nötig. Alternativ machst du das Repository öffentlich oder lädst den Ordner bei einem kostenlosen Dienst wie Netlify oder Cloudflare Pages hoch.
+Deine Projektdaten sind dabei **nicht** öffentlich, sie bleiben im Browser des jeweiligen Geräts.
 
 ## Technik
 

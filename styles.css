@@ -96,6 +96,24 @@ p { margin: 0 0 .75rem; }
 .timer-indicator .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); animation: pulse 1.4s infinite; }
 @keyframes pulse { 50% { opacity: .3; } }
 
+/* Backup-Hinweis */
+.backup-btn { position: relative; }
+.backup-btn.dirty { border-color: var(--warn); color: var(--warn); }
+.backup-btn.dirty::after {
+  content: ""; position: absolute; top: -3px; right: -3px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--warn); border: 2px solid var(--surface);
+}
+.backup-bar { border-bottom: 1px solid var(--border); font-size: .9rem; }
+.backup-bar.warn { background: var(--warn-soft); }
+.backup-bar.info { background: var(--primary-soft); }
+.backup-bar .container { padding-top: 10px; padding-bottom: 10px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.backup-bar .container > span:first-child { flex: 1; min-width: 240px; }
+@media (max-width: 640px) { .backup-btn span { display: none; } }
+
+.help h3 { margin-top: 16px; }
+.help ol { margin: 4px 0 0; padding-left: 20px; }
+.help li { margin-bottom: 4px; }
+
 /* Buttons */
 .btn {
   display: inline-flex; align-items: center; gap: 6px; justify-content: center;

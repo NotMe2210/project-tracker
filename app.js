@@ -5,6 +5,7 @@
    ========================================================================= */
 
 const STORAGE_KEY = 'projekttracker.v1';
+const META_KEY = 'projekttracker.meta';
 
 const DEFAULT_DATA = {
   version: 1,
@@ -46,7 +47,9 @@ const QUOTES = [
 const CHEERS = ['Stark! 💪', 'Erledigt! ✅', 'Weiter so! 🚀', 'Super gemacht! 🎉', 'Ein Schritt näher am Ziel! 🏁', 'Läuft bei dir! 🔥'];
 
 let data = load();
+let meta = loadMeta();
 let projectFilter = 'aktiv';
+let syncHintDismissed = false;
 
 /* ------------------------------------------------------------------------
    Persistenz
@@ -72,9 +75,33 @@ function normalize(d) {
 function save() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    meta.lastChange = Date.now();
+    saveMeta();
   } catch (e) {
     toast('Speichern fehlgeschlagen: ' + e.message, 'error');
   }
+}
+
+/* Gerätebezogene Infos (nicht Teil des Backups): letzte Änderung, letzter Export, letzter Besuch. */
+function loadMeta() {
+  try { return { lastChange: 0, lastExport: 0, lastOpen: 0, ...JSON.parse(localStorage.getItem(META_KEY) || '{}') }; }
+  catch { return { lastChange: 0, lastExport: 0, lastOpen: 0 }; }
+}
+
+function saveMeta() {
+  try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch { /* ignorieren */ }
+}
+
+const hasUnsavedChanges = () => data.projects.length > 0 && meta.lastChange > meta.lastExport;
+
+function fmtDateTime(ts) {
+  if (!ts) return 'noch nie';
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const day = toISO(d);
+  if (day === todayISO()) return `heute, ${time} Uhr`;
+  if (day === toISO(addDays(new Date(), -1))) return `gestern, ${time} Uhr`;
+  return `${d.toLocaleDateString('de-DE')}, ${time} Uhr`;
 }
 
 function commit() {
@@ -272,11 +299,42 @@ function render() {
   else if (r.view === 'einstellungen') html = renderSettings();
   else html = renderDashboard();
   app.innerHTML = html;
+  renderBackupBar();
   document.querySelectorAll('[data-nav]').forEach((a) => {
     const nav = r.view === 'projekt' ? 'projekte' : r.view;
     a.classList.toggle('active', a.dataset.nav === nav);
   });
   renderTimer();
+}
+
+/* Hinweisleiste unter der Navigation: Import-Erinnerung beim Öffnen bzw. Export-Erinnerung bei ungesicherten Änderungen. */
+function renderBackupBar() {
+  const bar = $('#backup-bar');
+  const btn = $('#backup-btn');
+  const dirty = hasUnsavedChanges();
+  btn.classList.toggle('dirty', dirty);
+  btn.title = dirty ? `Ungesicherte Änderungen – letzte Sicherung: ${fmtDateTime(meta.lastExport)}` : `Alles gesichert (${fmtDateTime(meta.lastExport)})`;
+
+  if (showSyncHint && !syncHintDismissed) {
+    bar.className = 'backup-bar info';
+    bar.innerHTML = `<div class="container">
+      <span>🔄 Du hast den Tracker auf diesem Gerät zuletzt <b>${esc(fmtDateTime(previousOpen))}</b> geöffnet.
+      Hast du seitdem auf einem anderen Gerät gearbeitet? Dann importiere zuerst die neueste Sicherung aus iCloud Drive.</span>
+      <span class="btn-row">
+        <button class="btn primary small" data-action="importData">⬆ Sicherung importieren</button>
+        <button class="btn small" data-action="dismissSyncHint">Nein, weiter</button>
+      </span></div>`;
+    bar.hidden = false;
+  } else if (dirty) {
+    bar.className = 'backup-bar warn';
+    bar.innerHTML = `<div class="container">
+      <span>💾 <b>Ungesicherte Änderungen.</b> Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))}. Exportiere vor dem Schließen, damit deine anderen Geräte aktuell bleiben.</span>
+      <span class="btn-row"><button class="btn primary small" data-action="exportData">⬇ Jetzt sichern</button></span></div>`;
+    bar.hidden = false;
+  } else {
+    bar.hidden = true;
+    bar.innerHTML = '';
+  }
 }
 
 function progressBar(pct, cls = '') {
@@ -798,7 +856,11 @@ function renderSettings() {
       <section class="card">
         <h2>Datensicherung</h2>
         <p class="small muted">Alle Daten werden nur lokal in diesem Browser gespeichert (${(size / 1024).toFixed(1)} KB).
-        Exportiere regelmäßig ein Backup – z.&nbsp;B. bevor du den Browser-Cache leerst oder um die Daten auf ein anderes Gerät zu übertragen.</p>
+        Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung nach iCloud Drive und importierst sie dort.</p>
+        <dl class="kv" style="margin-bottom:16px">
+          <dt>Letzte Sicherung</dt><dd>${esc(fmtDateTime(meta.lastExport))}</dd>
+          <dt>Letzte Änderung</dt><dd>${esc(fmtDateTime(meta.lastChange))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : '<span class="badge aktiv">gesichert</span>'}</dd>
+        </dl>
         <div class="btn-row">
           <button class="btn primary" data-action="exportData">⬇ Backup exportieren (JSON)</button>
           <button class="btn" data-action="exportCsv">⬇ Zeit & Investitionen als CSV</button>
@@ -808,7 +870,43 @@ function renderSettings() {
         <h3>Gefahrenzone</h3>
         <button class="btn danger" data-action="resetData">Alle Daten löschen</button>
       </section>
-    </div>`;
+    </div>
+
+    <section class="card help" style="margin-top:16px">
+      <h2>☁️ Mit iCloud zwischen Geräten wechseln</h2>
+      <p>Die Regel ist einfach: <b>Beim Aufhören sichern, beim Anfangen importieren.</b>
+      Der Tracker erinnert dich daran: mit der gelben Leiste bei ungesicherten Änderungen, mit der blauen Leiste,
+      wenn du ein Gerät länger nicht benutzt hast, und am Mac bzw. PC zusätzlich mit einer Rückfrage beim Schließen.</p>
+      <p class="small muted">Damit alle Geräte im selben Ordner landen, stelle überall <b>iCloud Drive › Downloads</b> als Download-Ordner ein.
+      Beim Import wählst du dort einfach die neueste Datei (der Dateiname enthält Datum und Uhrzeit).</p>
+
+      <div class="grid-2">
+        <div>
+          <h3>📱 iPhone & iPad (Safari)</h3>
+          <ol>
+            <li><b>Zum Home-Bildschirm hinzufügen</b> (Teilen-Symbol › „Zum Home-Bildschirm“) und den Tracker immer darüber öffnen.
+              Sonst kann Safari die Daten nach 7 Tagen ohne Besuch löschen.</li>
+            <li>Download-Ordner prüfen: <i>Einstellungen › Apps › Safari › Downloads</i> › „iCloud Drive“ (ist meist schon so eingestellt).</li>
+            <li>Beim Schließen gibt es auf iPhone/iPad <b>keine Rückfrage</b> – achte auf die gelbe Leiste und den 💾-Knopf mit dem orangefarbenen Punkt.</li>
+          </ol>
+        </div>
+        <div>
+          <h3>💻 Mac (Safari)</h3>
+          <ol>
+            <li><i>Safari › Einstellungen › Allgemein › Speicherort für geladene Dateien</i> › Ordner „Downloads“ in iCloud Drive wählen.</li>
+            <li>Beim Schließen des Tabs oder von Safari fragt der Browser nach, falls noch nicht gesichert wurde.</li>
+          </ol>
+          <h3>🖥 Windows-PC (Edge)</h3>
+          <ol>
+            <li>„iCloud für Windows“ aus dem Microsoft Store installieren und iCloud Drive aktivieren.</li>
+            <li><i>Edge › Einstellungen › Downloads › Speicherort</i> › <code>iCloud Drive\\Downloads</code> wählen.</li>
+            <li>Beim Schließen des Tabs oder von Edge fragt der Browser nach, falls noch nicht gesichert wurde.</li>
+          </ol>
+        </div>
+      </div>
+      <p class="small muted" style="margin-top:12px">Hinweis: Browser erlauben bei der Rückfrage keinen eigenen Text. Es erscheint die Standardmeldung
+      („Diese Website verlassen?“ o. Ä.). Wähle dann „Abbrechen“ / „Bleiben“ und klicke auf 💾 Sichern.</p>
+    </section>`;
 }
 
 /* ------------------------------------------------------------------------
@@ -991,8 +1089,17 @@ const actions = {
 
   /* Daten */
   exportData() {
-    download(`projekttracker-backup-${todayISO()}.json`, JSON.stringify(data, null, 2), 'application/json');
-    toast('Backup exportiert');
+    const now = new Date();
+    const stamp = `${toISO(now)}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+    download(`projekttracker-backup-${stamp}.json`, JSON.stringify({ ...data, exportedAt: now.toISOString() }, null, 2), 'application/json');
+    meta.lastExport = Date.now();
+    saveMeta();
+    render();
+    toast('Sicherung exportiert ✔ – lege die Datei in iCloud Drive ab.');
+  },
+  dismissSyncHint() {
+    syncHintDismissed = true;
+    renderBackupBar();
   },
   exportCsv() {
     const q = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
@@ -1012,10 +1119,23 @@ const actions = {
       try {
         const parsed = JSON.parse(await file.text());
         if (!Array.isArray(parsed.projects)) throw new Error('Keine gültige Projekttracker-Datei.');
-        if (!confirm(`${parsed.projects.length} Projekte importieren? Die aktuellen Daten werden ersetzt.`)) return;
+        const backupTime = parsed.exportedAt ? Date.parse(parsed.exportedAt) : 0;
+        let msg = `Sicherung importieren?\n\nGesichert: ${backupTime ? fmtDateTime(backupTime) : 'unbekannt'}\nProjekte: ${parsed.projects.length}\n\nDie Daten auf diesem Gerät werden dadurch ersetzt.`;
+        if (hasUnsavedChanges()) {
+          msg += `\n\n⚠️ Auf diesem Gerät gibt es ungesicherte Änderungen (letzte Sicherung: ${fmtDateTime(meta.lastExport)}). Sie gehen beim Import verloren!`;
+        }
+        if (backupTime && meta.lastChange > backupTime) {
+          msg += `\n\n⚠️ Die Daten auf diesem Gerät (zuletzt geändert ${fmtDateTime(meta.lastChange)}) sind NEUER als diese Sicherung.`;
+        }
+        if (!confirm(msg)) return;
+        delete parsed.exportedAt;
         data = normalize(parsed);
-        commit();
-        toast('Import erfolgreich');
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        meta.lastChange = meta.lastExport = Date.now(); // Gerät entspricht jetzt genau der Sicherung
+        saveMeta();
+        syncHintDismissed = true;
+        render();
+        toast('Import erfolgreich ✔');
       } catch (e) {
         toast('Import fehlgeschlagen: ' + e.message, 'error');
       }
@@ -1335,8 +1455,43 @@ document.addEventListener('submit', (e) => {
 
 // Änderungen aus einem anderen Tab übernehmen
 window.addEventListener('storage', (e) => {
-  if (e.key === STORAGE_KEY) { data = load(); render(); }
+  if (e.key === STORAGE_KEY) data = load();
+  if (e.key === STORAGE_KEY || e.key === META_KEY) { meta = loadMeta(); render(); }
 });
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
+
+// Beim Schließen des Tabs / Browsers an den Export erinnern (Safari macOS, Edge, Chrome, Firefox).
+// Browser zeigen dabei nur ihren eigenen Standardtext; iPhone/iPad-Safari unterstützt das gar nicht –
+// dort übernimmt die Hinweisleiste die Erinnerung.
+window.addEventListener('beforeunload', (e) => {
+  if (!hasUnsavedChanges()) return;
+  e.preventDefault();
+  e.returnValue = '';
+  return '';
+});
+
+// Import-Erinnerung: Wurde der Tracker auf diesem Gerät länger nicht geöffnet, wurde evtl. woanders weitergearbeitet.
+const SYNC_HINT_AFTER_MS = 4 * 60 * 60 * 1000;
+let previousOpen = 0;
+let showSyncHint = false;
+function checkSyncHint() {
+  meta = loadMeta();
+  if (data.projects.length && meta.lastOpen && Date.now() - meta.lastOpen > SYNC_HINT_AFTER_MS) {
+    previousOpen = meta.lastOpen;
+    showSyncHint = true;
+    syncHintDismissed = false;
+  }
+  meta.lastOpen = Date.now();
+  saveMeta();
+}
+checkSyncHint();
+// iPhone/iPad halten Seiten oft im Speicher – beim Zurückkehren erneut prüfen.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { meta = loadMeta(); meta.lastOpen = Date.now(); saveMeta(); }
+  else { checkSyncHint(); renderBackupBar(); }
+});
+
+// Safari löscht Website-Daten sonst nach 7 Tagen ohne Besuch – dauerhaften Speicher anfragen.
+navigator.storage?.persist?.().catch(() => {});
 
 render();
