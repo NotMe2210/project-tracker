@@ -572,3 +572,23 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
 
 .weekly-list li { padding: 8px 0; }
 .weekly-list .weekly-total { border-top: 2px solid var(--border); }
+
+/* Pomodoro */
+.timer-indicator.pomo { overflow: hidden; gap: 6px; padding-bottom: 7px; }
+@media (min-width: 641px) { .timer-indicator.pomo { position: relative; } }
+.timer-indicator.pomo .t { font-size: 1.05rem; }
+.timer-indicator.pomo-work { background: var(--bad-soft); color: var(--bad); }
+.timer-indicator.pomo-work .dot, .timer-indicator.pomo .dot { display: none; }
+.timer-indicator.pomo-short, .timer-indicator.pomo-long { background: var(--good-soft); color: var(--good); }
+.timer-indicator.pomo-ready { background: var(--primary-soft); color: var(--primary); }
+.timer-indicator.paused .t { opacity: .55; }
+.pomo-label { font-weight: 600; white-space: nowrap; }
+.pomo-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(127, 127, 127, .2); }
+.pomo-bar > span { display: block; height: 100%; width: 0; background: currentColor; transition: width 1s linear; }
+.timer-indicator .btn.icon { min-width: 0; min-height: 0; padding: 4px 8px; }
+@media (max-width: 640px) {
+  .timer-indicator.pomo { border-color: currentColor; }
+  .timer-indicator.pomo-work { background: var(--surface); }
+  .timer-indicator.pomo-short, .timer-indicator.pomo-long, .timer-indicator.pomo-ready { background: var(--surface); }
+  .timer-indicator .btn.icon { min-width: 36px; min-height: 34px; }
+}

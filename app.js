@@ -19,6 +19,12 @@ const DEFAULT_DATA = {
     theme: 'system', // 'system' | 'light' | 'dark'
     accent: '#4f46e5',
     syncService: 'icloud', // Dienst für den Gerätewechsel (nur für Anleitung & Hinweise)
+    pomoWork: 25, // Minuten Fokus
+    pomoShort: 5, // kurze Pause
+    pomoLong: 15, // lange Pause
+    pomoEvery: 4, // lange Pause nach jedem n-ten Pomodoro
+    pomoSound: true,
+    pomoNotify: true,
   },
   projects: [],
   timeEntries: [],
@@ -1172,8 +1178,9 @@ function renderProject(id, tab) {
       </div>
       <div class="btn-row">
         ${data.timer?.projectId === p.id
-          ? `<button class="btn primary" data-action="stopTimer">■ Timer stoppen</button>`
-          : `<button class="btn primary" data-action="startTimer" data-id="${p.id}">▶ Timer starten</button>`}
+          ? `<button class="btn primary" data-action="stopTimer">■ ${data.timer.mode === 'pomodoro' ? 'Pomodoro beenden' : 'Timer stoppen'}</button>`
+          : `<button class="btn primary" data-action="startPomodoro" data-id="${p.id}" title="${pomoCfg().work} Min Fokus, dann Pause">🍅 Pomodoro</button>
+             <button class="btn" data-action="startTimer" data-id="${p.id}" title="Stoppuhr ohne feste Dauer">▶ Stoppuhr</button>`}
         <button class="btn" data-action="addTime" data-id="${p.id}">+ Zeit</button>
         <button class="btn" data-action="editProject" data-id="${p.id}">Bearbeiten</button>
         <button class="btn danger" data-action="deleteProject" data-id="${p.id}">Löschen</button>
@@ -1501,7 +1508,36 @@ function renderWeeklyGoalSettings() {
     </form>`;
 }
 
-const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'erinnerungen', 'sicherung', 'sync'];
+const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'pomodoro', 'erinnerungen', 'sicherung', 'sync'];
+
+function renderPomodoroSettings() {
+  const st = data.settings, cfg = pomoCfg();
+  const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+  const permText = { granted: '✔ Mitteilungen sind erlaubt.', denied: '✖ Mitteilungen sind im Browser blockiert – du kannst sie in den Website-Einstellungen des Browsers wieder erlauben.',
+    default: 'Mitteilungen wurden noch nicht erlaubt.', unsupported: 'Dieser Browser unterstützt hier keine Mitteilungen. Auf dem iPhone/iPad funktionieren sie nur, wenn der Tracker über den Home-Bildschirm geöffnet wird.' }[perm];
+  return `
+    <p class="small muted">Arbeite in festen Fokus-Abschnitten mit Pausen dazwischen. Starte einen Pomodoro auf der Projektseite über <b>🍅 Pomodoro</b>.
+    Nach einer Pause startet der nächste Pomodoro erst auf Knopfdruck – so zählt nur echte Fokuszeit. Beim Beenden wird die gesammelte Fokuszeit als Zeiteintrag gespeichert.</p>
+    <form class="form" style="padding:0" data-form="pomodoro" novalidate>
+      <div class="row2">
+        <label>Fokus (Minuten)<input type="number" min="1" max="180" step="1" name="pomoWork" value="${cfg.work}"></label>
+        <label>Kurze Pause (Minuten)<input type="number" min="1" max="60" step="1" name="pomoShort" value="${cfg.short}"></label>
+      </div>
+      <div class="row2">
+        <label>Lange Pause (Minuten)<input type="number" min="1" max="120" step="1" name="pomoLong" value="${cfg.long}"></label>
+        <label>Lange Pause nach … Pomodoros<input type="number" min="1" max="12" step="1" name="pomoEvery" value="${cfg.every}"></label>
+      </div>
+      <label class="check-row"><input type="checkbox" name="pomoSound" ${st.pomoSound !== false ? 'checked' : ''}> Ton am Ende von Fokus und Pause</label>
+      <label class="check-row"><input type="checkbox" name="pomoNotify" ${st.pomoNotify !== false ? 'checked' : ''}> Mitteilung anzeigen, wenn der Tracker im Hintergrund ist</label>
+      <div class="hint">${permText}
+        ${perm === 'default' ? ' <button type="button" class="btn small" data-action="askNotify">Mitteilungen erlauben</button>' : ''}</div>
+      <div class="hint">Hinweis: Auf iPhone und iPad hält Safari Webseiten im Hintergrund an. Das Signal kommt dort, sobald du den Tracker wieder öffnest – die Zeit stimmt trotzdem.</div>
+      <div class="form-actions">
+        <button type="button" class="btn" data-action="testChime">🔔 Ton testen</button>
+        <button class="btn primary" type="submit">Speichern</button>
+      </div>
+    </form>`;
+}
 
 function renderSyncGuide() {
   const svc = syncService();
@@ -1573,6 +1609,10 @@ function renderSettings() {
       </div>`)}
 
     ${settingsSection('wochenziel', '🎯', 'Wochenziel', weeklyGoalSummary(), renderWeeklyGoalSettings())}
+
+    ${settingsSection('pomodoro', '🍅', 'Pomodoro-Timer',
+      `${pomoCfg().work} Min Fokus · ${pomoCfg().short} / ${pomoCfg().long} Min Pause · lange Pause nach ${pomoCfg().every}`,
+      renderPomodoroSettings())}
 
     ${settingsSection('erinnerungen', '😴', 'Erinnerungen bei eingeschlafenen Projekten',
       `nach ${esc(set.staleDays)} Tagen · ${texts.length} ${texts.length === 1 ? 'Text' : 'Texte'}`,
@@ -1761,6 +1801,11 @@ const projectOptions = () => data.projects
 const actions = {
   newProject() { projectForm(); },
   customizeDashboard() { openDashboardEditor(); },
+  askNotify() {
+    if (!('Notification' in window)) return;
+    Notification.requestPermission().then(() => render()).catch(() => {});
+  },
+  testChime() { unlockAudio(); playChime(); if (data.settings.pomoSound === false) toast('Der Ton ist ausgeschaltet.'); },
   toggleAllSections() {
     const allOpen = SECTION_IDS.every((id) => openSections.has(id));
     openSections = new Set(allOpen ? [] : SECTION_IDS);
@@ -1870,8 +1915,48 @@ const actions = {
   stopTimer() {
     const t = data.timer;
     if (!t) return;
+    if (t.mode === 'pomodoro') {
+      const focus = pomoFocusMs(t);
+      const minutes = Math.max(1, Math.round(focus / 60000));
+      const title = t.count ? `${t.count} × Pomodoro` : 'Pomodoro';
+      return timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.start)), title,
+        description: t.count ? `${t.count} Pomodoro${t.count === 1 ? '' : 's'} à ${pomoCfg().work} Min` : '' }, { fromTimer: true });
+    }
     const minutes = Math.max(1, Math.round((Date.now() - t.start) / 60000));
     timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.start)) }, { fromTimer: true });
+  },
+  startPomodoro({ id }) {
+    if (data.timer && !confirm('Es läuft bereits ein Timer. Diesen verwerfen und einen Pomodoro starten?')) return;
+    unlockAudio();
+    requestNotifyPermission();
+    const now = Date.now();
+    data.timer = { projectId: id, start: now, mode: 'pomodoro', phase: 'work', phaseStart: now,
+      phaseEnd: now + pomoCfg().work * 60000, count: 0, focusMs: 0, pausedAt: null };
+    commit();
+    toast(`🍅 Pomodoro für „${getProject(id).name}“ – ${pomoCfg().work} Minuten volle Konzentration!`);
+  },
+  pomoPause() {
+    const t = data.timer;
+    if (!t || t.mode !== 'pomodoro' || t.phase === 'ready') return;
+    if (t.pausedAt) {
+      const delta = Date.now() - t.pausedAt;
+      t.phaseStart += delta; t.phaseEnd += delta; t.pausedAt = null;
+    } else t.pausedAt = Date.now();
+    save(); renderTimer(true);
+  },
+  pomoNext() {
+    const t = data.timer;
+    if (!t || t.mode !== 'pomodoro') return;
+    unlockAudio();
+    const now = Date.now();
+    if (t.phase === 'work') {
+      // Fokus vorzeitig beenden: bisherige Zeit zählt, dann Pause
+      t.focusMs += (t.pausedAt || now) - t.phaseStart;
+      startBreak(t, now, false);
+    } else {
+      Object.assign(t, { phase: 'work', phaseStart: now, phaseEnd: now + pomoCfg().work * 60000, pausedAt: null });
+    }
+    save(); renderTimer(true);
   },
   discardTimer() {
     if (!confirm('Laufenden Timer verwerfen?')) return;
@@ -2154,25 +2239,148 @@ function celebrateProject(p) {
    Timer-Anzeige, Toasts, Konfetti, Download
    ------------------------------------------------------------------------ */
 
-function renderTimer() {
+/* ---------------------------- Pomodoro ----------------------------------- */
+
+function pomoCfg() {
+  const st = data.settings;
+  const n = (v, d, max) => Math.min(max, Math.max(1, Math.round(Number(v) || d)));
+  return { work: n(st.pomoWork, 25, 180), short: n(st.pomoShort, 5, 60), long: n(st.pomoLong, 15, 120), every: n(st.pomoEvery, 4, 12) };
+}
+
+/** Gesammelte Fokuszeit inkl. des laufenden Fokus-Abschnitts. */
+function pomoFocusMs(t) {
+  const running = t.phase === 'work' ? Math.max(0, Math.min(t.pausedAt || Date.now(), t.phaseEnd) - t.phaseStart) : 0;
+  return (t.focusMs || 0) + running;
+}
+
+function startBreak(t, from, completed) {
+  const cfg = pomoCfg();
+  const long = completed && t.count > 0 && t.count % cfg.every === 0;
+  Object.assign(t, { phase: long ? 'long' : 'short', phaseStart: from, phaseEnd: from + (long ? cfg.long : cfg.short) * 60000, pausedAt: null });
+}
+
+/** Phasenwechsel anhand der Uhrzeit nachziehen (funktioniert auch nach längerer Abwesenheit). */
+function tickPomodoro() {
+  const t = data.timer;
+  if (!t || t.mode !== 'pomodoro' || t.pausedAt || t.phase === 'ready') return;
+  const now = Date.now();
+  let signalMsg = null;
+  while (t.phase !== 'ready' && now >= t.phaseEnd) {
+    if (t.phase === 'work') {
+      t.focusMs += t.phaseEnd - t.phaseStart;
+      t.count += 1;
+      startBreak(t, t.phaseEnd, true);
+      signalMsg = t.phase === 'long'
+        ? [`🍅 ${t.count} Pomodoros geschafft!`, `Zeit für eine lange Pause (${pomoCfg().long} Min).`]
+        : [`🍅 Pomodoro ${t.count} geschafft!`, `Kurze Pause (${pomoCfg().short} Min) – steh auf, trink etwas.`];
+    } else {
+      Object.assign(t, { phase: 'ready', phaseStart: null, phaseEnd: null });
+      signalMsg = ['☕ Pause vorbei', 'Bereit für den nächsten Pomodoro?'];
+    }
+  }
+  if (signalMsg) {
+    save();
+    renderTimer(true);
+    pomoSignal(...signalMsg);
+  }
+}
+
+let audioCtx = null;
+function unlockAudio() {
+  try {
+    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch { /* kein Audio verfügbar */ }
+}
+function playChime() {
+  if (!audioCtx || data.settings.pomoSound === false) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    [880, 1175, 1568].forEach((f, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      const t0 = audioCtx.currentTime + i * 0.22;
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t0); o.stop(t0 + 0.55);
+    });
+  } catch { /* ignorieren */ }
+}
+function requestNotifyPermission() {
+  if (data.settings.pomoNotify === false || !('Notification' in window)) return;
+  if (Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+}
+function pomoSignal(title, body) {
+  playChime();
+  navigator.vibrate?.([200, 100, 200]);
+  toast(`${title} ${body}`);
+  if (data.settings.pomoNotify !== false && 'Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+    try { new Notification(title, { body, icon: 'icon-180.png', tag: 'pomodoro' }); } catch { /* ignorieren */ }
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Timer-Anzeige, Toasts, Konfetti, Download
+   ------------------------------------------------------------------------ */
+
+const fmtClock = (secs) => {
+  secs = Math.max(0, Math.round(secs));
+  const h = Math.floor(secs / 3600), m = Math.floor(secs / 60) % 60, s = secs % 60;
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+};
+
+function renderTimer(force = false) {
   const el = $('#timer-indicator');
   const t = data.timer;
-  if (!t || !getProject(t.projectId)) { el.hidden = true; return; }
-  const secs = Math.floor((Date.now() - t.start) / 1000);
-  const time = `${Math.floor(secs / 3600)}:${pad(Math.floor(secs / 60) % 60)}:${pad(secs % 60)}`;
+  if (!t || !getProject(t.projectId)) { el.hidden = true; el.dataset.key = ''; return; }
   const name = getProject(t.projectId).name;
-  if (el.hidden || el.dataset.pid !== t.projectId) {
-    el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small name">${esc(name)}</span><button class="btn small" data-action="stopTimer">■ Stopp</button>`;
-    el.dataset.pid = t.projectId;
+  const pomo = t.mode === 'pomodoro';
+  const key = [t.projectId, t.mode, t.phase, !!t.pausedAt].join('|');
+
+  if (force || el.hidden || el.dataset.key !== key) {
+    el.className = 'timer-indicator' + (pomo ? ` pomo pomo-${t.phase}${t.pausedAt ? ' paused' : ''}` : '');
+    if (!pomo) {
+      el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small name">${esc(name)}</span><button class="btn small" data-action="stopTimer">■ Stopp</button>`;
+    } else {
+      const label = { work: `🍅 Fokus #${t.count + 1}`, short: '☕ Pause', long: '🌴 Lange Pause', ready: '✅ Pause vorbei' }[t.phase];
+      const next = { work: ['⏭', 'Fokus beenden & Pause'], short: ['⏭', 'Pause überspringen'], long: ['⏭', 'Pause überspringen'], ready: ['▶ Weiter', 'Nächsten Pomodoro starten'] }[t.phase];
+      el.innerHTML = `<span class="pomo-label small">${label}</span><span class="t"></span><span class="small name">${esc(name)}</span>
+        ${t.phase === 'ready' ? '' : `<button class="btn small icon" data-action="pomoPause" title="${t.pausedAt ? 'Fortsetzen' : 'Pausieren'}">${t.pausedAt ? '▶' : '⏸'}</button>`}
+        <button class="btn small ${t.phase === 'ready' ? 'primary' : 'icon'}" data-action="pomoNext" title="${next[1]}">${next[0]}</button>
+        <button class="btn small icon" data-action="stopTimer" title="Beenden & Zeit speichern">■</button>
+        <span class="pomo-bar"><span></span></span>`;
+    }
+    el.dataset.key = key;
     el.hidden = false;
   }
-  el.querySelector('.t').textContent = time;
-  document.title = `⏱ ${time} · ${name}`;
+
+  let text, title;
+  if (!pomo) {
+    text = fmtClock((Date.now() - t.start) / 1000);
+    title = `⏱ ${text} · ${name}`;
+  } else if (t.phase === 'ready') {
+    text = `${t.count} 🍅`;
+    title = Math.floor(Date.now() / 1000) % 2 ? '✅ Pause vorbei!' : `🍅 ${name}`;
+  } else {
+    const now = t.pausedAt || Date.now();
+    const left = (t.phaseEnd - now) / 1000;
+    const total = (t.phaseEnd - t.phaseStart) / 1000;
+    text = fmtClock(left);
+    title = `${t.phase === 'work' ? '🍅' : '☕'} ${text}${t.pausedAt ? ' ⏸' : ''} · ${name}`;
+    el.querySelector('.pomo-bar > span').style.width = `${Math.min(100, (1 - left / total) * 100)}%`;
+  }
+  el.querySelector('.t').textContent = text;
+  document.title = title;
 }
 setInterval(() => {
+  tickPomodoro();
   if (data.timer) renderTimer();
   else if (document.title !== 'Projekttracker') document.title = 'Projekttracker';
 }, 1000);
+// Beim Zurückkehren zur App sofort nachziehen (Handy pausiert Timer im Hintergrund)
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { tickPomodoro(); if (data.timer) renderTimer(true); } });
 
 function toast(msg, type = '') {
   const el = document.createElement('div');
@@ -2296,6 +2504,22 @@ document.addEventListener('submit', (e) => {
   data.settings.weeklyHoursGoal = Math.max(0, Number(fd.get('weeklyHoursGoal')) || 0);
   commit();
   toast('Einstellungen gespeichert');
+});
+
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-form="pomodoro"]');
+  if (!form) return;
+  e.preventDefault();
+  const fd = new FormData(form);
+  Object.assign(data.settings, {
+    pomoWork: Number(fd.get('pomoWork')), pomoShort: Number(fd.get('pomoShort')),
+    pomoLong: Number(fd.get('pomoLong')), pomoEvery: Number(fd.get('pomoEvery')),
+    pomoSound: fd.get('pomoSound') === 'on', pomoNotify: fd.get('pomoNotify') === 'on',
+  });
+  Object.assign(data.settings, { pomoWork: pomoCfg().work, pomoShort: pomoCfg().short, pomoLong: pomoCfg().long, pomoEvery: pomoCfg().every });
+  if (data.settings.pomoNotify) requestNotifyPermission();
+  commit();
+  toast('Pomodoro-Einstellungen gespeichert');
 });
 
 document.addEventListener('submit', (e) => {
