@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.15-7';
+const APP_VERSION = '2026.11.15-8';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -1849,15 +1849,21 @@ function autoGrow(el) {
 }
 const growAll = (root = document) => root.querySelectorAll('textarea.autogrow').forEach(autoGrow);
 
-function openForm({ title, fields, submitLabel = 'Speichern', onSubmit }) {
+function openForm({ title, fields, submitLabel = 'Speichern', onSubmit, wide = false }) {
   const dlg = $('#modal');
   const rows = [];
-  for (let i = 0; i < fields.length; i++) {
-    const f = fields[i];
-    if (f.half && fields[i + 1]?.half) { rows.push(`<div class="row2">${fieldHTML(f)}${fieldHTML(fields[i + 1])}</div>`); i++; }
-    else rows.push(fieldHTML(f));
+  if (wide) {
+    // Breites Raster (Computer): jedes Feld belegt w von 4 Spalten; auf schmalen Bildschirmen einspaltig
+    fields.forEach((f) => rows.push(`<div class="fcell w${f.w || 4}">${fieldHTML(f)}</div>`));
+  } else {
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i];
+      if (f.half && fields[i + 1]?.half) { rows.push(`<div class="row2">${fieldHTML(f)}${fieldHTML(fields[i + 1])}</div>`); i++; }
+      else rows.push(fieldHTML(f));
+    }
   }
-  dlg.innerHTML = `<form class="form" novalidate>
+  dlg.classList.toggle('wide', wide);
+  dlg.innerHTML = `<form class="form ${wide ? 'grid' : ''}" novalidate>
     <h2>${esc(title)}</h2>
     ${rows.join('')}
     <div class="form-error"></div>
@@ -2258,24 +2264,26 @@ function projectForm(p) {
   openForm({
     title: isNew ? 'Neues Projekt' : 'Projekt bearbeiten',
     submitLabel: isNew ? 'Anlegen' : 'Speichern',
+    wide: true,
     fields: [
-      { name: 'name', label: 'Name', required: true, value: p.name },
-      { name: 'description', label: 'Beschreibung', type: 'textarea', value: p.description },
-      { name: 'status', label: 'Status', type: 'select', options: STATUS, value: p.status, half: true },
-      { name: 'category', label: 'Kategorie', value: p.category, list: cats, placeholder: 'z. B. Beruf, Hobby', half: true },
-      { name: 'why', label: 'Warum ist mir dieses Projekt wichtig?', type: 'textarea', value: p.why, hint: 'Wird dir angezeigt, wenn das Projekt einzuschlafen droht.' },
-      { name: 'goal', label: 'Ziel – wann ist das Projekt fertig?', type: 'textarea', value: p.goal },
-      { name: 'reminderText', label: 'Eigene Erinnerung, wenn das Projekt einschläft', type: 'textarea', value: p.reminderText,
+      { name: 'name', label: 'Name', required: true, value: p.name, w: 2 },
+      { name: 'status', label: 'Status', type: 'select', options: STATUS, value: p.status, w: 1 },
+      { name: 'category', label: 'Kategorie', value: p.category, list: cats, placeholder: 'z. B. Beruf, Hobby', w: 1 },
+      { name: 'description', label: 'Beschreibung', type: 'textarea', value: p.description, w: 2 },
+      { name: 'why', label: 'Warum ist mir dieses Projekt wichtig?', type: 'textarea', value: p.why, w: 2,
+        hint: 'Wird dir angezeigt, wenn das Projekt einzuschlafen droht.' },
+      { name: 'goal', label: 'Ziel – wann ist das Projekt fertig?', type: 'textarea', value: p.goal, w: 2 },
+      { name: 'reminderText', label: 'Eigene Erinnerung, wenn es einschläft', type: 'textarea', value: p.reminderText, w: 2,
         placeholder: 'z. B. {tage} Tage ohne „{projekt}“? Deine Kunden warten!',
-        hint: 'Leer = allgemeine Texte aus den Einstellungen. Platzhalter: {projekt}, {tage}, {warum}, {schritt}, {ziel}, {stunden}. Mehrere Zeilen = wechselt täglich.' },
-      { name: 'staleDays', label: 'Erinnern nach … Tagen ohne Aktivität', type: 'number', value: p.staleDays,
-        placeholder: `Standard: ${data.settings.staleDays}`, hint: 'Leer = Standard aus den Einstellungen.' },
-      { name: 'weeklyHours', label: 'Wochenarbeitszeit (Std)', type: 'decimal', value: decimalValue(p.weeklyHours), half: true,
-        placeholder: 'z. B. 4 oder 2,5', hint: 'Leer = kein eigenes Wochenziel' },
-      { name: 'hourGoal', label: 'Geplante Gesamtzeit (Std)', type: 'decimal', value: decimalValue(p.hourGoal), half: true, hint: 'für das ganze Projekt' },
-      { name: 'budget', label: 'Budget (€)', type: 'decimal', value: decimalValue(p.budget), half: true },
-      { name: 'targetDate', label: 'Zieltermin', type: 'date', value: p.targetDate, half: true },
-      { name: 'color', label: 'Farbe', type: 'color', value: p.color, half: true },
+        hint: 'Leer = allgemeine Texte. Platzhalter: {projekt}, {tage}, {warum}, {schritt}. Mehrere Zeilen = wechselt täglich.' },
+      { name: 'weeklyHours', label: 'Wochenarbeitszeit (Std)', type: 'decimal', value: decimalValue(p.weeklyHours), w: 1,
+        placeholder: 'z. B. 4 oder 2,5', hint: 'Leer = kein Wochenziel' },
+      { name: 'hourGoal', label: 'Gesamtzeit geplant (Std)', type: 'decimal', value: decimalValue(p.hourGoal), w: 1, hint: 'für das ganze Projekt' },
+      { name: 'budget', label: 'Budget (€)', type: 'decimal', value: decimalValue(p.budget), w: 1 },
+      { name: 'targetDate', label: 'Zieltermin', type: 'date', value: p.targetDate, w: 1 },
+      { name: 'staleDays', label: 'Erinnern nach … Tagen', type: 'number', value: p.staleDays, w: 1,
+        placeholder: `Standard: ${data.settings.staleDays}`, hint: 'ohne Aktivität; leer = Standard' },
+      { name: 'color', label: 'Farbe', type: 'color', value: p.color, w: 1 },
     ],
     onSubmit(v) {
       if (isNew) {
@@ -2390,7 +2398,7 @@ function investmentForm(e) {
       { name: 'description', label: 'Wofür?', required: true, value: e.description },
       { name: 'amount', label: 'Betrag (€)', type: 'decimal', required: true, value: e.amount != null ? String(e.amount).replace('.', ',') : '', placeholder: '49,99', half: true },
       { name: 'date', label: 'Datum', type: 'date', required: true, value: e.date || todayISO(), half: true },
-      { name: 'category', label: 'Kategorie', value: e.category || '', list: investmentCategories(), chips: investmentCategories(),
+      { name: 'category', label: 'Kategorie', value: e.category || '', chips: investmentCategories(),
         placeholder: 'z. B. Werkzeug, Messe …', hint: 'Eigenen Namen eintippen oder einen Vorschlag antippen. Leer = „Sonstiges“.' },
     ],
     onSubmit(v) {
