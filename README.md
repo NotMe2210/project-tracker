@@ -68,3 +68,10 @@ Deine Projektdaten sind dabei **nicht** öffentlich, sie bleiben im Browser des 
 ## Technik
 
 Reines HTML, CSS und JavaScript (`index.html`, `styles.css`, `app.js`) ohne Abhängigkeiten oder Build-Schritt.
+
+### Updates & Cache
+
+Browser und GitHub Pages speichern Dateien zwischen. Damit Änderungen sicher ankommen:
+- `index.html` lädt `styles.css` und `app.js` mit Versionsnummer (`?v=…`).
+- Die App fragt beim Öffnen `version.json` am Cache vorbei ab und zeigt bei einer neuen Version die Leiste **„Neue Version verfügbar – Jetzt aktualisieren“**. Die Daten bleiben dabei erhalten.
+- **Vor jeder Veröffentlichung** `./bump-version.sh` ausführen. Es erhöht die Versionsnummer in `index.html`, `app.js` und `version.json`.
