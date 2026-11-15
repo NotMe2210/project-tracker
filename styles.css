@@ -330,6 +330,7 @@ td .progress { width: 90px; display: inline-block; vertical-align: middle; }
   position: fixed; z-index: 300; max-width: min(320px, calc(100vw - 16px)); pointer-events: none;
   background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, .18); padding: 8px 10px; font-size: .8rem; line-height: 1.5;
+  overflow: hidden;
 }
 .chart-tip .tip-row { display: flex; align-items: center; gap: 6px; }
 .chart-tip .tip-row b { margin-left: auto; padding-left: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -617,4 +618,23 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
   .timer-indicator.pomo-work { background: var(--surface); }
   .timer-indicator.pomo-short, .timer-indicator.pomo-long, .timer-indicator.pomo-ready { background: var(--surface); }
   .timer-indicator .btn.icon { min-width: 36px; min-height: 34px; }
+}
+
+/* Vorschläge unter einem Eingabefeld */
+.fill-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+.fill-chips .chip { font-size: .82rem; padding: 4px 10px; }
+@media (hover: none) { .fill-chips .chip { padding: 7px 12px; } }
+
+/* Aktivitäts-Ansicht: Hinweis je Tag */
+.heatmap span[data-tip] { cursor: pointer; }
+.heatmap span.tip-active { outline: 2px solid var(--text); outline-offset: 1px; }
+.heat-hint { margin-top: 6px; font-size: .75rem; }
+.chart-tip .tip-sub { display: block; color: var(--muted); }
+.chart-tip .tip-activity { align-items: flex-start; margin-top: 4px; }
+.chart-tip .tip-activity .dot-color { margin-top: 6px; }
+.chart-tip .tip-proj { display: block; color: var(--muted); font-size: .72rem; }
+.chart-tip .tip-icon { font-size: .8rem; }
+@media (hover: none) {
+  .heatmap { grid-template-rows: repeat(7, 18px); gap: 4px; }
+  .heatmap span { width: 18px; height: 18px; }
 }

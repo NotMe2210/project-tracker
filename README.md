@@ -21,7 +21,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - ⏱ **Zeit**: per Stoppuhr (läuft im Hintergrund weiter, auch nach einem Neuladen) oder manuell (`1:30`, `1,5`, `45 min`)
   - 🍅 **Pomodoro-Timer**: 25 Min Fokus, 5 Min Pause, lange Pause nach jedem 4. Pomodoro (alles einstellbar). Mit Pausieren, Überspringen, Ton und Mitteilung. Beim Beenden wird die reine Fokuszeit als Zeiteintrag gespeichert.
   - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
-- 💶 **Investitionen** mit Kategorie, Budgetvergleich und Aufteilung nach Kategorien
+- 💶 **Investitionen** mit frei wählbarer Kategorie (Vorschläge oder eigene), Budgetvergleich und Aufteilung nach Kategorien
 - 🏁 **Meilensteine** mit Zieldatum. Aufgaben lassen sich einem Meilenstein zuordnen.
 - ✅ **Aufgaben** mit Priorität, Fälligkeitsdatum und Notiz
   - **Unterpunkte** zum Abhaken. Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.
@@ -37,7 +37,8 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - **„Braucht Aufmerksamkeit“**: aktive Projekte ohne Aktivität seit X Tagen werden gelb, ab 2·X Tagen rot markiert
 - **Motivationsbanner**: zeigt das am längsten ruhende Projekt mit deinem *Warum*, dem kleinsten nächsten Schritt und einem „Nur 25 Minuten“-Timer
 - **Nächste Schritte**: die wichtigste offene Aufgabe jedes aktiven Projekts
-- Aktivitäts-Heatmap (12 Wochen) und Stunden-pro-Woche-Diagramm je Projekt
+- Aktivitäts-Heatmap (12 Wochen): Überfahren bzw. Antippen eines Tages zeigt, was an diesem Tag erledigt wurde (Zeiten, Aufgaben, Unterpunkte, Meilensteine, Investitionen, Notizen)
+- Stunden-pro-Woche-Diagramm je Projekt
 - Konfetti und Erfolgsmeldungen, wenn du Meilensteine erreichst oder Projekte abschließt
 
 ## Daten & mehrere Geräte
