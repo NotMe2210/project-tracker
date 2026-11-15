@@ -102,6 +102,7 @@ function normalize(d) {
   const out = structuredClone(DEFAULT_DATA);
   for (const k of Object.keys(out)) if (d && d[k] !== undefined) out[k] = d[k];
   out.settings = { ...DEFAULT_DATA.settings, ...((d && d.settings) || {}) };
+  out.tasks = (out.tasks || []).map((t) => (Array.isArray(t.subtasks) ? t : { ...t, subtasks: [] }));
   // Ältere Zeiteinträge hatten nur eine Notiz -> wird zum Titel
   out.timeEntries = (out.timeEntries || []).map((e) => {
     if (e.title !== undefined) return e;
@@ -326,6 +327,7 @@ function activities(pid) {
   data.investments.filter(f).forEach((e) => out.push({ date: e.date, minutes: 0 }));
   data.notes.filter(f).forEach((e) => out.push({ date: e.date, minutes: 0 }));
   data.tasks.filter((t) => f(t) && t.done && t.doneAt).forEach((t) => out.push({ date: t.doneAt, minutes: 0 }));
+  data.tasks.filter(f).forEach((t) => (t.subtasks || []).filter((st) => st.done && st.doneAt).forEach((st) => out.push({ date: st.doneAt, minutes: 0 })));
   data.milestones.filter((t) => f(t) && t.done && t.doneAt).forEach((t) => out.push({ date: t.doneAt, minutes: 0 }));
   return out;
 }
@@ -469,6 +471,7 @@ function render() {
   else if (r.view === 'einstellungen') html = renderSettings();
   else html = renderDashboard();
   app.innerHTML = html;
+  growAll(app);
   renderBackupBar();
   document.querySelectorAll('[data-nav]').forEach((a) => {
     const nav = r.view === 'projekt' ? 'projekte' : r.view;
@@ -892,20 +895,47 @@ function weekBars(pid) {
 
 /* ---------------------------- Listeneinträge ----------------------------- */
 
+/** Aufgabe mit Unterpunkten ist genau dann fertig, wenn alle Unterpunkte abgehakt sind. */
+function syncTaskDone(t) {
+  const subs = t.subtasks || [];
+  if (!subs.length) return null;
+  const all = subs.every((st) => st.done);
+  if (all && !t.done) { t.done = true; t.doneAt = todayISO(); return 'completed'; }
+  if (!all && t.done) { t.done = false; t.doneAt = null; return 'reopened'; }
+  return null;
+}
+
+function celebrateTask(t) {
+  const left = data.tasks.filter((x) => x.projectId === t.projectId && !x.done).length;
+  toast(`${pick(CHEERS)} ${left ? `Noch ${left} offen.` : 'Alle Aufgaben erledigt!'}`);
+  if (!left) confetti();
+}
+
 function taskItem(t, { showProject = false } = {}) {
   const p = getProject(t.projectId);
   const ms = t.milestoneId ? data.milestones.find((m) => m.id === t.milestoneId) : null;
-  return `<li class="${t.done ? 'done' : ''}">
-    <button class="check" data-action="toggleTask" data-id="${t.id}" title="${t.done ? 'Wieder öffnen' : 'Erledigt'}">${t.done ? '✓' : ''}</button>
+  const subs = t.subtasks || [];
+  const subsDone = subs.filter((st) => st.done).length;
+  const partial = subs.length && !t.done && subsDone > 0;
+  return `<li class="${t.done ? 'done' : ''} task">
+    <button class="check ${partial ? 'partial' : ''}" data-action="toggleTask" data-id="${t.id}"
+      title="${t.done ? 'Wieder öffnen' : subs.length ? `${subsDone} von ${subs.length} Unterpunkten erledigt` : 'Erledigt'}">${t.done ? '✓' : partial ? '–' : ''}</button>
     <div class="grow">
       <div class="title">${esc(t.title)}</div>
       <div class="meta">
+        ${subs.length ? `<span class="badge ${subsDone === subs.length ? 'aktiv' : ''}">☑ ${subsDone}/${subs.length}</span>` : ''}
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/aufgaben">${esc(p.name)}</a></span>` : ''}
         <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
         ${t.done ? `<span>erledigt ${fmtRelative(t.doneAt)}</span>` : dueBadge(t.dueDate)}
         ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
         ${t.notes ? `<span>${esc(t.notes)}</span>` : ''}
       </div>
+      ${subs.length ? `<ul class="subtasks">${subs.map((st) => `
+        <li class="${st.done ? 'done' : ''}">
+          <button class="check small ${st.done ? 'done' : ''}" data-action="toggleSubtask" data-id="${t.id}" data-sub="${st.id}" title="${st.done ? 'Wieder öffnen' : 'Erledigt'}">${st.done ? '✓' : ''}</button>
+          <span>${esc(st.title)}</span>
+        </li>`).join('')}</ul>` : ''}
+      ${t.done || showProject ? '' : `<button class="btn ghost small add-sub" data-action="addSubtask" data-id="${t.id}">+ Unterpunkt</button>`}
     </div>
     <div class="actions">
       <button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="Bearbeiten">✎</button>
@@ -1227,7 +1257,7 @@ function renderReminderSettings() {
           <span class="hint">Ab dem doppelten Wert wird das Projekt rot markiert und oben auf der Übersicht angezeigt.</span>
         </label>
         <label>Deine Erinnerungstexte – ein Text pro Zeile
-          <textarea name="reminderTexts" rows="6">${esc(texts.join('\n'))}</textarea>
+          <textarea name="reminderTexts" class="autogrow" rows="4">${esc(texts.join('\n'))}</textarea>
           <span class="hint">Bei mehreren Texten wechselt die Erinnerung jeden Tag.</span>
         </label>
         <div class="placeholders">
@@ -1370,7 +1400,16 @@ function fieldHTML(f) {
   const req = f.required ? 'required' : '';
   const hint = f.hint ? `<span class="hint">${esc(f.hint)}</span>` : '';
   let input;
-  if (f.type === 'textarea') input = `<textarea id="${id}" name="${f.name}" ${req} placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
+  if (f.type === 'subtasks') {
+    return `<div class="field"><div class="field-label">${esc(f.label)}</div>
+      <div class="subtasks-editor" data-subtasks="${f.name}">
+        <div class="subtask-rows">${(v || []).map(subtaskRowHTML).join('')}</div>
+        <button type="button" class="btn small" data-sub-add>+ Unterpunkt</button>
+      </div>${hint}</div>`;
+  }
+  // Freitext wächst beim Tippen nach unten mit (statt seitlich zu scrollen)
+  if (f.type === 'textarea') input = `<textarea id="${id}" name="${f.name}" class="autogrow" rows="3" ${req} placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
+  else if ((!f.type || f.type === 'text') && !f.list) input = `<textarea id="${id}" name="${f.name}" class="autogrow single" rows="1" ${req} placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea>`;
   else if (f.type === 'select') input = `<select id="${id}" name="${f.name}" ${req}>${f.options.map((o) => `<option value="${esc(o.value)}" ${String(o.value) === String(v) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
   else {
     const type = { decimal: 'text', duration: 'text' }[f.type] || f.type || 'text';
@@ -1380,6 +1419,22 @@ function fieldHTML(f) {
   }
   return `<label for="${id}">${esc(f.label)}${f.required ? ' *' : ''}${input}${hint}</label>`;
 }
+
+function subtaskRowHTML(st = {}) {
+  return `<div class="subtask-row" data-id="${esc(st.id || '')}">
+    <input type="checkbox" ${st.done ? 'checked' : ''} aria-label="Erledigt">
+    <textarea class="autogrow single sub-title" rows="1" placeholder="Unterpunkt">${esc(st.title || '')}</textarea>
+    <button type="button" class="btn ghost icon danger" data-sub-del title="Entfernen" aria-label="Unterpunkt entfernen">✕</button>
+  </div>`;
+}
+
+/** Textfeld an seinen Inhalt anpassen. */
+function autoGrow(el) {
+  if (!el.getClientRects().length) return; // unsichtbar (z. B. geschlossener Dialog)
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + (el.offsetHeight - el.clientHeight) + 'px';
+}
+const growAll = (root = document) => root.querySelectorAll('textarea.autogrow').forEach(autoGrow);
 
 function openForm({ title, fields, submitLabel = 'Speichern', onSubmit }) {
   const dlg = $('#modal');
@@ -1404,8 +1459,21 @@ function openForm({ title, fields, submitLabel = 'Speichern', onSubmit }) {
     const fd = new FormData(form);
     const values = {};
     for (const f of fields) {
+      if (f.type === 'subtasks') {
+        const before = new Map((f.value || []).map((st) => [st.id, st]));
+        values[f.name] = [...form.querySelectorAll(`[data-subtasks="${f.name}"] .subtask-row`)]
+          .map((row) => {
+            const title = row.querySelector('textarea').value.replace(/\s*\n\s*/g, ' ').trim();
+            const done = row.querySelector('input[type=checkbox]').checked;
+            const old = before.get(row.dataset.id);
+            return { id: row.dataset.id || uid(), title, done, doneAt: done ? (old?.done && old.doneAt) || todayISO() : null };
+          })
+          .filter((st) => st.title);
+        continue;
+      }
       let v = fd.get(f.name);
       v = typeof v === 'string' ? v.trim() : v;
+      if (typeof v === 'string' && (!f.type || f.type === 'text')) v = v.replace(/\s*\n\s*/g, ' ');
       if (f.required && !v) return showError(`Bitte „${f.label}“ ausfüllen.`);
       if (f.type === 'number') v = v === '' ? null : Number(String(v).replace(',', '.'));
       if (f.type === 'decimal') {
@@ -1425,8 +1493,32 @@ function openForm({ title, fields, submitLabel = 'Speichern', onSubmit }) {
   });
   const showError = (msg) => { form.querySelector('.form-error').textContent = msg; };
   form.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
+
+  // Unterpunkte-Editor
+  form.addEventListener('click', (e) => {
+    const add = e.target.closest('[data-sub-add]');
+    if (add) {
+      const rows = add.parentElement.querySelector('.subtask-rows');
+      rows.insertAdjacentHTML('beforeend', subtaskRowHTML());
+      rows.lastElementChild.querySelector('textarea').focus();
+    }
+    const del = e.target.closest('[data-sub-del]');
+    if (del) del.closest('.subtask-row').remove();
+  });
+  // Eingabetaste: in einzeiligen Feldern speichern, in Unterpunkten neuen Unterpunkt anlegen
+  form.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || !e.target.matches('textarea.single')) return;
+    e.preventDefault();
+    if (e.target.classList.contains('sub-title')) {
+      const row = e.target.closest('.subtask-row');
+      row.insertAdjacentHTML('afterend', subtaskRowHTML());
+      row.nextElementSibling.querySelector('textarea').focus();
+    } else form.requestSubmit();
+  });
+
   lockScroll();
   dlg.showModal();
+  growAll(form);
   // Auf Touch-Geräten nicht automatisch fokussieren – sonst springt die Tastatur auf und verschiebt die Ansicht.
   if (!matchMedia('(hover: none)').matches) form.querySelector('input,textarea,select')?.focus();
   else form.scrollTop = 0;
@@ -1478,14 +1570,44 @@ const actions = {
   editTask({ id }) { taskForm(data.tasks.find((t) => t.id === id)); },
   toggleTask({ id }) {
     const t = data.tasks.find((x) => x.id === id);
+    const subs = t.subtasks || [];
+    if (subs.length) {
+      if (t.done) return toast('Um die Aufgabe wieder zu öffnen, entferne den Haken bei einem Unterpunkt.');
+      const open = subs.filter((st) => !st.done);
+      if (!confirm(`Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.\n\nAlle ${open.length} offenen Unterpunkte jetzt abhaken?`)) return;
+      open.forEach((st) => { st.done = true; st.doneAt = todayISO(); });
+      syncTaskDone(t);
+      commit();
+      return celebrateTask(t);
+    }
     t.done = !t.done;
     t.doneAt = t.done ? todayISO() : null;
     commit();
-    if (t.done) {
-      const left = data.tasks.filter((x) => x.projectId === t.projectId && !x.done).length;
-      toast(`${pick(CHEERS)} ${left ? `Noch ${left} offen.` : 'Alle Aufgaben erledigt!'}`);
-      if (!left) confetti();
-    }
+    if (t.done) celebrateTask(t);
+  },
+  toggleSubtask({ id, sub }) {
+    const t = data.tasks.find((x) => x.id === id);
+    const st = t?.subtasks?.find((x) => x.id === sub);
+    if (!st) return;
+    st.done = !st.done;
+    st.doneAt = st.done ? todayISO() : null;
+    const change = syncTaskDone(t);
+    commit();
+    if (change === 'completed') celebrateTask(t);
+    else if (change === 'reopened') toast('Aufgabe wieder geöffnet');
+  },
+  addSubtask({ id }) {
+    const t = data.tasks.find((x) => x.id === id);
+    openForm({
+      title: `Unterpunkt zu „${t.title}“`,
+      submitLabel: 'Hinzufügen',
+      fields: [{ name: 'title', label: 'Unterpunkt', required: true, placeholder: 'Was gehört dazu?' }],
+      onSubmit(v) {
+        (t.subtasks ||= []).push({ id: uid(), title: v.title, done: false, doneAt: null });
+        syncTaskDone(t);
+        commit();
+      },
+    });
   },
   deleteTask({ id }) {
     if (!confirm('Aufgabe löschen?')) return;
@@ -1691,15 +1813,20 @@ function taskForm(t) {
     const opts = data.milestones.filter((m) => m.projectId === pid && (!m.done || m.id === t.milestoneId));
     fields.push({ name: 'milestoneId', label: 'Meilenstein', type: 'select', value: t.milestoneId || '', options: [{ value: '', label: '– keiner –' }, ...opts.map((m) => ({ value: m.id, label: m.title }))] });
   }
-  fields.push({ name: 'notes', label: 'Notiz', value: t.notes });
+  fields.push({ name: 'subtasks', label: 'Unterpunkte', type: 'subtasks', value: t.subtasks || [],
+    hint: 'Die Aufgabe ist erst fertig, wenn alle Unterpunkte abgehakt sind. Eingabetaste = nächster Unterpunkt.' });
+  fields.push({ name: 'notes', label: 'Notiz', type: 'textarea', value: t.notes });
   openForm({
     title: isNew ? 'Neue Aufgabe' : 'Aufgabe bearbeiten',
     fields,
     onSubmit(v) {
       v.milestoneId = v.milestoneId || null;
-      if (isNew) data.tasks.push({ id: uid(), projectId: pid, done: false, doneAt: null, createdAt: new Date().toISOString(), ...v });
+      let task = t;
+      if (isNew) { task = { id: uid(), projectId: pid, done: false, doneAt: null, createdAt: new Date().toISOString(), ...v }; data.tasks.push(task); }
       else Object.assign(t, v);
+      const change = syncTaskDone(task);
       commit();
+      if (change === 'completed') celebrateTask(task);
     },
   });
 }
@@ -1869,7 +1996,7 @@ function demoData() {
     id: uid(), projectId, minutes, date: ago(n), title: title || autoTimeTitle(ago(n)), autoTitle: !title, description });
   const I = (projectId, amount, n, description, category) => d.investments.push({ id: uid(), projectId, amount, date: ago(n), description, category });
   const M = (projectId, title, due, done) => { const id = uid(); d.milestones.push({ id, projectId, title, dueDate: due, done: !!done, doneAt: done || null, createdAt: '' }); return id; };
-  const K = (projectId, title, priority, o = {}) => d.tasks.push({ id: uid(), projectId, title, priority, done: false, doneAt: null, createdAt: new Date().toISOString(), ...o });
+  const K = (projectId, title, priority, o = {}) => d.tasks.push({ id: uid(), projectId, title, priority, done: false, doneAt: null, createdAt: new Date().toISOString(), subtasks: [], ...o });
 
   const shop = P({ name: 'Online-Shop für Holzdeko', status: 'aktiv', category: 'Nebenprojekt', color: '#f59e0b',
     description: 'Eigene Holzarbeiten über einen kleinen Online-Shop verkaufen.',
@@ -1879,7 +2006,11 @@ function demoData() {
   const m2 = M(shop, 'Shop online', ahead(10));
   M(shop, 'Erste 10 Bestellungen', ahead(45));
   K(shop, 'Versandkosten kalkulieren', 'hoch', { milestoneId: m2, dueDate: ahead(3) });
-  K(shop, 'Impressum & Datenschutzerklärung', 'hoch', { milestoneId: m2 });
+  K(shop, 'Impressum & Datenschutzerklärung', 'hoch', { milestoneId: m2, subtasks: [
+    { id: uid(), title: 'Impressum-Generator ausfüllen', done: true, doneAt: ago(2) },
+    { id: uid(), title: 'Datenschutzerklärung erstellen', done: false, doneAt: null },
+    { id: uid(), title: 'Beide Seiten im Shop-Footer verlinken', done: false, doneAt: null },
+  ] });
   K(shop, 'Produkttexte schreiben', 'mittel', { milestoneId: m2 });
   K(shop, 'Instagram-Account anlegen', 'niedrig');
   K(shop, 'Fotostudio aufbauen', 'mittel', { milestoneId: m1, done: true, doneAt: ago(25) });
@@ -1975,6 +2106,10 @@ document.addEventListener('click', (e) => {
   data.settings.accent = sw.dataset.accent;
   commit();
 });
+
+// Mitwachsende Textfelder
+document.addEventListener('input', (e) => { if (e.target.matches('textarea.autogrow')) autoGrow(e.target); });
+window.addEventListener('resize', () => growAll());
 
 // Live-Vorschau der Erinnerungstexte
 document.addEventListener('input', (e) => {

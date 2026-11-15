@@ -22,6 +22,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - 💶 **Investitionen** mit Kategorie, Budgetvergleich und Aufteilung nach Kategorien
 - 🏁 **Meilensteine** mit Zieldatum. Aufgaben lassen sich einem Meilenstein zuordnen.
 - ✅ **Aufgaben** mit Priorität, Fälligkeitsdatum und Notiz
+  - **Unterpunkte** zum Abhaken. Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.
 - 📝 **Logbuch** für Ideen, Entscheidungen und kleine Erfolge
 
 **Darstellung**

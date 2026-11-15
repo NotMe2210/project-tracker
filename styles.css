@@ -272,7 +272,7 @@ details.done-list summary { cursor: pointer; color: var(--muted); padding: 8px 0
 .chip.active { background: var(--primary); border-color: var(--primary); color: var(--primary-contrast); }
 
 /* Tabs */
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
 .tabs a { padding: 8px 14px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; font-weight: 500; }
 .tabs a:hover { text-decoration: none; color: var(--text); }
 .tabs a.active { color: var(--primary); border-bottom-color: var(--primary); }
@@ -500,3 +500,45 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
 .theme-preview { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
 .field-label { font-size: .875rem; font-weight: 500; margin-bottom: 6px; }
 .swatch-custom.active input { outline: 2px solid var(--text); outline-offset: 1px; }
+
+/* Mitwachsende Textfelder */
+.form textarea.autogrow { resize: none; overflow: hidden; line-height: 1.4; }
+.form textarea.autogrow.single { min-height: 40px; }
+.form textarea.autogrow:not(.single) { min-height: 80px; }
+
+/* Unterpunkte */
+.check.partial { border-color: var(--primary); color: var(--primary); font-weight: 700; }
+.check.small { width: 20px; height: 20px; font-size: 11px; border-radius: 5px; }
+.subtasks { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.subtasks li { display: flex; align-items: flex-start; gap: 8px; font-size: .875rem; }
+.subtasks li > span { padding-top: 1px; overflow-wrap: break-word; min-width: 0; }
+.subtasks li.done > span { text-decoration: line-through; color: var(--muted); }
+.list li.done .subtasks li > span { text-decoration: line-through; }
+.add-sub { margin-top: 4px; padding: 2px 6px; font-size: .8rem; color: var(--muted); }
+.add-sub:hover { color: var(--primary); }
+.list > li.task { align-items: flex-start; }
+.list > li.task > .check { margin-top: 1px; }
+
+.subtasks-editor { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.subtask-rows { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.subtask-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; }
+.subtask-row input[type=checkbox] { width: 20px !important; height: 20px; flex: none; margin-top: 10px; accent-color: var(--primary); }
+.subtask-row textarea { flex: 1; }
+.subtask-row .btn.icon { flex: none; margin-top: 2px; }
+.form .field { display: flex; flex-direction: column; gap: 4px; }
+@media (hover: none) {
+  .check.small { width: 24px; height: 24px; }
+  .add-sub { padding: 6px 8px; }
+}
+
+/* Projekt-Reiter auf dem Handy: 3 × 2 Knöpfe statt scrollbarer Leiste */
+@media (max-width: 640px) {
+  .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; border-bottom: none; }
+  .tabs a {
+    display: flex; align-items: center; justify-content: center; gap: 2px; text-align: center;
+    margin: 0; padding: 9px 4px; font-size: .85rem; min-width: 0;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+  }
+  .tabs a.active { background: var(--primary-soft); border-color: var(--primary); }
+  .tabs .count { margin-left: 2px; }
+}
