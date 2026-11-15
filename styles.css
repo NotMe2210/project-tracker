@@ -431,3 +431,30 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
 .list .why { margin-top: 2px; }
 
 .entry-desc { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .85rem; color: var(--muted); margin-top: 4px; }
+
+/* Anpassbare Übersicht */
+.dash-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.dash-head h1 { margin: 0; }
+.dash > * + * { margin-top: 16px; }
+.dash-wide > .banner, .dash-wide > .stats { margin-bottom: 0; }
+.dash-group { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.dash-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.dash-col .card + .card { margin-top: 0; }
+.row-between { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+@media (max-width: 860px) {
+  .dash-group { display: flex; flex-direction: column; }
+  .dash-col { display: contents; }
+}
+
+.dash-editor-list li { gap: 6px; padding: 6px 0; }
+.dash-editor-list li.off .dash-toggle span { color: var(--muted); }
+.dash-toggle { flex: 1; min-width: 0; flex-direction: row !important; align-items: center; gap: 10px !important; font-weight: 500; cursor: pointer; }
+.dash-toggle input, .stat-picks input { width: 20px !important; height: 20px; flex: none; accent-color: var(--primary); }
+.dash-toggle span { overflow-wrap: break-word; }
+.width-toggle { min-width: 74px; }
+.btn:disabled { opacity: .3; cursor: default; }
+.stat-picks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+@media (max-width: 640px) {
+  .stat-picks { grid-template-columns: 1fr; }
+  .dash-editor-list .width-toggle { min-width: 0; padding: 4px 8px; }
+}

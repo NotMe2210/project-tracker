@@ -25,6 +25,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - 📝 **Logbuch** für Ideen, Entscheidungen und kleine Erfolge
 
 **Übersicht & Motivation**
+- **Anpassbare Übersicht** (⚙️ Anpassen): Bereiche ein- und ausblenden, Reihenfolge ändern, halbe oder volle Breite, Kennzahlen-Kacheln auswählen. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche, letzte Aktivitäten, Projektkacheln.
 - Dashboard mit Wochenstunden, Wochenziel, Streak, offenen bzw. überfälligen Aufgaben und Investitionen
 - **„Braucht Aufmerksamkeit“**: aktive Projekte ohne Aktivität seit X Tagen werden gelb, ab 2·X Tagen rot markiert
 - **Motivationsbanner**: zeigt das am längsten ruhende Projekt mit deinem *Warum*, dem kleinsten nächsten Schritt und einem „Nur 25 Minuten“-Timer

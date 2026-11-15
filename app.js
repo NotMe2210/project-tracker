@@ -448,6 +448,52 @@ function dueBadge(iso) {
 
 /* ---------------------------- Dashboard ---------------------------------- */
 
+// Bausteine der Übersicht. wide = volle Breite; visible = Standard-Sichtbarkeit.
+const WIDGETS = [
+  { id: 'banner', label: 'Motivation & Erinnerung', icon: '💡', wide: true, visible: true },
+  { id: 'stats', label: 'Kennzahlen', icon: '📊', wide: true, visible: true },
+  { id: 'attention', label: 'Braucht Aufmerksamkeit', icon: '⚠️', wide: false, visible: true },
+  { id: 'milestones', label: 'Anstehende Meilensteine', icon: '🏁', wide: false, visible: true },
+  { id: 'nextSteps', label: 'Nächste Schritte', icon: '👉', wide: false, visible: true },
+  { id: 'activity', label: 'Aktivität (12 Wochen)', icon: '📈', wide: false, visible: true },
+  { id: 'projects', label: 'Alle Projekte (Tabelle)', icon: '📋', wide: true, visible: true },
+  { id: 'dueTasks', label: 'Fällige Aufgaben (7 Tage)', icon: '⏰', wide: false, visible: false },
+  { id: 'weekProjects', label: 'Zeit diese Woche je Projekt', icon: '⏱', wide: false, visible: false },
+  { id: 'weekChart', label: 'Stunden pro Woche (alle Projekte)', icon: '📊', wide: false, visible: false },
+  { id: 'recent', label: 'Letzte Aktivitäten', icon: '🕘', wide: false, visible: false },
+  { id: 'projectCards', label: 'Projektkacheln', icon: '🗂', wide: true, visible: false },
+];
+
+const STAT_TILES = [
+  { id: 'week', label: 'Diese Woche', visible: true },
+  { id: 'streak', label: 'Streak', visible: true },
+  { id: 'active', label: 'Aktive Projekte', visible: true },
+  { id: 'openTasks', label: 'Offene Aufgaben', visible: true },
+  { id: 'invested', label: 'Investiert', visible: true },
+  { id: 'month', label: 'Zeit diesen Monat', visible: false },
+  { id: 'total', label: 'Zeit gesamt', visible: false },
+  { id: 'milestonesDone', label: 'Erreichte Meilensteine', visible: false },
+];
+
+/** Gespeicherte Anordnung mit den bekannten Bausteinen abgleichen (neue Bausteine werden hinten angehängt). */
+function dashboardConfig() {
+  const saved = data.settings.dashboard || {};
+  const known = new Map(WIDGETS.map((w) => [w.id, w]));
+  const widgets = [];
+  for (const w of saved.widgets || []) {
+    if (!known.has(w.id) || widgets.some((x) => x.id === w.id)) continue;
+    widgets.push({ id: w.id, visible: w.visible !== false, wide: !!w.wide });
+  }
+  for (const w of WIDGETS) if (!widgets.some((x) => x.id === w.id)) widgets.push({ id: w.id, visible: saved.widgets ? false : w.visible, wide: w.wide });
+  const stats = Array.isArray(saved.stats) ? saved.stats.filter((id) => STAT_TILES.some((t) => t.id === id)) : STAT_TILES.filter((t) => t.visible).map((t) => t.id);
+  return { widgets, stats };
+}
+
+const defaultDashboardConfig = () => ({
+  widgets: WIDGETS.map((w) => ({ id: w.id, visible: w.visible, wide: w.wide })),
+  stats: STAT_TILES.filter((t) => t.visible).map((t) => t.id),
+});
+
 function renderDashboard() {
   if (!data.projects.length) {
     return `<div class="card welcome">
@@ -462,117 +508,133 @@ function renderDashboard() {
     </div>`;
   }
 
+  const ctx = dashboardContext();
+  const cfg = dashboardConfig();
+  const visible = cfg.widgets.filter((w) => w.visible);
+
+  // Aufeinanderfolgende halbe Bausteine bilden eine zweispaltige Gruppe (abwechselnd links/rechts).
+  // Auf dem Handy werden sie per CSS-order wieder in Listenreihenfolge untereinander gezeigt.
+  const blocks = [];
+  let group = null;
+  visible.forEach((w, i) => {
+    const html = renderWidget(w.id, ctx, cfg);
+    if (!html) return;
+    if (w.wide) { group = null; blocks.push(`<div class="dash-wide">${html}</div>`); return; }
+    if (!group) { group = { left: [], right: [] }; blocks.push(group); }
+    const item = `<div class="dash-item" style="order:${i}">${html}</div>`;
+    (group.left.length <= group.right.length ? group.left : group.right).push(item);
+  });
+
+  return `
+    <div class="dash-head">
+      <h1>Übersicht</h1>
+      <button class="btn small" data-action="customizeDashboard">⚙️ Anpassen</button>
+    </div>
+    <div class="dash">
+      ${blocks.map((b) => typeof b === 'string' ? b
+        : `<div class="dash-group"><div class="dash-col">${b.left.join('')}</div><div class="dash-col">${b.right.join('')}</div></div>`).join('')}
+      ${visible.length ? '' : `<div class="card empty">Alle Bereiche sind ausgeblendet.<br><br><button class="btn primary" data-action="customizeDashboard">Übersicht anpassen</button></div>`}
+    </div>`;
+}
+
+function dashboardContext() {
   const today = todayISO();
   const active = data.projects.filter((p) => p.status === 'aktiv');
   const stats = new Map(data.projects.map((p) => [p.id, projectStats(p)]));
-  const goalMin = (Number(data.settings.weeklyHoursGoal) || 0) * 60;
-  const thisWeek = weekMinutes(0);
-  const lastWeek = weekMinutes(-1);
-  const streak = calcStreak();
   const openTasks = data.tasks.filter((t) => !t.done && getProject(t.projectId)?.status !== 'abgeschlossen');
-  const overdue = openTasks.filter((t) => isOverdue(t.dueDate));
-  const monthPrefix = today.slice(0, 7);
-  const investMonth = sum(data.investments.filter((i) => i.date.startsWith(monthPrefix)), (i) => i.amount);
-  const investTotal = sum(data.investments, (i) => i.amount);
-
   const stale = active
     .map((p) => ({ p, s: stats.get(p.id) }))
     .filter((x) => x.s.health !== 'gut')
     .sort((a, b) => b.s.idle - a.s.idle);
+  return {
+    today, active, stats, openTasks, stale,
+    overdue: openTasks.filter((t) => isOverdue(t.dueDate)),
+    goalMin: (Number(data.settings.weeklyHoursGoal) || 0) * 60,
+    thisWeek: weekMinutes(0),
+    lastWeek: weekMinutes(-1),
+    streak: calcStreak(),
+  };
+}
 
-  const nextSteps = active
-    .map((p) => ({ p, t: stats.get(p.id).next }))
-    .filter((x) => x.t)
-    .sort((a, b) => (PRIO_ORDER[a.t.priority] ?? 1) - (PRIO_ORDER[b.t.priority] ?? 1));
+const card = (title, body, extraHead = '') => `<section class="card">
+  <div class="card-head"><h2>${title}</h2>${extraHead}</div>${body}</section>`;
 
-  const upcoming = data.milestones
-    .filter((m) => !m.done && m.dueDate && getProject(m.projectId) && getProject(m.projectId).status !== 'abgeschlossen')
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-    .slice(0, 6);
+function renderWidget(id, c, cfg) {
+  switch (id) {
+    case 'banner':
+      return renderBanner(c);
 
-  const weekDiff = thisWeek - lastWeek;
-  const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
-  const sorted = [...data.projects].sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
+    case 'stats':
+      return cfg.stats.length ? `<div class="stats">${cfg.stats.map((t) => statTile(t, c)).join('')}</div>` : '';
 
-  return `
-    ${renderBanner({ stale, streak, thisWeek, goalMin, active })}
+    case 'attention':
+      return card('⚠️ Braucht Aufmerksamkeit', c.stale.length ? `<ul class="list">${c.stale.map(({ p, s }) => `
+        <li>
+          <span class="dot-color" style="background:${esc(p.color)}"></span>
+          <div class="grow">
+            <div class="title"><a href="#/projekt/${p.id}">${esc(p.name)}</a></div>
+            <div class="small why">${esc(reminderFor(p, s).text)}</div>
+            <div class="meta">${healthBadge(s)}${s.next ? `<span>Nächster Schritt: ${esc(s.next.title)}</span>` : ''}</div>
+          </div>
+          <button class="btn small" data-action="startTimer" data-id="${p.id}">▶ ${Number(data.settings.reminderMinutes) || 25} Min</button>
+        </li>`).join('')}</ul>`
+        : '<div class="empty">Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉</div>');
 
-    <div class="stats">
-      <div class="stat">
-        <div class="label">Diese Woche</div>
-        <div class="value">${fmtHours(thisWeek)}</div>
-        ${goalMin ? progressBar((thisWeek / goalMin) * 100, thisWeek >= goalMin ? 'good' : '') : ''}
-        <div class="sub">${goalMin ? `Ziel: ${fmtHours(goalMin)} · ` : ''}${weekDiff >= 0 ? '▲' : '▼'} ${fmtHours(Math.abs(weekDiff))} ggü. Vorwoche</div>
-      </div>
-      <div class="stat">
-        <div class="label">Streak</div>
-        <div class="value">${streak ? '🔥 ' : ''}${streak} ${streak === 1 ? 'Tag' : 'Tage'}</div>
-        <div class="sub">${dayMap()[today] ? 'Heute schon aktiv ✔' : streak ? 'Heute noch nichts – halte die Serie!' : 'Starte heute eine neue Serie'}</div>
-      </div>
-      <div class="stat">
-        <div class="label">Aktive Projekte</div>
-        <div class="value">${active.length}</div>
-        <div class="sub">${stale.length ? `${stale.length} brauchen Aufmerksamkeit` : 'Alle in Bewegung 👍'}</div>
-      </div>
-      <div class="stat">
-        <div class="label">Offene Aufgaben</div>
-        <div class="value">${openTasks.length}</div>
-        <div class="sub">${overdue.length ? `<span style="color:var(--bad)">${overdue.length} überfällig</span>` : 'nichts überfällig'}</div>
-      </div>
-      <div class="stat">
-        <div class="label">Investiert</div>
-        <div class="value">${fmtEUR(investTotal)}</div>
-        <div class="sub">${fmtEUR(investMonth)} in diesem Monat</div>
-      </div>
-    </div>
+    case 'nextSteps': {
+      const list = c.active.map((p) => c.stats.get(p.id).next).filter(Boolean)
+        .sort((a, b) => (PRIO_ORDER[a.priority] ?? 1) - (PRIO_ORDER[b.priority] ?? 1));
+      return card('👉 Nächste Schritte', list.length ? `<ul class="list">${list.map((t) => taskItem(t, { showProject: true })).join('')}</ul>`
+        : '<div class="empty">Keine offenen Aufgaben in aktiven Projekten.<br>Lege für jedes Projekt einen konkreten nächsten Schritt fest.</div>');
+    }
 
-    <div class="grid-2">
-      <div class="stack">
-        <section class="card">
-          <div class="card-head"><h2>⚠️ Braucht Aufmerksamkeit</h2></div>
-          ${stale.length ? `<ul class="list">${stale.map(({ p, s }) => `
-            <li>
-              <span class="dot-color" style="background:${esc(p.color)}"></span>
-              <div class="grow">
-                <div class="title"><a href="#/projekt/${p.id}">${esc(p.name)}</a></div>
-                <div class="small why">${esc(reminderFor(p, s).text)}</div>
-                <div class="meta">${healthBadge(s)}${s.next ? `<span>Nächster Schritt: ${esc(s.next.title)}</span>` : ''}</div>
-              </div>
-              <button class="btn small" data-action="startTimer" data-id="${p.id}">▶ ${Number(data.settings.reminderMinutes) || 25} Min</button>
-            </li>`).join('')}</ul>`
-            : '<div class="empty">Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉</div>'}
-        </section>
+    case 'dueTasks': {
+      const limit = toISO(addDays(new Date(), 7));
+      const list = sortTasks(c.openTasks.filter((t) => t.dueDate && t.dueDate <= limit))
+        .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+      return card('⏰ Fällige Aufgaben', list.length ? `<ul class="list">${list.map((t) => taskItem(t, { showProject: true })).join('')}</ul>`
+        : '<div class="empty">In den nächsten 7 Tagen ist nichts fällig.</div>');
+    }
 
-        <section class="card">
-          <div class="card-head"><h2>👉 Nächste Schritte</h2></div>
-          ${nextSteps.length ? `<ul class="list">${nextSteps.map(({ p, t }) => taskItem(t, { showProject: true })).join('')}</ul>`
-            : `<div class="empty">Keine offenen Aufgaben in aktiven Projekten.<br>Lege für jedes Projekt einen konkreten nächsten Schritt fest.</div>`}
-        </section>
-      </div>
+    case 'milestones': {
+      const list = data.milestones
+        .filter((m) => !m.done && m.dueDate && getProject(m.projectId) && getProject(m.projectId).status !== 'abgeschlossen')
+        .sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 6);
+      return card('🏁 Anstehende Meilensteine', list.length ? `<ul class="list">${list.map((m) => milestoneItem(m, { showProject: true })).join('')}</ul>`
+        : '<div class="empty">Keine terminierten Meilensteine.</div>');
+    }
 
-      <div class="stack">
-        <section class="card">
-          <div class="card-head"><h2>🏁 Anstehende Meilensteine</h2></div>
-          ${upcoming.length ? `<ul class="list">${upcoming.map((m) => milestoneItem(m, { showProject: true })).join('')}</ul>`
-            : '<div class="empty">Keine terminierten Meilensteine.</div>'}
-        </section>
+    case 'activity':
+      return card('📈 Aktivität (12 Wochen)', heatmap(dayMap()));
 
-        <section class="card">
-          <div class="card-head"><h2>📈 Aktivität (12 Wochen)</h2></div>
-          ${heatmap(dayMap())}
-        </section>
-      </div>
-    </div>
+    case 'weekChart':
+      return card('📊 Stunden pro Woche', weekBars());
 
-    <section class="card" style="margin-top:16px">
-      <div class="card-head">
-        <h2>Alle Projekte</h2>
-        <button class="btn small" data-action="newProject">+ Projekt</button>
-      </div>
-      <div class="table-wrap"><table>
+    case 'weekProjects': {
+      const rows = data.projects.map((p) => ({ p, min: weekMinutes(0, p.id) })).filter((x) => x.min > 0).sort((a, b) => b.min - a.min);
+      const max = Math.max(1, ...rows.map((r) => r.min));
+      return card('⏱ Zeit diese Woche', rows.length ? `<ul class="list">${rows.map(({ p, min }) => `
+        <li><div class="grow">
+          <div class="row-between"><a href="#/projekt/${p.id}">${esc(p.name)}</a><span class="amount">${fmtDuration(min)}</span></div>
+          <div class="progress" style="margin-top:6px"><span style="width:${(min / max) * 100}%;background:${esc(p.color)}"></span></div>
+        </div></li>`).join('')}</ul>` : '<div class="empty">Diese Woche noch keine Zeit erfasst.</div>');
+    }
+
+    case 'recent': {
+      const all = data.projects.flatMap((p) => recentActivity(p.id).map((a) => ({ ...a, p })))
+        .sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8);
+      return card('🕘 Letzte Aktivitäten', all.length ? `<ul class="list">${all.map((a) => `
+        <li><div class="grow"><div class="title">${a.icon} ${esc(a.text)}</div>
+        <div class="meta"><span><span class="dot-color" style="background:${esc(a.p.color)}"></span> ${esc(a.p.name)}</span><span>${fmtDate(a.date)}</span></div></div></li>`).join('')}</ul>`
+        : '<div class="empty">Noch keine Aktivitäten.</div>');
+    }
+
+    case 'projects': {
+      const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
+      const sorted = [...data.projects].sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
+      return card('📋 Alle Projekte', `<div class="table-wrap"><table>
         <thead><tr><th>Projekt</th><th>Status</th><th>Fortschritt</th><th class="num">Zeit</th><th class="num">Diese Woche</th><th class="num">Investiert</th><th class="num">Offene Aufg.</th><th>Zuletzt aktiv</th></tr></thead>
         <tbody>${sorted.map((p) => {
-          const s = stats.get(p.id);
+          const s = c.stats.get(p.id);
           return `<tr>
             <td><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}">${esc(p.name)}</a></td>
             <td><span class="badge ${p.status}">${statusLabel(p.status)}</span></td>
@@ -584,8 +646,122 @@ function renderDashboard() {
             <td>${healthBadge(s)}</td>
           </tr>`;
         }).join('')}</tbody>
-      </table></div>
-    </section>`;
+      </table></div>`, '<button class="btn small" data-action="newProject">+ Projekt</button>');
+    }
+
+    case 'projectCards': {
+      const list = data.projects.filter((p) => p.status === 'aktiv' || p.status === 'pausiert');
+      return card('🗂 Projekte', list.length ? `<div class="project-grid">${list.map((p) => projectCard(p, c.stats.get(p.id))).join('')}</div>`
+        : '<div class="empty">Keine aktiven oder pausierten Projekte.</div>', '<button class="btn small" data-action="newProject">+ Projekt</button>');
+    }
+  }
+  return '';
+}
+
+function statTile(id, c) {
+  const tile = (label, value, sub = '', extra = '') => `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div>${extra}<div class="sub">${sub}</div></div>`;
+  const monthPrefix = c.today.slice(0, 7);
+  switch (id) {
+    case 'week': {
+      const diff = c.thisWeek - c.lastWeek;
+      return tile('Diese Woche', fmtHours(c.thisWeek),
+        `${c.goalMin ? `Ziel: ${fmtHours(c.goalMin)} · ` : ''}${diff >= 0 ? '▲' : '▼'} ${fmtHours(Math.abs(diff))} ggü. Vorwoche`,
+        c.goalMin ? progressBar((c.thisWeek / c.goalMin) * 100, c.thisWeek >= c.goalMin ? 'good' : '') : '');
+    }
+    case 'streak':
+      return tile('Streak', `${c.streak ? '🔥 ' : ''}${c.streak} ${c.streak === 1 ? 'Tag' : 'Tage'}`,
+        dayMap()[c.today] ? 'Heute schon aktiv ✔' : c.streak ? 'Heute noch nichts – halte die Serie!' : 'Starte heute eine neue Serie');
+    case 'active':
+      return tile('Aktive Projekte', c.active.length, c.stale.length ? `${c.stale.length} brauchen Aufmerksamkeit` : 'Alle in Bewegung 👍');
+    case 'openTasks':
+      return tile('Offene Aufgaben', c.openTasks.length, c.overdue.length ? `<span style="color:var(--bad)">${c.overdue.length} überfällig</span>` : 'nichts überfällig');
+    case 'invested':
+      return tile('Investiert', fmtEUR(sum(data.investments, (i) => i.amount)),
+        `${fmtEUR(sum(data.investments.filter((i) => i.date.startsWith(monthPrefix)), (i) => i.amount))} in diesem Monat`);
+    case 'month': {
+      const min = sum(data.timeEntries.filter((e) => e.date.startsWith(monthPrefix)), (e) => e.minutes);
+      return tile('Zeit diesen Monat', fmtHours(min), new Date().toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }));
+    }
+    case 'total':
+      return tile('Zeit gesamt', fmtHours(sum(data.timeEntries, (e) => e.minutes)), `${data.timeEntries.length} Einträge`);
+    case 'milestonesDone': {
+      const done = data.milestones.filter((m) => m.done).length;
+      return tile('Meilensteine', `${done} / ${data.milestones.length}`, 'erreicht');
+    }
+  }
+  return '';
+}
+
+/* ---------------------------- Übersicht anpassen ------------------------- */
+
+let dashDraft = null;
+
+function openDashboardEditor() {
+  dashDraft = structuredClone(dashboardConfig());
+  const dlg = $('#modal');
+  dlg.innerHTML = `<form class="form dash-editor" novalidate>
+    <h2>Übersicht anpassen</h2>
+    <p class="small muted" style="margin:0">Blende Bereiche ein oder aus, ändere die Reihenfolge mit ↑ ↓ und wähle die Breite.
+    Auf dem Handy werden alle Bereiche untereinander angezeigt.</p>
+    <div id="dash-editor-list"></div>
+    <h3 style="margin:8px 0 0">Kennzahlen-Kacheln</h3>
+    <div id="dash-editor-stats" class="stat-picks"></div>
+    <div class="form-actions">
+      <button type="button" class="btn" data-dash="reset" style="margin-right:auto">Standard</button>
+      <button type="button" class="btn" data-close>Abbrechen</button>
+      <button type="submit" class="btn primary">Speichern</button>
+    </div>
+  </form>`;
+  const form = dlg.querySelector('form');
+  renderDashEditor();
+  form.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-dash]');
+    if (!b) return;
+    const i = Number(b.dataset.i);
+    const ws = dashDraft.widgets;
+    if (b.dataset.dash === 'up' && i > 0) [ws[i - 1], ws[i]] = [ws[i], ws[i - 1]];
+    if (b.dataset.dash === 'down' && i < ws.length - 1) [ws[i + 1], ws[i]] = [ws[i], ws[i + 1]];
+    if (b.dataset.dash === 'wide') ws[i].wide = !ws[i].wide;
+    if (b.dataset.dash === 'reset') dashDraft = defaultDashboardConfig();
+    renderDashEditor();
+  });
+  form.addEventListener('change', (e) => {
+    const el = e.target;
+    if (el.dataset.widget) dashDraft.widgets.find((w) => w.id === el.dataset.widget).visible = el.checked;
+    if (el.dataset.stat) {
+      dashDraft.stats = STAT_TILES.map((t) => t.id).filter((id) =>
+        id === el.dataset.stat ? el.checked : dashDraft.stats.includes(id));
+    }
+    renderDashEditor();
+  });
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    data.settings.dashboard = dashDraft;
+    dlg.close();
+    unlockScroll();
+    commit();
+    toast('Übersicht gespeichert');
+  });
+  form.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
+  lockScroll();
+  dlg.showModal();
+}
+
+function renderDashEditor() {
+  const list = $('#dash-editor-list');
+  const n = dashDraft.widgets.length;
+  list.innerHTML = `<ul class="list dash-editor-list">${dashDraft.widgets.map((w, i) => {
+    const meta = WIDGETS.find((x) => x.id === w.id);
+    return `<li class="${w.visible ? '' : 'off'}">
+      <label class="dash-toggle"><input type="checkbox" data-widget="${w.id}" ${w.visible ? 'checked' : ''}>
+        <span>${meta.icon} ${esc(meta.label)}</span></label>
+      <button type="button" class="btn small width-toggle" data-dash="wide" data-i="${i}" title="Breite umschalten">${w.wide ? '▭ Voll' : '◧ Halb'}</button>
+      <button type="button" class="btn ghost icon" data-dash="up" data-i="${i}" ${i === 0 ? 'disabled' : ''} title="Nach oben">↑</button>
+      <button type="button" class="btn ghost icon" data-dash="down" data-i="${i}" ${i === n - 1 ? 'disabled' : ''} title="Nach unten">↓</button>
+    </li>`;
+  }).join('')}</ul>`;
+  $('#dash-editor-stats').innerHTML = STAT_TILES.map((t) => `
+    <label class="check-row"><input type="checkbox" data-stat="${t.id}" ${dashDraft.stats.includes(t.id) ? 'checked' : ''}> ${esc(t.label)}</label>`).join('');
 }
 
 function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
@@ -704,8 +880,12 @@ function renderProjects() {
       ${[{ value: 'alle', label: 'Alle' }, ...STATUS].map((s) =>
         `<button class="chip ${projectFilter === s.value ? 'active' : ''}" data-action="filterProjects" data-id="${s.value}">${s.label} (${counts[s.value]})</button>`).join('')}
     </div>
-    ${list.length ? `<div class="project-grid">${list.map(({ p, s }) => `
-      <a class="project-card" href="#/projekt/${p.id}" style="--pc:${esc(p.color)}">
+    ${list.length ? `<div class="project-grid">${list.map(({ p, s }) => projectCard(p, s)).join('')}</div>`
+      : `<div class="card empty">Keine Projekte in dieser Ansicht.<br><br><button class="btn primary" data-action="newProject">+ Neues Projekt</button></div>`}`;
+}
+
+function projectCard(p, s) {
+  return `<a class="project-card" href="#/projekt/${p.id}" style="--pc:${esc(p.color)}">
         <div class="row"><h3>${esc(p.name)}</h3><span class="badge ${p.status}">${statusLabel(p.status)}</span></div>
         ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ''}
         <div>
@@ -720,8 +900,7 @@ function renderProjects() {
         </div>
         ${s.next && p.status !== 'abgeschlossen' ? `<div class="next">👉 ${esc(s.next.title)}</div>` : ''}
         ${healthBadge(s)}
-      </a>`).join('')}</div>`
-      : `<div class="card empty">Keine Projekte in dieser Ansicht.<br><br><button class="btn primary" data-action="newProject">+ Neues Projekt</button></div>`}`;
+      </a>`;
 }
 
 /* ---------------------------- Projektdetail ------------------------------ */
@@ -1162,6 +1341,7 @@ const projectOptions = () => data.projects
 
 const actions = {
   newProject() { projectForm(); },
+  customizeDashboard() { openDashboardEditor(); },
   editProject({ id }) { projectForm(getProject(id)); },
 
   deleteProject({ id }) {
