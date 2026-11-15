@@ -803,21 +803,12 @@ function openDashboardEditor() {
   form.addEventListener('click', (e) => {
     const b = e.target.closest('[data-dash]');
     if (!b) return;
-    const i = Number(b.dataset.i);
-    const ws = dashDraft.widgets;
-    if (b.dataset.dash === 'up' && i > 0) [ws[i - 1], ws[i]] = [ws[i], ws[i - 1]];
-    if (b.dataset.dash === 'down' && i < ws.length - 1) [ws[i + 1], ws[i]] = [ws[i], ws[i + 1]];
-    if (b.dataset.dash === 'wide') ws[i].wide = !ws[i].wide;
-    if (b.dataset.dash === 'reset') dashDraft = defaultDashboardConfig();
+    dashDraft = applyDashEdit(dashDraft, b);
     renderDashEditor();
   });
   form.addEventListener('change', (e) => {
-    const el = e.target;
-    if (el.dataset.widget) dashDraft.widgets.find((w) => w.id === el.dataset.widget).visible = el.checked;
-    if (el.dataset.stat) {
-      dashDraft.stats = STAT_TILES.map((t) => t.id).filter((id) =>
-        id === el.dataset.stat ? el.checked : dashDraft.stats.includes(id));
-    }
+    if (!e.target.dataset.widget && !e.target.dataset.stat) return;
+    dashDraft = applyDashEdit(dashDraft, e.target);
     renderDashEditor();
   });
   form.addEventListener('submit', (e) => {
@@ -834,9 +825,13 @@ function openDashboardEditor() {
 }
 
 function renderDashEditor() {
-  const list = $('#dash-editor-list');
-  const n = dashDraft.widgets.length;
-  list.innerHTML = `<ul class="list dash-editor-list">${dashDraft.widgets.map((w, i) => {
+  $('#dash-editor-list').innerHTML = dashListHTML(dashDraft);
+  $('#dash-editor-stats').innerHTML = dashStatsHTML(dashDraft);
+}
+
+function dashListHTML(cfg) {
+  const n = cfg.widgets.length;
+  return `<ul class="list dash-editor-list">${cfg.widgets.map((w, i) => {
     const meta = WIDGETS.find((x) => x.id === w.id);
     return `<li class="${w.visible ? '' : 'off'}">
       <label class="dash-toggle"><input type="checkbox" data-widget="${w.id}" ${w.visible ? 'checked' : ''}>
@@ -846,8 +841,26 @@ function renderDashEditor() {
       <button type="button" class="btn ghost icon" data-dash="down" data-i="${i}" ${i === n - 1 ? 'disabled' : ''} title="Nach unten">↓</button>
     </li>`;
   }).join('')}</ul>`;
-  $('#dash-editor-stats').innerHTML = STAT_TILES.map((t) => `
-    <label class="check-row"><input type="checkbox" data-stat="${t.id}" ${dashDraft.stats.includes(t.id) ? 'checked' : ''}> ${esc(t.label)}</label>`).join('');
+}
+
+function dashStatsHTML(cfg) {
+  return STAT_TILES.map((t) => `
+    <label class="check-row"><input type="checkbox" data-stat="${t.id}" ${cfg.stats.includes(t.id) ? 'checked' : ''}> ${esc(t.label)}</label>`).join('');
+}
+
+/** Gemeinsame Logik für Dialog und Einstellungen: wendet eine Bedienung auf eine Konfiguration an. */
+function applyDashEdit(cfg, el) {
+  const ws = cfg.widgets;
+  const i = Number(el.dataset.i);
+  switch (el.dataset.dash) {
+    case 'up': if (i > 0) [ws[i - 1], ws[i]] = [ws[i], ws[i - 1]]; break;
+    case 'down': if (i < ws.length - 1) [ws[i + 1], ws[i]] = [ws[i], ws[i + 1]]; break;
+    case 'wide': ws[i].wide = !ws[i].wide; break;
+    case 'reset': return defaultDashboardConfig();
+  }
+  if (el.dataset.widget) ws.find((w) => w.id === el.dataset.widget).visible = el.checked;
+  if (el.dataset.stat) cfg.stats = STAT_TILES.map((t) => t.id).filter((id) => (id === el.dataset.stat ? el.checked : cfg.stats.includes(id)));
+  return cfg;
 }
 
 function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
@@ -1216,8 +1229,7 @@ function renderAppearanceSettings() {
   const theme = set.theme || 'system';
   const accent = (set.accent || '#4f46e5').toLowerCase();
   const isPreset = ACCENTS.some(([c]) => c === accent);
-  return `<section class="card">
-    <h2>🎨 Darstellung</h2>
+  return `
     <div class="form" style="padding:0">
       <div>
         <div class="field-label">Hintergrund</div>
@@ -1245,15 +1257,13 @@ function renderAppearanceSettings() {
           <span class="chip active">Filter</span>
         </div>
       </div>
-    </div>
-  </section>`;
+    </div>`;
 }
 
 function renderReminderSettings() {
   const set = data.settings;
   const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : DEFAULT_REMINDERS;
-  return `<section class="card">
-    <h2>😴 Erinnerungen bei eingeschlafenen Projekten</h2>
+  return `
     <p class="small muted">Diese Hinweise erscheinen auf der Übersicht und im Projekt, wenn ein aktives Projekt zu lange ruht.
     Pro Projekt kannst du unter <i>Bearbeiten</i> zusätzlich einen eigenen Text und eine eigene Anzahl Tage festlegen.</p>
     <div class="grid-2">
@@ -1284,8 +1294,7 @@ function renderReminderSettings() {
         <h3>Vorschau</h3>
         <div id="reminder-preview">${reminderPreview(texts, set)}</div>
       </div>
-    </div>
-  </section>`;
+    </div>`;
 }
 
 function previewProject() {
@@ -1324,49 +1333,98 @@ function readReminderForm(form) {
   };
 }
 
+/* Einklappbare Abschnitte der Einstellungen – offener Zustand wird pro Gerät gemerkt. */
+const SECTIONS_KEY = 'projekttracker.ui.openSections';
+let openSections = new Set();
+try { openSections = new Set(JSON.parse(localStorage.getItem(SECTIONS_KEY) || '[]')); } catch { /* ignorieren */ }
+function rememberSections() {
+  try { localStorage.setItem(SECTIONS_KEY, JSON.stringify([...openSections])); } catch { /* ignorieren */ }
+}
+
+function settingsSection(id, icon, title, summary, body) {
+  return `<details class="card settings-section" data-section="${id}" ${openSections.has(id) ? 'open' : ''}>
+    <summary>
+      <span class="sec-icon">${icon}</span>
+      <span class="sec-text"><span class="sec-title">${title}</span><span class="sec-summary">${summary}</span></span>
+      <span class="sec-chev" aria-hidden="true">›</span>
+    </summary>
+    <div class="sec-body">${body}</div>
+  </details>`;
+}
+
+const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'erinnerungen', 'sicherung', 'icloud'];
+
 function renderSettings() {
+  const set = data.settings;
   const size = new Blob([JSON.stringify(data)]).size;
+  const accent = (set.accent || '#4f46e5').toLowerCase();
+  const accentName = (ACCENTS.find(([c]) => c === accent) || [, 'Eigene Farbe'])[1];
+  const themeName = (THEMES.find(([v]) => v === (set.theme || 'system')) || [, ''])[1].replace(/^\S+\s/, '');
+  const dash = dashboardConfig();
+  const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : DEFAULT_REMINDERS;
+  const allOpen = SECTION_IDS.every((id) => openSections.has(id));
+
   return `
-    <div class="page-head"><div><h1>Einstellungen</h1><p>Ziele, Erinnerungen, Datensicherung und Import</p></div></div>
-    ${renderAppearanceSettings()}
-    <div style="margin-top:16px">${renderReminderSettings()}</div>
-    <div class="grid-2" style="margin-top:16px">
-      <section class="card">
-        <h2>🎯 Wochenziel</h2>
-        <form class="form" style="padding:0" data-form="settings">
-          <label>Wochenziel (Stunden für alle Projekte)
-            <input type="number" min="0" step="0.5" name="weeklyHoursGoal" value="${esc(data.settings.weeklyHoursGoal)}">
-          </label>
-          <div class="form-actions"><button class="btn primary" type="submit">Speichern</button></div>
-        </form>
-      </section>
-      <section class="card">
-        <h2>Datensicherung</h2>
-        <p class="small muted">Alle Daten werden nur lokal in diesem Browser gespeichert (${(size / 1024).toFixed(1)} KB).
-        Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung nach iCloud Drive und importierst sie dort.</p>
-        <dl class="kv" style="margin-bottom:16px">
-          <dt>Letzte Sicherung</dt><dd>${esc(fmtDateTime(meta.lastExport))}</dd>
-          <dt>Letzte Änderung</dt><dd>${esc(fmtDateTime(meta.lastChange))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : '<span class="badge aktiv">gesichert</span>'}</dd>
-        </dl>
-        <div class="btn-row">
-          <button class="btn primary" data-action="exportData">⬇ Backup exportieren (JSON)</button>
-          <button class="btn" data-action="exportCsv">⬇ Zeit & Investitionen als CSV</button>
-          <button class="btn" data-action="importData">⬆ Backup importieren</button>
-        </div>
-        <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
-        <h3>Gefahrenzone</h3>
-        <button class="btn danger" data-action="resetData">Alle Daten löschen</button>
-      </section>
+    <div class="page-head">
+      <div><h1>Einstellungen</h1><p>Tippe auf einen Bereich, um ihn auf- oder zuzuklappen.</p></div>
+      <button class="btn small" data-action="toggleAllSections">${allOpen ? 'Alle zuklappen' : 'Alle aufklappen'}</button>
     </div>
 
-    <section class="card help" style="margin-top:16px">
-      <h2>☁️ Mit iCloud zwischen Geräten wechseln</h2>
+    ${settingsSection('darstellung', '🎨', 'Darstellung',
+      `${esc(themeName)} · <span class="dot-color" style="background:${esc(accent)}"></span> ${esc(accentName)}`,
+      renderAppearanceSettings())}
+
+    ${settingsSection('uebersicht', '🧩', 'Übersicht (Dashboard)',
+      `${dash.widgets.filter((w) => w.visible).length} von ${dash.widgets.length} Bereichen · ${dash.stats.length} Kennzahlen`,
+      `<div data-dash-scope="settings">
+        <p class="small muted">Blende Bereiche ein oder aus, ändere die Reihenfolge mit ↑ ↓ und wähle die Breite. Änderungen gelten sofort.
+        Zwei aufeinanderfolgende halbe Bereiche stehen nebeneinander und sind gleich hoch. Auf dem Handy stehen alle Bereiche untereinander.</p>
+        ${dashListHTML(dash)}
+        <h3 style="margin:16px 0 8px">Kennzahlen-Kacheln</h3>
+        <div class="stat-picks form" style="padding:0">${dashStatsHTML(dash)}</div>
+        <div class="btn-row" style="margin-top:16px">
+          <button type="button" class="btn" data-dash="reset">Standard wiederherstellen</button>
+          <a class="btn" href="#/">Zur Übersicht</a>
+        </div>
+      </div>`)}
+
+    ${settingsSection('wochenziel', '🎯', 'Wochenziel',
+      Number(set.weeklyHoursGoal) ? `${esc(String(set.weeklyHoursGoal).replace('.', ','))} Std pro Woche` : 'kein Ziel festgelegt',
+      `<form class="form" style="padding:0" data-form="settings">
+        <label>Wochenziel (Stunden für alle Projekte)
+          <input type="number" min="0" step="0.5" name="weeklyHoursGoal" value="${esc(set.weeklyHoursGoal)}">
+        </label>
+        <div class="form-actions"><button class="btn primary" type="submit">Speichern</button></div>
+      </form>`)}
+
+    ${settingsSection('erinnerungen', '😴', 'Erinnerungen bei eingeschlafenen Projekten',
+      `nach ${esc(set.staleDays)} Tagen · ${texts.length} ${texts.length === 1 ? 'Text' : 'Texte'}`,
+      renderReminderSettings())}
+
+    ${settingsSection('sicherung', '💾', 'Datensicherung',
+      `Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : ''}`,
+      `<p class="small muted">Alle Daten werden nur lokal in diesem Browser gespeichert (${(size / 1024).toFixed(1)} KB).
+      Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung nach iCloud Drive und importierst sie dort.</p>
+      <dl class="kv" style="margin-bottom:16px">
+        <dt>Letzte Sicherung</dt><dd>${esc(fmtDateTime(meta.lastExport))}</dd>
+        <dt>Letzte Änderung</dt><dd>${esc(fmtDateTime(meta.lastChange))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : '<span class="badge aktiv">gesichert</span>'}</dd>
+      </dl>
+      <div class="btn-row">
+        <button class="btn primary" data-action="exportData">⬇ Backup exportieren (JSON)</button>
+        <button class="btn" data-action="exportCsv">⬇ Zeit & Investitionen als CSV</button>
+        <button class="btn" data-action="importData">⬆ Backup importieren</button>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
+      <h3>Gefahrenzone</h3>
+      <button class="btn danger" data-action="resetData">Alle Daten löschen</button>`)}
+
+    ${settingsSection('icloud', '☁️', 'Mit iCloud zwischen Geräten wechseln', 'Anleitung für iPhone, iPad, Mac und Windows',
+      `<div class="help">
       <p>Die Regel ist einfach: <b>Beim Aufhören sichern, beim Anfangen importieren.</b>
       Der Tracker erinnert dich daran: mit der gelben Leiste bei ungesicherten Änderungen, mit der blauen Leiste,
       wenn du ein Gerät länger nicht benutzt hast, und am Mac bzw. PC zusätzlich mit einer Rückfrage beim Schließen.</p>
       <p class="small muted">Damit alle Geräte im selben Ordner landen, stelle überall <b>iCloud Drive › Downloads</b> als Download-Ordner ein.
       Beim Import wählst du dort einfach die neueste Datei (der Dateiname enthält Datum und Uhrzeit).</p>
-
       <div class="grid-2">
         <div>
           <h3>📱 iPhone & iPad (Safari)</h3>
@@ -1393,7 +1451,7 @@ function renderSettings() {
       </div>
       <p class="small muted" style="margin-top:12px">Hinweis: Browser erlauben bei der Rückfrage keinen eigenen Text. Es erscheint die Standardmeldung
       („Diese Website verlassen?“ o. Ä.). Wähle dann „Abbrechen“ / „Bleiben“ und klicke auf 💾 Sichern.</p>
-    </section>`;
+      </div>`)}`;
 }
 
 /* ------------------------------------------------------------------------
@@ -1556,6 +1614,12 @@ const projectOptions = () => data.projects
 const actions = {
   newProject() { projectForm(); },
   customizeDashboard() { openDashboardEditor(); },
+  toggleAllSections() {
+    const allOpen = SECTION_IDS.every((id) => openSections.has(id));
+    openSections = new Set(allOpen ? [] : SECTION_IDS);
+    rememberSections();
+    render();
+  },
   editProject({ id }) { projectForm(getProject(id)); },
 
   deleteProject({ id }) {
@@ -2110,6 +2174,32 @@ document.addEventListener('click', (e) => {
   const sw = e.target.closest('[data-accent]');
   if (!sw) return;
   data.settings.accent = sw.dataset.accent;
+  commit();
+});
+
+// Einstellungen: Auf-/Zuklappen merken ('toggle' blubbert nicht, daher Capture)
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!(d instanceof HTMLDetailsElement) || !d.dataset.section) return;
+  if (d.open) openSections.add(d.dataset.section); else openSections.delete(d.dataset.section);
+  rememberSections();
+  if (d.open) growAll(d); // Textfelder in vorher zugeklappten Bereichen anpassen
+  const btn = document.querySelector('[data-action="toggleAllSections"]');
+  if (btn) btn.textContent = SECTION_IDS.every((id) => openSections.has(id)) ? 'Alle zuklappen' : 'Alle aufklappen';
+}, true);
+
+// Übersicht direkt in den Einstellungen anpassen – Änderungen gelten sofort
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-dash-scope="settings"] [data-dash]');
+  if (!b) return;
+  if (b.dataset.dash === 'reset' && !confirm('Übersicht auf die Standardansicht zurücksetzen?')) return;
+  data.settings.dashboard = applyDashEdit(structuredClone(dashboardConfig()), b);
+  commit();
+});
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  if (!el.closest('[data-dash-scope="settings"]') || (!el.dataset.widget && !el.dataset.stat)) return;
+  data.settings.dashboard = applyDashEdit(structuredClone(dashboardConfig()), el);
   commit();
 });
 
