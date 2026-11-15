@@ -18,6 +18,7 @@ const DEFAULT_DATA = {
     reminderShowNext: true,
     theme: 'system', // 'system' | 'light' | 'dark'
     accent: '#4f46e5',
+    syncService: 'icloud', // Dienst für den Gerätewechsel (nur für Anleitung & Hinweise)
   },
   projects: [],
   timeEntries: [],
@@ -75,6 +76,73 @@ const ACCENTS = [
   ['#16a34a', 'Grün'], ['#ca8a04', 'Gold'], ['#ea580c', 'Orange'], ['#dc2626', 'Rot'],
   ['#db2777', 'Pink'], ['#7c3aed', 'Violett'], ['#475569', 'Schiefer'],
 ];
+// Anleitungen für den Gerätewechsel. Schritte sind statisches HTML (keine Nutzereingaben).
+const SAFARI_IOS = '<i>Einstellungen › Apps › Safari › Downloads</i>';
+const SAFARI_MAC = '<i>Safari › Einstellungen › Allgemein › Speicherort für geladene Dateien</i>';
+const EDGE_DL = '<i>Edge › Einstellungen › Downloads › Speicherort</i>';
+const SYNC_SERVICES = [
+  { id: 'icloud', name: 'iCloud Drive', cloud: true, folder: 'iCloud Drive › Downloads', steps: {
+    ios: [`${SAFARI_IOS} › „iCloud Drive“ wählen (ist meist schon so eingestellt).`,
+      'Import: im Dateidialog <i>Durchsuchen › iCloud Drive › Downloads</i> öffnen.'],
+    mac: [`${SAFARI_MAC} › „Andere …“ › <i>iCloud Drive › Downloads</i> wählen.`,
+      'Falls iCloud Drive fehlt: <i>Systemeinstellungen › [dein Name] › iCloud › iCloud Drive</i> aktivieren.'],
+    win: ['„iCloud für Windows“ aus dem Microsoft Store installieren, anmelden und iCloud Drive aktivieren.',
+      `${EDGE_DL} › <code>iCloud Drive\\Downloads</code> wählen.`],
+    android: ['Für Android gibt es keine iCloud-Drive-App. Nutze <i>icloud.com › Drive</i> im Browser: Sicherung dort hochladen bzw. herunterladen.',
+      'Wenn du regelmäßig Android nutzt, ist einer der anderen Dienste bequemer.'],
+  } },
+  { id: 'onedrive', name: 'OneDrive', cloud: true, folder: 'OneDrive › Projekttracker', steps: {
+    ios: ['OneDrive-App aus dem App Store installieren und anmelden.',
+      'In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „OneDrive“ einschalten.',
+      `${SAFARI_IOS} › „Andere …“ › <i>OneDrive › Projekttracker</i> wählen.`],
+    mac: ['OneDrive-App aus dem App Store installieren und anmelden.',
+      `${SAFARI_MAC} › „Andere …“ › <i>OneDrive › Projekttracker</i> wählen.`],
+    win: ['OneDrive ist in Windows enthalten – mit deinem Microsoft-Konto anmelden.',
+      `${EDGE_DL} › <code>OneDrive\\Projekttracker</code> wählen.`],
+    android: ['OneDrive-App installieren und anmelden.',
+      'Nach dem Export: Download öffnen › <i>Teilen › OneDrive</i> › Ordner „Projekttracker“.',
+      'Import: im Dateidialog über das Menü ☰ „OneDrive“ wählen.'],
+  } },
+  { id: 'gdrive', name: 'Google Drive', cloud: true, folder: 'Google Drive › Meine Ablage › Projekttracker', steps: {
+    ios: ['Google-Drive-App aus dem App Store installieren und anmelden.',
+      'In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „Drive“ einschalten.',
+      `${SAFARI_IOS} › „Andere …“ › <i>Drive › Meine Ablage › Projekttracker</i> wählen.`],
+    mac: ['„Google Drive für Desktop“ installieren und anmelden.',
+      `${SAFARI_MAC} › „Andere …“ › <i>Google Drive › Meine Ablage › Projekttracker</i> wählen.`],
+    win: ['„Google Drive für Desktop“ installieren – danach gibt es das Laufwerk „Google Drive (G:)“.',
+      `${EDGE_DL} › <code>G:\\Meine Ablage\\Projekttracker</code> wählen.`],
+    android: ['Google Drive ist meist vorinstalliert.',
+      'Nach dem Export: Download öffnen › <i>Teilen › Drive</i> › Ordner „Projekttracker“.',
+      'Import: im Dateidialog über das Menü ☰ „Drive“ wählen.'],
+  } },
+  { id: 'dropbox', name: 'Dropbox', cloud: true, folder: 'Dropbox › Projekttracker', steps: {
+    ios: ['Dropbox-App aus dem App Store installieren und anmelden.',
+      'In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „Dropbox“ einschalten.',
+      `${SAFARI_IOS} › „Andere …“ › <i>Dropbox › Projekttracker</i> wählen.`],
+    mac: ['Dropbox-App für macOS installieren und anmelden.',
+      `${SAFARI_MAC} › „Andere …“ › <i>Dropbox › Projekttracker</i> wählen.`],
+    win: ['Dropbox-App für Windows installieren und anmelden.',
+      `${EDGE_DL} › <code>Dropbox\\Projekttracker</code> wählen.`],
+    android: ['Dropbox-App installieren und anmelden.',
+      'Nach dem Export: Download öffnen › <i>Teilen › Dropbox</i> › Ordner „Projekttracker“.',
+      'Import: im Dateidialog über das Menü ☰ „Dropbox“ wählen.'],
+  } },
+  { id: 'none', name: 'Ohne Cloud', cloud: false, folder: 'Download-Ordner', steps: {
+    ios: ['Die Sicherung landet in der Dateien-App unter <i>Downloads</i>.',
+      'Zum Mac: Datei in der Dateien-App lange drücken › <i>Teilen › AirDrop</i>.'],
+    mac: ['Die Sicherung landet im Ordner „Downloads“.',
+      'Zu iPhone/iPad per AirDrop (Rechtsklick › Teilen › AirDrop), zum PC per USB-Stick oder E-Mail an dich selbst.'],
+    win: ['Die Sicherung landet im Ordner „Downloads“.',
+      'Weitergeben per USB-Stick, E-Mail an dich selbst oder „Freigabe in der Nähe“ (andere Windows-Geräte).'],
+    android: ['Die Sicherung landet im Ordner „Download“.',
+      'Weitergeben per „Quick Share“, USB-Kabel oder E-Mail an dich selbst.'],
+  } },
+];
+const SYNC_DEVICES = [
+  ['ios', '📱 iPhone & iPad (Safari)'], ['mac', '💻 Mac (Safari)'], ['win', '🖥 Windows-PC (Edge)'], ['android', '🤖 Android (Chrome)'],
+];
+const syncService = () => SYNC_SERVICES.find((x) => x.id === data.settings.syncService) || SYNC_SERVICES[0];
+
 const THEMES = [['light', '☀️ Hell'], ['dark', '🌙 Dunkel'], ['system', '📱 Wie Gerät']];
 
 const CHEERS = ['Stark! 💪', 'Erledigt! ✅', 'Weiter so! 🚀', 'Super gemacht! 🎉', 'Ein Schritt näher am Ziel! 🏁', 'Läuft bei dir! 🔥'];
@@ -308,9 +376,22 @@ const getProject = (id) => data.projects.find((p) => p.id === id);
    Auswertungen
    ------------------------------------------------------------------------ */
 
+/** Reihenfolge der Meilensteine: nächstes Zieldatum zuerst, ohne Datum danach, erledigte zuletzt. */
+function milestoneRanks() {
+  const ranked = [...data.milestones].sort((a, b) =>
+    Number(!!a.done) - Number(!!b.done) ||
+    (a.dueDate || '9999').localeCompare(b.dueDate || '9999') ||
+    (a.createdAt || '').localeCompare(b.createdAt || ''));
+  return new Map(ranked.map((m, i) => [m.id, i]));
+}
+
+/** Aufgaben sortieren: Priorität › Meilenstein (ohne Meilenstein zuletzt) › Fälligkeit › Anlagedatum. */
 function sortTasks(tasks) {
+  const rank = milestoneRanks();
+  const msRank = (t) => (t.milestoneId && rank.has(t.milestoneId) ? rank.get(t.milestoneId) : Infinity);
   return [...tasks].sort((a, b) =>
     (PRIO_ORDER[a.priority] ?? 1) - (PRIO_ORDER[b.priority] ?? 1) ||
+    (msRank(a) === msRank(b) ? 0 : msRank(a) < msRank(b) ? -1 : 1) ||
     (a.dueDate || '9999').localeCompare(b.dueDate || '9999') ||
     (a.createdAt || '').localeCompare(b.createdAt || ''));
 }
@@ -441,6 +522,18 @@ function weekMinutes(offset = 0, pid) {
   return minutesInRange(toISO(start), toISO(addDays(start, 7)), pid);
 }
 
+/**
+ * Wochenziel: Haben aktive Projekte eine eigene Wochenarbeitszeit, ist das Ziel deren Summe.
+ * Sonst gilt die allgemeine Wochenzeit aus den Einstellungen.
+ */
+const projectWeeklyMin = (p) => Math.max(0, Number(p.weeklyHours) || 0) * 60;
+function weeklyGoal() {
+  const projects = data.projects.filter((p) => p.status === 'aktiv' && projectWeeklyMin(p) > 0);
+  if (projects.length) return { minutes: sum(projects, projectWeeklyMin), source: 'projects', projects };
+  return { minutes: Math.max(0, Number(data.settings.weeklyHoursGoal) || 0) * 60, source: 'general', projects: [] };
+}
+const fmtStd = (h) => `${String(Math.round(h * 100) / 100).replace('.', ',')} Std`;
+
 function calcStreak() {
   const map = dayMap();
   let d = new Date();
@@ -492,7 +585,7 @@ function renderBackupBar() {
     bar.className = 'backup-bar info';
     bar.innerHTML = `<div class="container">
       <span>🔄 Du hast den Tracker auf diesem Gerät zuletzt <b>${esc(fmtDateTime(previousOpen))}</b> geöffnet.
-      Hast du seitdem auf einem anderen Gerät gearbeitet?<span class="long"> Dann importiere zuerst die neueste Sicherung aus iCloud Drive.</span></span>
+      Hast du seitdem auf einem anderen Gerät gearbeitet?<span class="long"> Dann importiere zuerst die neueste Sicherung${syncService().cloud ? ` aus ${esc(syncService().name)}` : ''}.</span></span>
       <span class="btn-row">
         <button class="btn primary small" data-action="importData">⬆ Sicherung importieren</button>
         <button class="btn small" data-action="dismissSyncHint">Nein, weiter</button>
@@ -592,18 +685,24 @@ function renderDashboard() {
   const cfg = dashboardConfig();
   const visible = cfg.widgets.filter((w) => w.visible);
 
-  // Aufeinanderfolgende halbe Bausteine bilden eine zweispaltige Gruppe (abwechselnd links/rechts).
-  // Auf dem Handy werden sie per CSS-order wieder in Listenreihenfolge untereinander gezeigt.
+  // Halbe Bausteine werden paarweise in Zeilen gesetzt – beide Kacheln einer Zeile sind gleich hoch.
+  // Bleibt ein halber Baustein allein (vor einem breiten oder am Ende), nimmt er die ganze Breite ein.
   const blocks = [];
-  let group = null;
-  visible.forEach((w, i) => {
+  let pending = [];
+  const flush = () => {
+    for (let i = 0; i < pending.length; i += 2) {
+      const pair = pending.slice(i, i + 2);
+      blocks.push(`<div class="dash-row ${pair.length === 1 ? 'single' : ''}">${pair.join('')}</div>`);
+    }
+    pending = [];
+  };
+  visible.forEach((w) => {
     const html = renderWidget(w.id, ctx, cfg);
     if (!html) return;
-    if (w.wide) { group = null; blocks.push(`<div class="dash-wide">${html}</div>`); return; }
-    if (!group) { group = { left: [], right: [] }; blocks.push(group); }
-    const item = `<div class="dash-item" style="order:${i}">${html}</div>`;
-    (group.left.length <= group.right.length ? group.left : group.right).push(item);
+    if (w.wide) { flush(); blocks.push(`<div class="dash-wide">${html}</div>`); }
+    else pending.push(html);
   });
+  flush();
 
   return `
     <div class="dash-head">
@@ -611,8 +710,7 @@ function renderDashboard() {
       <button class="btn small" data-action="customizeDashboard">⚙️ Anpassen</button>
     </div>
     <div class="dash">
-      ${blocks.map((b) => typeof b === 'string' ? b
-        : `<div class="dash-group"><div class="dash-col">${b.left.join('')}</div><div class="dash-col">${b.right.join('')}</div></div>`).join('')}
+      ${blocks.join('')}
       ${visible.length ? '' : `<div class="card empty">Alle Bereiche sind ausgeblendet.<br><br><button class="btn primary" data-action="customizeDashboard">Übersicht anpassen</button></div>`}
     </div>`;
 }
@@ -629,7 +727,8 @@ function dashboardContext() {
   return {
     today, active, stats, openTasks, stale,
     overdue: openTasks.filter((t) => isOverdue(t.dueDate)),
-    goalMin: (Number(data.settings.weeklyHoursGoal) || 0) * 60,
+    goal: weeklyGoal(),
+    goalMin: weeklyGoal().minutes,
     thisWeek: weekMinutes(0),
     lastWeek: weekMinutes(-1),
     streak: calcStreak(),
@@ -690,12 +789,17 @@ function renderWidget(id, c, cfg) {
       return card('📊 Stunden pro Woche', weekBars());
 
     case 'weekProjects': {
-      const rows = data.projects.map((p) => ({ p, min: weekMinutes(0, p.id) })).filter((x) => x.min > 0).sort((a, b) => b.min - a.min);
+      // Projekte mit Zeit diese Woche oder mit eigenem Wochenziel (aktiv)
+      const rows = data.projects
+        .map((p) => ({ p, min: weekMinutes(0, p.id), goal: p.status === 'aktiv' ? projectWeeklyMin(p) : 0 }))
+        .filter((x) => x.min > 0 || x.goal > 0)
+        .sort((a, b) => (b.goal ? b.min / b.goal : 0) - (a.goal ? a.min / a.goal : 0) || b.min - a.min);
       const max = Math.max(1, ...rows.map((r) => r.min));
-      return card('⏱ Zeit diese Woche', rows.length ? `<ul class="list">${rows.map(({ p, min }) => `
+      return card('⏱ Zeit diese Woche', rows.length ? `<ul class="list">${rows.map(({ p, min, goal }) => `
         <li><div class="grow">
-          <div class="row-between"><a href="#/projekt/${p.id}">${esc(p.name)}</a><span class="amount">${fmtDuration(min)}</span></div>
-          <div class="progress" style="margin-top:6px"><span style="width:${(min / max) * 100}%;background:${esc(p.color)}"></span></div>
+          <div class="row-between"><a href="#/projekt/${p.id}">${esc(p.name)}</a>
+            <span class="amount">${fmtDuration(min)}${goal ? ` <span class="muted small">/ ${fmtStd(goal / 60)}</span>` : ''}</span></div>
+          <div class="progress ${goal && min >= goal ? 'good' : ''}" style="margin-top:6px"><span style="width:${Math.min(100, (min / (goal || max)) * 100)}%;${goal && min >= goal ? '' : `background:${esc(p.color)}`}"></span></div>
         </div></li>`).join('')}</ul>` : '<div class="empty">Diese Woche noch keine Zeit erfasst.</div>');
     }
 
@@ -744,8 +848,9 @@ function statTile(id, c) {
   switch (id) {
     case 'week': {
       const diff = c.thisWeek - c.lastWeek;
+      const src = c.goal.source === 'projects' ? ` (${c.goal.projects.length} ${c.goal.projects.length === 1 ? 'Projekt' : 'Projekte'})` : '';
       return tile('Diese Woche', fmtHours(c.thisWeek),
-        `${c.goalMin ? `Ziel: ${fmtHours(c.goalMin)} · ` : ''}${diff >= 0 ? '▲' : '▼'} ${fmtHours(Math.abs(diff))} ggü. Vorwoche`,
+        `${c.goalMin ? `Ziel: ${fmtHours(c.goalMin)}${src} · ` : ''}${diff >= 0 ? '▲' : '▼'} ${fmtHours(Math.abs(diff))} ggü. Vorwoche`,
         c.goalMin ? progressBar((c.thisWeek / c.goalMin) * 100, c.thisWeek >= c.goalMin ? 'good' : '') : '');
     }
     case 'streak':
@@ -782,6 +887,7 @@ function openDashboardEditor() {
   dlg.innerHTML = `<form class="form dash-editor" novalidate>
     <h2>Übersicht anpassen</h2>
     <p class="small muted" style="margin:0">Blende Bereiche ein oder aus, ändere die Reihenfolge mit ↑ ↓ und wähle die Breite.
+    Zwei aufeinanderfolgende halbe Bereiche stehen nebeneinander und sind gleich hoch; ein einzelner halber Bereich nutzt die ganze Breite.
     Auf dem Handy werden alle Bereiche untereinander angezeigt.</p>
     <div id="dash-editor-list"></div>
     <h3 style="margin:8px 0 0">Kennzahlen-Kacheln</h3>
@@ -797,21 +903,12 @@ function openDashboardEditor() {
   form.addEventListener('click', (e) => {
     const b = e.target.closest('[data-dash]');
     if (!b) return;
-    const i = Number(b.dataset.i);
-    const ws = dashDraft.widgets;
-    if (b.dataset.dash === 'up' && i > 0) [ws[i - 1], ws[i]] = [ws[i], ws[i - 1]];
-    if (b.dataset.dash === 'down' && i < ws.length - 1) [ws[i + 1], ws[i]] = [ws[i], ws[i + 1]];
-    if (b.dataset.dash === 'wide') ws[i].wide = !ws[i].wide;
-    if (b.dataset.dash === 'reset') dashDraft = defaultDashboardConfig();
+    dashDraft = applyDashEdit(dashDraft, b);
     renderDashEditor();
   });
   form.addEventListener('change', (e) => {
-    const el = e.target;
-    if (el.dataset.widget) dashDraft.widgets.find((w) => w.id === el.dataset.widget).visible = el.checked;
-    if (el.dataset.stat) {
-      dashDraft.stats = STAT_TILES.map((t) => t.id).filter((id) =>
-        id === el.dataset.stat ? el.checked : dashDraft.stats.includes(id));
-    }
+    if (!e.target.dataset.widget && !e.target.dataset.stat) return;
+    dashDraft = applyDashEdit(dashDraft, e.target);
     renderDashEditor();
   });
   form.addEventListener('submit', (e) => {
@@ -828,9 +925,13 @@ function openDashboardEditor() {
 }
 
 function renderDashEditor() {
-  const list = $('#dash-editor-list');
-  const n = dashDraft.widgets.length;
-  list.innerHTML = `<ul class="list dash-editor-list">${dashDraft.widgets.map((w, i) => {
+  $('#dash-editor-list').innerHTML = dashListHTML(dashDraft);
+  $('#dash-editor-stats').innerHTML = dashStatsHTML(dashDraft);
+}
+
+function dashListHTML(cfg) {
+  const n = cfg.widgets.length;
+  return `<ul class="list dash-editor-list">${cfg.widgets.map((w, i) => {
     const meta = WIDGETS.find((x) => x.id === w.id);
     return `<li class="${w.visible ? '' : 'off'}">
       <label class="dash-toggle"><input type="checkbox" data-widget="${w.id}" ${w.visible ? 'checked' : ''}>
@@ -840,8 +941,26 @@ function renderDashEditor() {
       <button type="button" class="btn ghost icon" data-dash="down" data-i="${i}" ${i === n - 1 ? 'disabled' : ''} title="Nach unten">↓</button>
     </li>`;
   }).join('')}</ul>`;
-  $('#dash-editor-stats').innerHTML = STAT_TILES.map((t) => `
-    <label class="check-row"><input type="checkbox" data-stat="${t.id}" ${dashDraft.stats.includes(t.id) ? 'checked' : ''}> ${esc(t.label)}</label>`).join('');
+}
+
+function dashStatsHTML(cfg) {
+  return STAT_TILES.map((t) => `
+    <label class="check-row"><input type="checkbox" data-stat="${t.id}" ${cfg.stats.includes(t.id) ? 'checked' : ''}> ${esc(t.label)}</label>`).join('');
+}
+
+/** Gemeinsame Logik für Dialog und Einstellungen: wendet eine Bedienung auf eine Konfiguration an. */
+function applyDashEdit(cfg, el) {
+  const ws = cfg.widgets;
+  const i = Number(el.dataset.i);
+  switch (el.dataset.dash) {
+    case 'up': if (i > 0) [ws[i - 1], ws[i]] = [ws[i], ws[i - 1]]; break;
+    case 'down': if (i < ws.length - 1) [ws[i + 1], ws[i]] = [ws[i], ws[i + 1]]; break;
+    case 'wide': ws[i].wide = !ws[i].wide; break;
+    case 'reset': return defaultDashboardConfig();
+  }
+  if (el.dataset.widget) ws.find((w) => w.id === el.dataset.widget).visible = el.checked;
+  if (el.dataset.stat) cfg.stats = STAT_TILES.map((t) => t.id).filter((id) => (id === el.dataset.stat ? el.checked : cfg.stats.includes(id)));
+  return cfg;
 }
 
 function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
@@ -999,6 +1118,10 @@ function projectCard(p, s) {
           <div class="row small muted" style="margin-bottom:4px"><span>Fortschritt</span><span>${s.progress}%</span></div>
           ${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
         </div>
+        ${p.status === 'aktiv' && projectWeeklyMin(p) ? `<div>
+          <div class="row small muted" style="margin-bottom:4px"><span>Diese Woche</span><span>${fmtHours(weekMinutes(0, p.id))} / ${fmtStd(projectWeeklyMin(p) / 60)}</span></div>
+          ${progressBar((weekMinutes(0, p.id) / projectWeeklyMin(p)) * 100, weekMinutes(0, p.id) >= projectWeeklyMin(p) ? 'good' : '')}
+        </div>` : ''}
         <div class="figures">
           <span>⏱ <b>${fmtHours(s.minutes)}</b></span>
           <span>💶 <b>${fmtEUR(s.invested)}</b></span>
@@ -1080,7 +1203,11 @@ function projectOverview(p, s) {
       <div class="stat"><div class="label">Fortschritt</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
         <div class="sub">${s.msTotal ? `${s.msDone}/${s.msTotal} Meilensteine` : `${s.tasksDone}/${s.tasksTotal} Aufgaben`}</div></div>
       <div class="stat"><div class="label">Zeit gesamt</div><div class="value">${fmtHours(s.minutes)}</div>
-        ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">von ${hourGoal} Std geplant</div>` : `<div class="sub">${fmtHours(weekMinutes(0, p.id))} diese Woche</div>`}</div>
+        ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">von ${hourGoal} Std geplant</div>` : '<div class="sub">keine Gesamtzeit geplant</div>'}</div>
+      <div class="stat"><div class="label">Diese Woche</div><div class="value">${fmtHours(weekMinutes(0, p.id))}</div>
+        ${projectWeeklyMin(p) ? progressBar((weekMinutes(0, p.id) / projectWeeklyMin(p)) * 100, weekMinutes(0, p.id) >= projectWeeklyMin(p) ? 'good' : '')
+          + `<div class="sub">Wochenziel: ${fmtStd(projectWeeklyMin(p) / 60)}${p.status === 'aktiv' ? '' : ' (zählt nur bei aktiven Projekten)'}</div>`
+          : '<div class="sub">kein eigenes Wochenziel</div>'}</div>
       <div class="stat"><div class="label">Investiert</div><div class="value">${fmtEUR(s.invested)}</div>
         ${budget ? progressBar((s.invested / budget) * 100, s.invested > budget ? 'over' : '') + `<div class="sub">Budget ${fmtEUR(budget)} · ${s.invested > budget ? 'überschritten' : `${fmtEUR(budget - s.invested)} übrig`}</div>` : '<div class="sub">kein Budget festgelegt</div>'}</div>
       <div class="stat"><div class="label">Offene Aufgaben</div><div class="value">${s.tasksOpen}</div><div class="sub">${s.tasksDone} erledigt</div></div>
@@ -1125,7 +1252,11 @@ function projectTasks(p) {
   const done = tasks.filter((t) => t.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
   return `<section class="card">
     <div class="card-head"><h2>Offene Aufgaben (${open.length})</h2><button class="btn primary small" data-action="addTask" data-id="${p.id}">+ Aufgabe</button></div>
-    ${open.length ? `<ul class="list">${open.map((t) => taskItem(t)).join('')}</ul>` : '<div class="empty">Keine offenen Aufgaben. 🎉</div>'}
+    ${open.length ? PRIORITIES.map(({ value, label }) => {
+      const group = open.filter((t) => (t.priority || 'mittel') === value);
+      return group.length ? `<h3 class="task-group"><span class="badge ${value}">${label}</span> <span class="muted small">${group.length}</span></h3>
+        <ul class="list">${group.map((t) => taskItem(t)).join('')}</ul>` : '';
+    }).join('') : '<div class="empty">Keine offenen Aufgaben. 🎉</div>'}
     ${done.length ? `<details class="done-list"><summary>Erledigt (${done.length})</summary><ul class="list">${done.map((t) => taskItem(t)).join('')}</ul></details>` : ''}
   </section>`;
 }
@@ -1210,8 +1341,7 @@ function renderAppearanceSettings() {
   const theme = set.theme || 'system';
   const accent = (set.accent || '#4f46e5').toLowerCase();
   const isPreset = ACCENTS.some(([c]) => c === accent);
-  return `<section class="card">
-    <h2>🎨 Darstellung</h2>
+  return `
     <div class="form" style="padding:0">
       <div>
         <div class="field-label">Hintergrund</div>
@@ -1239,15 +1369,13 @@ function renderAppearanceSettings() {
           <span class="chip active">Filter</span>
         </div>
       </div>
-    </div>
-  </section>`;
+    </div>`;
 }
 
 function renderReminderSettings() {
   const set = data.settings;
   const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : DEFAULT_REMINDERS;
-  return `<section class="card">
-    <h2>😴 Erinnerungen bei eingeschlafenen Projekten</h2>
+  return `
     <p class="small muted">Diese Hinweise erscheinen auf der Übersicht und im Projekt, wenn ein aktives Projekt zu lange ruht.
     Pro Projekt kannst du unter <i>Bearbeiten</i> zusätzlich einen eigenen Text und eine eigene Anzahl Tage festlegen.</p>
     <div class="grid-2">
@@ -1278,8 +1406,7 @@ function renderReminderSettings() {
         <h3>Vorschau</h3>
         <div id="reminder-preview">${reminderPreview(texts, set)}</div>
       </div>
-    </div>
-  </section>`;
+    </div>`;
 }
 
 function previewProject() {
@@ -1318,76 +1445,160 @@ function readReminderForm(form) {
   };
 }
 
-function renderSettings() {
-  const size = new Blob([JSON.stringify(data)]).size;
+/* Einklappbare Abschnitte der Einstellungen – offener Zustand wird pro Gerät gemerkt. */
+const SECTIONS_KEY = 'projekttracker.ui.openSections';
+let openSections = new Set();
+try { openSections = new Set(JSON.parse(localStorage.getItem(SECTIONS_KEY) || '[]')); } catch { /* ignorieren */ }
+function rememberSections() {
+  try { localStorage.setItem(SECTIONS_KEY, JSON.stringify([...openSections])); } catch { /* ignorieren */ }
+}
+
+function settingsSection(id, icon, title, summary, body) {
+  return `<details class="card settings-section" data-section="${id}" ${openSections.has(id) ? 'open' : ''}>
+    <summary>
+      <span class="sec-icon">${icon}</span>
+      <span class="sec-text"><span class="sec-title">${title}</span><span class="sec-summary">${summary}</span></span>
+      <span class="sec-chev" aria-hidden="true">›</span>
+    </summary>
+    <div class="sec-body">${body}</div>
+  </details>`;
+}
+
+function weeklyGoalSummary() {
+  const g = weeklyGoal();
+  if (!g.minutes) return 'kein Ziel festgelegt';
+  return g.source === 'projects'
+    ? `${fmtStd(g.minutes / 60)} pro Woche · Summe aus ${g.projects.length} ${g.projects.length === 1 ? 'Projekt' : 'Projekten'}`
+    : `${fmtStd(g.minutes / 60)} pro Woche · Standard`;
+}
+
+function renderWeeklyGoalSettings() {
+  const g = weeklyGoal();
+  const set = data.settings;
+  const active = data.projects.filter((p) => p.status === 'aktiv');
   return `
-    <div class="page-head"><div><h1>Einstellungen</h1><p>Ziele, Erinnerungen, Datensicherung und Import</p></div></div>
-    ${renderAppearanceSettings()}
-    <div style="margin-top:16px">${renderReminderSettings()}</div>
-    <div class="grid-2" style="margin-top:16px">
-      <section class="card">
-        <h2>🎯 Wochenziel</h2>
-        <form class="form" style="padding:0" data-form="settings">
-          <label>Wochenziel (Stunden für alle Projekte)
-            <input type="number" min="0" step="0.5" name="weeklyHoursGoal" value="${esc(data.settings.weeklyHoursGoal)}">
-          </label>
-          <div class="form-actions"><button class="btn primary" type="submit">Speichern</button></div>
-        </form>
-      </section>
-      <section class="card">
-        <h2>Datensicherung</h2>
-        <p class="small muted">Alle Daten werden nur lokal in diesem Browser gespeichert (${(size / 1024).toFixed(1)} KB).
-        Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung nach iCloud Drive und importierst sie dort.</p>
-        <dl class="kv" style="margin-bottom:16px">
-          <dt>Letzte Sicherung</dt><dd>${esc(fmtDateTime(meta.lastExport))}</dd>
-          <dt>Letzte Änderung</dt><dd>${esc(fmtDateTime(meta.lastChange))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : '<span class="badge aktiv">gesichert</span>'}</dd>
-        </dl>
-        <div class="btn-row">
-          <button class="btn primary" data-action="exportData">⬇ Backup exportieren (JSON)</button>
-          <button class="btn" data-action="exportCsv">⬇ Zeit & Investitionen als CSV</button>
-          <button class="btn" data-action="importData">⬆ Backup importieren</button>
-        </div>
-        <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
-        <h3>Gefahrenzone</h3>
-        <button class="btn danger" data-action="resetData">Alle Daten löschen</button>
-      </section>
+    <p class="small muted">Du kannst bei jedem Projekt unter <i>Bearbeiten</i> eine <b>Wochenarbeitszeit</b> eintragen.
+    Dann ist dein Wochenziel die <b>Summe der Wochenzeiten aller aktiven Projekte</b>. Hat kein aktives Projekt eine Wochenzeit, gilt das Standard-Wochenziel.</p>
+    ${active.length ? `<ul class="list weekly-list">${active.map((p) => `
+      <li>
+        <span class="dot-color" style="background:${esc(p.color)}"></span>
+        <div class="grow"><a href="#/projekt/${p.id}">${esc(p.name)}</a></div>
+        <span class="amount ${projectWeeklyMin(p) ? '' : 'muted'}">${projectWeeklyMin(p) ? fmtStd(projectWeeklyMin(p) / 60) : '–'}</span>
+        <button class="btn ghost icon" data-action="editProject" data-id="${p.id}" title="Wochenzeit bearbeiten">✎</button>
+      </li>`).join('')}
+      <li class="weekly-total"><div class="grow"><b>Wochenziel gesamt</b>
+        <div class="small muted">${g.source === 'projects' ? 'Summe der Projekt-Wochenzeiten' : 'kein Projekt hat eine Wochenzeit – Standard gilt'}</div></div>
+        <span class="amount">${g.minutes ? fmtStd(g.minutes / 60) : '–'}</span><span style="width:40px"></span></li>
+    </ul>` : '<p class="small muted">Noch keine aktiven Projekte.</p>'}
+    <form class="form" style="padding:0;margin-top:16px" data-form="settings">
+      <label>Standard-Wochenziel (Stunden für alle Projekte)
+        <input type="number" min="0" step="0.5" name="weeklyHoursGoal" value="${esc(set.weeklyHoursGoal)}">
+        <span class="hint">${g.source === 'projects'
+          ? '⚠️ Wird gerade nicht verwendet, weil Projekte eigene Wochenzeiten haben.'
+          : 'Gilt, solange kein aktives Projekt eine eigene Wochenarbeitszeit hat.'}</span>
+      </label>
+      <div class="form-actions"><button class="btn primary" type="submit">Speichern</button></div>
+    </form>`;
+}
+
+const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'erinnerungen', 'sicherung', 'sync'];
+
+function renderSyncGuide() {
+  const svc = syncService();
+  return `<div class="help">
+    <p>Die Regel ist einfach: <b>Beim Aufhören sichern (💾), beim Anfangen importieren.</b>
+    Der Tracker erinnert dich daran: mit der gelben Leiste bei ungesicherten Änderungen, mit der blauen Leiste,
+    wenn du ein Gerät länger nicht benutzt hast, und am Computer zusätzlich mit einer Rückfrage beim Schließen.</p>
+
+    <div class="field-label">Welchen Dienst nutzt du?</div>
+    <div class="segmented" role="radiogroup" aria-label="Dienst">
+      ${SYNC_SERVICES.map((x) => `<label><input type="radio" name="syncService" value="${x.id}" data-sync-opt ${x.id === svc.id ? 'checked' : ''}>${esc(x.name)}</label>`).join('')}
     </div>
 
-    <section class="card help" style="margin-top:16px">
-      <h2>☁️ Mit iCloud zwischen Geräten wechseln</h2>
-      <p>Die Regel ist einfach: <b>Beim Aufhören sichern, beim Anfangen importieren.</b>
-      Der Tracker erinnert dich daran: mit der gelben Leiste bei ungesicherten Änderungen, mit der blauen Leiste,
-      wenn du ein Gerät länger nicht benutzt hast, und am Mac bzw. PC zusätzlich mit einer Rückfrage beim Schließen.</p>
-      <p class="small muted">Damit alle Geräte im selben Ordner landen, stelle überall <b>iCloud Drive › Downloads</b> als Download-Ordner ein.
-      Beim Import wählst du dort einfach die neueste Datei (der Dateiname enthält Datum und Uhrzeit).</p>
+    <p class="small muted" style="margin-top:12px">${svc.cloud
+      ? `Stelle auf allen Geräten denselben Ordner als Download-Ordner ein: <b>${esc(svc.folder)}</b>.
+         Dann landet jede Sicherung automatisch dort und ist auf deinen anderen Geräten verfügbar.
+         Beim Import wählst du die neueste Datei – der Dateiname enthält Datum und Uhrzeit.`
+      : 'Ohne Cloud-Dienst überträgst du die Sicherungsdatei selbst auf das andere Gerät und importierst sie dort. Der Dateiname enthält Datum und Uhrzeit.'}</p>
 
-      <div class="grid-2">
-        <div>
-          <h3>📱 iPhone & iPad (Safari)</h3>
-          <ol>
-            <li><b>Zum Home-Bildschirm hinzufügen</b> (Teilen-Symbol › „Zum Home-Bildschirm“) und den Tracker immer darüber öffnen.
-              Sonst kann Safari die Daten nach 7 Tagen ohne Besuch löschen.</li>
-            <li>Download-Ordner prüfen: <i>Einstellungen › Apps › Safari › Downloads</i> › „iCloud Drive“ (ist meist schon so eingestellt).</li>
-            <li>Beim Schließen gibt es auf iPhone/iPad <b>keine Rückfrage</b> – achte auf die gelbe Leiste und den 💾-Knopf mit dem orangefarbenen Punkt.</li>
-          </ol>
+    <div class="grid-2 sync-devices">
+      ${SYNC_DEVICES.map(([key, label]) => `<div>
+        <h3>${label}</h3>
+        <ol>${svc.steps[key].map((step) => `<li>${step}</li>`).join('')}</ol>
+      </div>`).join('')}
+    </div>
+
+    <h3>Gut zu wissen</h3>
+    <ul>
+      <li><b>iPhone & iPad:</b> Füge den Tracker über <i>Teilen › Zum Home-Bildschirm</i> hinzu und öffne ihn immer darüber.
+        Sonst kann Safari die Daten nach 7 Tagen ohne Besuch löschen. Beim Schließen gibt es dort keine Rückfrage – achte auf die gelbe Leiste und den 💾-Knopf.</li>
+      <li><b>Chrome oder Edge am Mac:</b> Download-Ordner unter <i>Einstellungen › Downloads › Speicherort</i> festlegen.</li>
+      <li><b>Rückfrage beim Schließen:</b> Browser erlauben dort keinen eigenen Text. Bei „Diese Website verlassen?“ wähle „Abbrechen“ bzw. „Bleiben“ und tippe auf 💾 Sichern.</li>
+    </ul>
+  </div>`;
+}
+
+function renderSettings() {
+  const set = data.settings;
+  const size = new Blob([JSON.stringify(data)]).size;
+  const accent = (set.accent || '#4f46e5').toLowerCase();
+  const accentName = (ACCENTS.find(([c]) => c === accent) || [, 'Eigene Farbe'])[1];
+  const themeName = (THEMES.find(([v]) => v === (set.theme || 'system')) || [, ''])[1].replace(/^\S+\s/, '');
+  const dash = dashboardConfig();
+  const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : DEFAULT_REMINDERS;
+  const allOpen = SECTION_IDS.every((id) => openSections.has(id));
+
+  return `
+    <div class="page-head">
+      <div><h1>Einstellungen</h1><p>Tippe auf einen Bereich, um ihn auf- oder zuzuklappen.</p></div>
+      <button class="btn small" data-action="toggleAllSections">${allOpen ? 'Alle zuklappen' : 'Alle aufklappen'}</button>
+    </div>
+
+    ${settingsSection('darstellung', '🎨', 'Darstellung',
+      `${esc(themeName)} · <span class="dot-color" style="background:${esc(accent)}"></span> ${esc(accentName)}`,
+      renderAppearanceSettings())}
+
+    ${settingsSection('uebersicht', '🧩', 'Übersicht (Dashboard)',
+      `${dash.widgets.filter((w) => w.visible).length} von ${dash.widgets.length} Bereichen · ${dash.stats.length} Kennzahlen`,
+      `<div data-dash-scope="settings">
+        <p class="small muted">Blende Bereiche ein oder aus, ändere die Reihenfolge mit ↑ ↓ und wähle die Breite. Änderungen gelten sofort.
+        Zwei aufeinanderfolgende halbe Bereiche stehen nebeneinander und sind gleich hoch. Auf dem Handy stehen alle Bereiche untereinander.</p>
+        ${dashListHTML(dash)}
+        <h3 style="margin:16px 0 8px">Kennzahlen-Kacheln</h3>
+        <div class="stat-picks form" style="padding:0">${dashStatsHTML(dash)}</div>
+        <div class="btn-row" style="margin-top:16px">
+          <button type="button" class="btn" data-dash="reset">Standard wiederherstellen</button>
+          <a class="btn" href="#/">Zur Übersicht</a>
         </div>
-        <div>
-          <h3>💻 Mac (Safari)</h3>
-          <ol>
-            <li><i>Safari › Einstellungen › Allgemein › Speicherort für geladene Dateien</i> › Ordner „Downloads“ in iCloud Drive wählen.</li>
-            <li>Beim Schließen des Tabs oder von Safari fragt der Browser nach, falls noch nicht gesichert wurde.</li>
-          </ol>
-          <h3>🖥 Windows-PC (Edge)</h3>
-          <ol>
-            <li>„iCloud für Windows“ aus dem Microsoft Store installieren und iCloud Drive aktivieren.</li>
-            <li><i>Edge › Einstellungen › Downloads › Speicherort</i> › <code>iCloud Drive\\Downloads</code> wählen.</li>
-            <li>Beim Schließen des Tabs oder von Edge fragt der Browser nach, falls noch nicht gesichert wurde.</li>
-          </ol>
-        </div>
+      </div>`)}
+
+    ${settingsSection('wochenziel', '🎯', 'Wochenziel', weeklyGoalSummary(), renderWeeklyGoalSettings())}
+
+    ${settingsSection('erinnerungen', '😴', 'Erinnerungen bei eingeschlafenen Projekten',
+      `nach ${esc(set.staleDays)} Tagen · ${texts.length} ${texts.length === 1 ? 'Text' : 'Texte'}`,
+      renderReminderSettings())}
+
+    ${settingsSection('sicherung', '💾', 'Datensicherung',
+      `Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : ''}`,
+      `<p class="small muted">Alle Daten werden nur lokal in diesem Browser gespeichert (${(size / 1024).toFixed(1)} KB).
+      Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung${syncService().cloud ? ` nach ${esc(syncService().name)}` : ' und überträgst sie'} und importierst sie dort.
+      Wie das geht, steht unter „Zwischen Geräten wechseln“.</p>
+      <dl class="kv" style="margin-bottom:16px">
+        <dt>Letzte Sicherung</dt><dd>${esc(fmtDateTime(meta.lastExport))}</dd>
+        <dt>Letzte Änderung</dt><dd>${esc(fmtDateTime(meta.lastChange))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : '<span class="badge aktiv">gesichert</span>'}</dd>
+      </dl>
+      <div class="btn-row">
+        <button class="btn primary" data-action="exportData">⬇ Backup exportieren (JSON)</button>
+        <button class="btn" data-action="exportCsv">⬇ Zeit & Investitionen als CSV</button>
+        <button class="btn" data-action="importData">⬆ Backup importieren</button>
       </div>
-      <p class="small muted" style="margin-top:12px">Hinweis: Browser erlauben bei der Rückfrage keinen eigenen Text. Es erscheint die Standardmeldung
-      („Diese Website verlassen?“ o. Ä.). Wähle dann „Abbrechen“ / „Bleiben“ und klicke auf 💾 Sichern.</p>
-    </section>`;
+      <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
+      <h3>Gefahrenzone</h3>
+      <button class="btn danger" data-action="resetData">Alle Daten löschen</button>`)}
+
+    ${settingsSection('sync', '🔄', 'Zwischen Geräten wechseln',
+      `Anleitung für iCloud, OneDrive, Google Drive, Dropbox · gewählt: ${esc(syncService().name)}`,
+      renderSyncGuide())}`;
 }
 
 /* ------------------------------------------------------------------------
@@ -1550,6 +1761,12 @@ const projectOptions = () => data.projects
 const actions = {
   newProject() { projectForm(); },
   customizeDashboard() { openDashboardEditor(); },
+  toggleAllSections() {
+    const allOpen = SECTION_IDS.every((id) => openSections.has(id));
+    openSections = new Set(allOpen ? [] : SECTION_IDS);
+    rememberSections();
+    render();
+  },
   editProject({ id }) { projectForm(getProject(id)); },
 
   deleteProject({ id }) {
@@ -1688,7 +1905,8 @@ const actions = {
     meta.lastExport = Date.now();
     saveMeta();
     render();
-    toast('Sicherung exportiert ✔ – lege die Datei in iCloud Drive ab.');
+    const svc = syncService();
+    toast(`Sicherung exportiert ✔ – sie liegt in deinem Download-Ordner${svc.cloud ? ` (ideal: ${svc.folder})` : ''}.`);
   },
   resetReminders() {
     const ta = document.querySelector('[data-form="reminders"] textarea[name="reminderTexts"]');
@@ -1759,6 +1977,8 @@ const actions = {
 
 /* ---------------------------- Formulardefinitionen ----------------------- */
 
+const decimalValue = (n) => (n === null || n === undefined || n === '' ? '' : String(n).replace('.', ','));
+
 function projectForm(p) {
   const isNew = !p;
   p = p || { status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
@@ -1778,8 +1998,10 @@ function projectForm(p) {
         hint: 'Leer = allgemeine Texte aus den Einstellungen. Platzhalter: {projekt}, {tage}, {warum}, {schritt}, {ziel}, {stunden}. Mehrere Zeilen = wechselt täglich.' },
       { name: 'staleDays', label: 'Erinnern nach … Tagen ohne Aktivität', type: 'number', value: p.staleDays,
         placeholder: `Standard: ${data.settings.staleDays}`, hint: 'Leer = Standard aus den Einstellungen.' },
-      { name: 'hourGoal', label: 'Geplante Zeit (Std)', type: 'number', value: p.hourGoal, half: true },
-      { name: 'budget', label: 'Budget (€)', type: 'decimal', value: p.budget != null ? String(p.budget).replace('.', ',') : '', half: true },
+      { name: 'weeklyHours', label: 'Wochenarbeitszeit (Std)', type: 'decimal', value: decimalValue(p.weeklyHours), half: true,
+        placeholder: 'z. B. 4 oder 2,5', hint: 'Leer = kein eigenes Wochenziel' },
+      { name: 'hourGoal', label: 'Geplante Gesamtzeit (Std)', type: 'decimal', value: decimalValue(p.hourGoal), half: true, hint: 'für das ganze Projekt' },
+      { name: 'budget', label: 'Budget (€)', type: 'decimal', value: decimalValue(p.budget), half: true },
       { name: 'targetDate', label: 'Zieltermin', type: 'date', value: p.targetDate, half: true },
       { name: 'color', label: 'Farbe', type: 'color', value: p.color, half: true },
     ],
@@ -2001,7 +2223,7 @@ function demoData() {
   const shop = P({ name: 'Online-Shop für Holzdeko', status: 'aktiv', category: 'Nebenprojekt', color: '#f59e0b',
     description: 'Eigene Holzarbeiten über einen kleinen Online-Shop verkaufen.',
     why: 'Ich möchte mir ein zweites Standbein aufbauen und mein Hobby zum Beruf machen.',
-    goal: 'Shop ist online und die ersten 10 Bestellungen sind verschickt.', hourGoal: 80, budget: 600, targetDate: ahead(45) });
+    goal: 'Shop ist online und die ersten 10 Bestellungen sind verschickt.', hourGoal: 80, weeklyHours: 4, budget: 600, targetDate: ahead(45) });
   const m1 = M(shop, 'Produktfotos fertig', ago(20), ago(18));
   const m2 = M(shop, 'Shop online', ahead(10));
   M(shop, 'Erste 10 Bestellungen', ahead(45));
@@ -2023,7 +2245,7 @@ function demoData() {
 
   const app = P({ name: 'Fitness-App lernen', status: 'aktiv', category: 'Weiterbildung', color: '#6366f1',
     description: 'Programmieren lernen, indem ich eine eigene kleine Trainings-App baue.',
-    why: 'Ich will verstehen, wie Apps funktionieren – und endlich meine eigenen Trainingsdaten auswerten.', hourGoal: 50 });
+    why: 'Ich will verstehen, wie Apps funktionieren – und endlich meine eigenen Trainingsdaten auswerten.', hourGoal: 50, weeklyHours: 2 });
   M(app, 'Grundkurs abgeschlossen', ago(35), ago(33));
   M(app, 'Erste Version auf dem Handy', ahead(20));
   K(app, 'Kapitel 7 (Datenbanken) durcharbeiten', 'mittel');
@@ -2087,6 +2309,13 @@ document.addEventListener('submit', (e) => {
   toast('Erinnerungen gespeichert');
 });
 
+// Dienst für den Gerätewechsel
+document.addEventListener('change', (e) => {
+  if (!e.target.matches('[data-sync-opt]')) return;
+  data.settings.syncService = e.target.value;
+  commit();
+});
+
 // Darstellung: Hell/Dunkel und Akzentfarbe – wird sofort angewendet und gespeichert
 document.addEventListener('change', (e) => {
   if (e.target.matches('[data-theme-opt]')) {
@@ -2104,6 +2333,32 @@ document.addEventListener('click', (e) => {
   const sw = e.target.closest('[data-accent]');
   if (!sw) return;
   data.settings.accent = sw.dataset.accent;
+  commit();
+});
+
+// Einstellungen: Auf-/Zuklappen merken ('toggle' blubbert nicht, daher Capture)
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!(d instanceof HTMLDetailsElement) || !d.dataset.section) return;
+  if (d.open) openSections.add(d.dataset.section); else openSections.delete(d.dataset.section);
+  rememberSections();
+  if (d.open) growAll(d); // Textfelder in vorher zugeklappten Bereichen anpassen
+  const btn = document.querySelector('[data-action="toggleAllSections"]');
+  if (btn) btn.textContent = SECTION_IDS.every((id) => openSections.has(id)) ? 'Alle zuklappen' : 'Alle aufklappen';
+}, true);
+
+// Übersicht direkt in den Einstellungen anpassen – Änderungen gelten sofort
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-dash-scope="settings"] [data-dash]');
+  if (!b) return;
+  if (b.dataset.dash === 'reset' && !confirm('Übersicht auf die Standardansicht zurücksetzen?')) return;
+  data.settings.dashboard = applyDashEdit(structuredClone(dashboardConfig()), b);
+  commit();
+});
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  if (!el.closest('[data-dash-scope="settings"]') || (!el.dataset.widget && !el.dataset.stat)) return;
+  data.settings.dashboard = applyDashEdit(structuredClone(dashboardConfig()), el);
   commit();
 });
 
