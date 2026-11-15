@@ -592,18 +592,24 @@ function renderDashboard() {
   const cfg = dashboardConfig();
   const visible = cfg.widgets.filter((w) => w.visible);
 
-  // Aufeinanderfolgende halbe Bausteine bilden eine zweispaltige Gruppe (abwechselnd links/rechts).
-  // Auf dem Handy werden sie per CSS-order wieder in Listenreihenfolge untereinander gezeigt.
+  // Halbe Bausteine werden paarweise in Zeilen gesetzt – beide Kacheln einer Zeile sind gleich hoch.
+  // Bleibt ein halber Baustein allein (vor einem breiten oder am Ende), nimmt er die ganze Breite ein.
   const blocks = [];
-  let group = null;
-  visible.forEach((w, i) => {
+  let pending = [];
+  const flush = () => {
+    for (let i = 0; i < pending.length; i += 2) {
+      const pair = pending.slice(i, i + 2);
+      blocks.push(`<div class="dash-row ${pair.length === 1 ? 'single' : ''}">${pair.join('')}</div>`);
+    }
+    pending = [];
+  };
+  visible.forEach((w) => {
     const html = renderWidget(w.id, ctx, cfg);
     if (!html) return;
-    if (w.wide) { group = null; blocks.push(`<div class="dash-wide">${html}</div>`); return; }
-    if (!group) { group = { left: [], right: [] }; blocks.push(group); }
-    const item = `<div class="dash-item" style="order:${i}">${html}</div>`;
-    (group.left.length <= group.right.length ? group.left : group.right).push(item);
+    if (w.wide) { flush(); blocks.push(`<div class="dash-wide">${html}</div>`); }
+    else pending.push(html);
   });
+  flush();
 
   return `
     <div class="dash-head">
@@ -611,8 +617,7 @@ function renderDashboard() {
       <button class="btn small" data-action="customizeDashboard">⚙️ Anpassen</button>
     </div>
     <div class="dash">
-      ${blocks.map((b) => typeof b === 'string' ? b
-        : `<div class="dash-group"><div class="dash-col">${b.left.join('')}</div><div class="dash-col">${b.right.join('')}</div></div>`).join('')}
+      ${blocks.join('')}
       ${visible.length ? '' : `<div class="card empty">Alle Bereiche sind ausgeblendet.<br><br><button class="btn primary" data-action="customizeDashboard">Übersicht anpassen</button></div>`}
     </div>`;
 }
@@ -782,6 +787,7 @@ function openDashboardEditor() {
   dlg.innerHTML = `<form class="form dash-editor" novalidate>
     <h2>Übersicht anpassen</h2>
     <p class="small muted" style="margin:0">Blende Bereiche ein oder aus, ändere die Reihenfolge mit ↑ ↓ und wähle die Breite.
+    Zwei aufeinanderfolgende halbe Bereiche stehen nebeneinander und sind gleich hoch; ein einzelner halber Bereich nutzt die ganze Breite.
     Auf dem Handy werden alle Bereiche untereinander angezeigt.</p>
     <div id="dash-editor-list"></div>
     <h3 style="margin:8px 0 0">Kennzahlen-Kacheln</h3>
