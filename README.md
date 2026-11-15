@@ -22,9 +22,15 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - 💶 **Investitionen** mit Kategorie, Budgetvergleich und Aufteilung nach Kategorien
 - 🏁 **Meilensteine** mit Zieldatum. Aufgaben lassen sich einem Meilenstein zuordnen.
 - ✅ **Aufgaben** mit Priorität, Fälligkeitsdatum und Notiz
+  - **Unterpunkte** zum Abhaken. Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.
 - 📝 **Logbuch** für Ideen, Entscheidungen und kleine Erfolge
 
+**Darstellung**
+- Hintergrund **hell, dunkel oder wie das Gerät** (Einstellungen › Darstellung)
+- **Akzentfarbe** frei wählbar (Vorschläge oder eigene Farbe). Abgeleitete Töne werden automatisch angepasst und bleiben in beiden Modi lesbar.
+
 **Übersicht & Motivation**
+- **Anpassbare Übersicht** (⚙️ Anpassen): Bereiche ein- und ausblenden, Reihenfolge ändern, halbe oder volle Breite, Kennzahlen-Kacheln auswählen. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche, letzte Aktivitäten, Projektkacheln.
 - Dashboard mit Wochenstunden, Wochenziel, Streak, offenen bzw. überfälligen Aufgaben und Investitionen
 - **„Braucht Aufmerksamkeit“**: aktive Projekte ohne Aktivität seit X Tagen werden gelb, ab 2·X Tagen rot markiert
 - **Motivationsbanner**: zeigt das am längsten ruhende Projekt mit deinem *Warum*, dem kleinsten nächsten Schritt und einem „Nur 25 Minuten“-Timer
@@ -58,4 +64,4 @@ Deine Projektdaten sind dabei **nicht** öffentlich, sie bleiben im Browser des 
 
 ## Technik
 
-Reines HTML, CSS und JavaScript (`index.html`, `styles.css`, `app.js`) ohne Abhängigkeiten oder Build-Schritt. Dunkler Modus folgt der Systemeinstellung.
+Reines HTML, CSS und JavaScript (`index.html`, `styles.css`, `app.js`) ohne Abhängigkeiten oder Build-Schritt.
