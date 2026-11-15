@@ -4,6 +4,8 @@
    Projekttracker – alle Daten liegen im localStorage dieses Browsers.
    ========================================================================= */
 
+// Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
+const APP_VERSION = '2026.11.15-7';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -1793,7 +1795,10 @@ function renderSettings() {
 
     ${settingsSection('sync', '🔄', 'Zwischen Geräten wechseln',
       `Anleitung für iCloud, OneDrive, Google Drive, Dropbox · gewählt: ${esc(syncService().name)}`,
-      renderSyncGuide())}`;
+      renderSyncGuide())}
+
+    <p class="small muted app-version">Version ${esc(APP_VERSION)} ·
+      <button class="btn ghost small" data-action="checkUpdateNow">Nach Updates suchen</button></p>`;
 }
 
 /* ------------------------------------------------------------------------
@@ -1973,6 +1978,16 @@ const projectOptions = () => data.projects
 const actions = {
   newProject() { projectForm(); },
   customizeDashboard() { openDashboardEditor(); },
+  applyUpdate({ id }) {
+    // Mit neuem Query-Parameter laden, damit auch eine zwischengespeicherte index.html umgangen wird
+    location.replace(`${location.pathname}?v=${encodeURIComponent(id || Date.now())}${location.hash}`);
+  },
+  async checkUpdateNow() {
+    const v = await checkForUpdate(true);
+    if (location.protocol === 'file:') toast('Lokal geöffnet – Updates gibt es nur in der Online-Version.');
+    else if (v === null) toast('Update-Prüfung nicht möglich (offline?).', 'error');
+    else if (v === APP_VERSION) toast('Du hast die neueste Version ✔');
+  },
   askNotify() {
     if (!('Notification' in window)) return;
     Notification.requestPermission().then(() => render()).catch(() => {});
@@ -2821,6 +2836,28 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') { meta = loadMeta(); meta.lastOpen = Date.now(); saveMeta(); }
   else { checkSyncHint(); renderBackupBar(); }
 });
+
+// Update-Prüfung: version.json am Cache vorbei abfragen; bei neuer Version Hinweisleiste anzeigen.
+let lastUpdateCheck = 0;
+async function checkForUpdate(force = false) {
+  if (location.protocol === 'file:' || (!force && Date.now() - lastUpdateCheck < 60000)) return null;
+  lastUpdateCheck = Date.now();
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const { version } = await res.json();
+    if (version && version !== APP_VERSION) {
+      const bar = $('#update-bar');
+      bar.innerHTML = `<div class="container"><span>🆕 <b>Neue Version verfügbar.</b> Deine Daten bleiben dabei erhalten.</span>
+        <span class="btn-row"><button class="btn primary small" data-action="applyUpdate" data-id="${esc(version)}">Jetzt aktualisieren</button></span></div>`;
+      bar.hidden = false;
+    }
+    return version;
+  } catch { return null; }
+}
+checkForUpdate(true);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+setInterval(() => checkForUpdate(), 30 * 60 * 1000);
 
 // Safari löscht Website-Daten sonst nach 7 Tagen ohne Besuch – dauerhaften Speicher anfragen.
 navigator.storage?.persist?.().catch(() => {});
