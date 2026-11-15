@@ -14,7 +14,8 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 **Projekte**
 - Name, Beschreibung, Kategorie, Farbe, Status (Idee / Aktiv / Pausiert / Abgeschlossen)
 - **„Warum ist mir das wichtig?“** und **Zieldefinition**
-- Geplante Stunden, Budget und Zieltermin mit Fortschrittsbalken
+- Geplante Gesamtstunden, Budget und Zieltermin mit Fortschrittsbalken
+- **Wochenarbeitszeit pro Projekt.** Die Summe aller aktiven Projekte ergibt das Wochenziel. Ohne Projekt-Wochenzeiten gilt das Standard-Wochenziel aus den Einstellungen.
 
 **Erfassen**
 - ⏱ **Zeit**: per Timer (läuft im Hintergrund weiter, auch nach einem Neuladen) oder manuell (`1:30`, `1,5`, `45 min`)

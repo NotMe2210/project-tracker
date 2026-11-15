@@ -522,6 +522,18 @@ function weekMinutes(offset = 0, pid) {
   return minutesInRange(toISO(start), toISO(addDays(start, 7)), pid);
 }
 
+/**
+ * Wochenziel: Haben aktive Projekte eine eigene Wochenarbeitszeit, ist das Ziel deren Summe.
+ * Sonst gilt die allgemeine Wochenzeit aus den Einstellungen.
+ */
+const projectWeeklyMin = (p) => Math.max(0, Number(p.weeklyHours) || 0) * 60;
+function weeklyGoal() {
+  const projects = data.projects.filter((p) => p.status === 'aktiv' && projectWeeklyMin(p) > 0);
+  if (projects.length) return { minutes: sum(projects, projectWeeklyMin), source: 'projects', projects };
+  return { minutes: Math.max(0, Number(data.settings.weeklyHoursGoal) || 0) * 60, source: 'general', projects: [] };
+}
+const fmtStd = (h) => `${String(Math.round(h * 100) / 100).replace('.', ',')} Std`;
+
 function calcStreak() {
   const map = dayMap();
   let d = new Date();
@@ -715,7 +727,8 @@ function dashboardContext() {
   return {
     today, active, stats, openTasks, stale,
     overdue: openTasks.filter((t) => isOverdue(t.dueDate)),
-    goalMin: (Number(data.settings.weeklyHoursGoal) || 0) * 60,
+    goal: weeklyGoal(),
+    goalMin: weeklyGoal().minutes,
     thisWeek: weekMinutes(0),
     lastWeek: weekMinutes(-1),
     streak: calcStreak(),
@@ -776,12 +789,17 @@ function renderWidget(id, c, cfg) {
       return card('📊 Stunden pro Woche', weekBars());
 
     case 'weekProjects': {
-      const rows = data.projects.map((p) => ({ p, min: weekMinutes(0, p.id) })).filter((x) => x.min > 0).sort((a, b) => b.min - a.min);
+      // Projekte mit Zeit diese Woche oder mit eigenem Wochenziel (aktiv)
+      const rows = data.projects
+        .map((p) => ({ p, min: weekMinutes(0, p.id), goal: p.status === 'aktiv' ? projectWeeklyMin(p) : 0 }))
+        .filter((x) => x.min > 0 || x.goal > 0)
+        .sort((a, b) => (b.goal ? b.min / b.goal : 0) - (a.goal ? a.min / a.goal : 0) || b.min - a.min);
       const max = Math.max(1, ...rows.map((r) => r.min));
-      return card('⏱ Zeit diese Woche', rows.length ? `<ul class="list">${rows.map(({ p, min }) => `
+      return card('⏱ Zeit diese Woche', rows.length ? `<ul class="list">${rows.map(({ p, min, goal }) => `
         <li><div class="grow">
-          <div class="row-between"><a href="#/projekt/${p.id}">${esc(p.name)}</a><span class="amount">${fmtDuration(min)}</span></div>
-          <div class="progress" style="margin-top:6px"><span style="width:${(min / max) * 100}%;background:${esc(p.color)}"></span></div>
+          <div class="row-between"><a href="#/projekt/${p.id}">${esc(p.name)}</a>
+            <span class="amount">${fmtDuration(min)}${goal ? ` <span class="muted small">/ ${fmtStd(goal / 60)}</span>` : ''}</span></div>
+          <div class="progress ${goal && min >= goal ? 'good' : ''}" style="margin-top:6px"><span style="width:${Math.min(100, (min / (goal || max)) * 100)}%;${goal && min >= goal ? '' : `background:${esc(p.color)}`}"></span></div>
         </div></li>`).join('')}</ul>` : '<div class="empty">Diese Woche noch keine Zeit erfasst.</div>');
     }
 
@@ -830,8 +848,9 @@ function statTile(id, c) {
   switch (id) {
     case 'week': {
       const diff = c.thisWeek - c.lastWeek;
+      const src = c.goal.source === 'projects' ? ` (${c.goal.projects.length} ${c.goal.projects.length === 1 ? 'Projekt' : 'Projekte'})` : '';
       return tile('Diese Woche', fmtHours(c.thisWeek),
-        `${c.goalMin ? `Ziel: ${fmtHours(c.goalMin)} · ` : ''}${diff >= 0 ? '▲' : '▼'} ${fmtHours(Math.abs(diff))} ggü. Vorwoche`,
+        `${c.goalMin ? `Ziel: ${fmtHours(c.goalMin)}${src} · ` : ''}${diff >= 0 ? '▲' : '▼'} ${fmtHours(Math.abs(diff))} ggü. Vorwoche`,
         c.goalMin ? progressBar((c.thisWeek / c.goalMin) * 100, c.thisWeek >= c.goalMin ? 'good' : '') : '');
     }
     case 'streak':
@@ -1099,6 +1118,10 @@ function projectCard(p, s) {
           <div class="row small muted" style="margin-bottom:4px"><span>Fortschritt</span><span>${s.progress}%</span></div>
           ${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
         </div>
+        ${p.status === 'aktiv' && projectWeeklyMin(p) ? `<div>
+          <div class="row small muted" style="margin-bottom:4px"><span>Diese Woche</span><span>${fmtHours(weekMinutes(0, p.id))} / ${fmtStd(projectWeeklyMin(p) / 60)}</span></div>
+          ${progressBar((weekMinutes(0, p.id) / projectWeeklyMin(p)) * 100, weekMinutes(0, p.id) >= projectWeeklyMin(p) ? 'good' : '')}
+        </div>` : ''}
         <div class="figures">
           <span>⏱ <b>${fmtHours(s.minutes)}</b></span>
           <span>💶 <b>${fmtEUR(s.invested)}</b></span>
@@ -1180,7 +1203,11 @@ function projectOverview(p, s) {
       <div class="stat"><div class="label">Fortschritt</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
         <div class="sub">${s.msTotal ? `${s.msDone}/${s.msTotal} Meilensteine` : `${s.tasksDone}/${s.tasksTotal} Aufgaben`}</div></div>
       <div class="stat"><div class="label">Zeit gesamt</div><div class="value">${fmtHours(s.minutes)}</div>
-        ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">von ${hourGoal} Std geplant</div>` : `<div class="sub">${fmtHours(weekMinutes(0, p.id))} diese Woche</div>`}</div>
+        ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">von ${hourGoal} Std geplant</div>` : '<div class="sub">keine Gesamtzeit geplant</div>'}</div>
+      <div class="stat"><div class="label">Diese Woche</div><div class="value">${fmtHours(weekMinutes(0, p.id))}</div>
+        ${projectWeeklyMin(p) ? progressBar((weekMinutes(0, p.id) / projectWeeklyMin(p)) * 100, weekMinutes(0, p.id) >= projectWeeklyMin(p) ? 'good' : '')
+          + `<div class="sub">Wochenziel: ${fmtStd(projectWeeklyMin(p) / 60)}${p.status === 'aktiv' ? '' : ' (zählt nur bei aktiven Projekten)'}</div>`
+          : '<div class="sub">kein eigenes Wochenziel</div>'}</div>
       <div class="stat"><div class="label">Investiert</div><div class="value">${fmtEUR(s.invested)}</div>
         ${budget ? progressBar((s.invested / budget) * 100, s.invested > budget ? 'over' : '') + `<div class="sub">Budget ${fmtEUR(budget)} · ${s.invested > budget ? 'überschritten' : `${fmtEUR(budget - s.invested)} übrig`}</div>` : '<div class="sub">kein Budget festgelegt</div>'}</div>
       <div class="stat"><div class="label">Offene Aufgaben</div><div class="value">${s.tasksOpen}</div><div class="sub">${s.tasksDone} erledigt</div></div>
@@ -1437,6 +1464,43 @@ function settingsSection(id, icon, title, summary, body) {
   </details>`;
 }
 
+function weeklyGoalSummary() {
+  const g = weeklyGoal();
+  if (!g.minutes) return 'kein Ziel festgelegt';
+  return g.source === 'projects'
+    ? `${fmtStd(g.minutes / 60)} pro Woche · Summe aus ${g.projects.length} ${g.projects.length === 1 ? 'Projekt' : 'Projekten'}`
+    : `${fmtStd(g.minutes / 60)} pro Woche · Standard`;
+}
+
+function renderWeeklyGoalSettings() {
+  const g = weeklyGoal();
+  const set = data.settings;
+  const active = data.projects.filter((p) => p.status === 'aktiv');
+  return `
+    <p class="small muted">Du kannst bei jedem Projekt unter <i>Bearbeiten</i> eine <b>Wochenarbeitszeit</b> eintragen.
+    Dann ist dein Wochenziel die <b>Summe der Wochenzeiten aller aktiven Projekte</b>. Hat kein aktives Projekt eine Wochenzeit, gilt das Standard-Wochenziel.</p>
+    ${active.length ? `<ul class="list weekly-list">${active.map((p) => `
+      <li>
+        <span class="dot-color" style="background:${esc(p.color)}"></span>
+        <div class="grow"><a href="#/projekt/${p.id}">${esc(p.name)}</a></div>
+        <span class="amount ${projectWeeklyMin(p) ? '' : 'muted'}">${projectWeeklyMin(p) ? fmtStd(projectWeeklyMin(p) / 60) : '–'}</span>
+        <button class="btn ghost icon" data-action="editProject" data-id="${p.id}" title="Wochenzeit bearbeiten">✎</button>
+      </li>`).join('')}
+      <li class="weekly-total"><div class="grow"><b>Wochenziel gesamt</b>
+        <div class="small muted">${g.source === 'projects' ? 'Summe der Projekt-Wochenzeiten' : 'kein Projekt hat eine Wochenzeit – Standard gilt'}</div></div>
+        <span class="amount">${g.minutes ? fmtStd(g.minutes / 60) : '–'}</span><span style="width:40px"></span></li>
+    </ul>` : '<p class="small muted">Noch keine aktiven Projekte.</p>'}
+    <form class="form" style="padding:0;margin-top:16px" data-form="settings">
+      <label>Standard-Wochenziel (Stunden für alle Projekte)
+        <input type="number" min="0" step="0.5" name="weeklyHoursGoal" value="${esc(set.weeklyHoursGoal)}">
+        <span class="hint">${g.source === 'projects'
+          ? '⚠️ Wird gerade nicht verwendet, weil Projekte eigene Wochenzeiten haben.'
+          : 'Gilt, solange kein aktives Projekt eine eigene Wochenarbeitszeit hat.'}</span>
+      </label>
+      <div class="form-actions"><button class="btn primary" type="submit">Speichern</button></div>
+    </form>`;
+}
+
 const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'erinnerungen', 'sicherung', 'sync'];
 
 function renderSyncGuide() {
@@ -1508,14 +1572,7 @@ function renderSettings() {
         </div>
       </div>`)}
 
-    ${settingsSection('wochenziel', '🎯', 'Wochenziel',
-      Number(set.weeklyHoursGoal) ? `${esc(String(set.weeklyHoursGoal).replace('.', ','))} Std pro Woche` : 'kein Ziel festgelegt',
-      `<form class="form" style="padding:0" data-form="settings">
-        <label>Wochenziel (Stunden für alle Projekte)
-          <input type="number" min="0" step="0.5" name="weeklyHoursGoal" value="${esc(set.weeklyHoursGoal)}">
-        </label>
-        <div class="form-actions"><button class="btn primary" type="submit">Speichern</button></div>
-      </form>`)}
+    ${settingsSection('wochenziel', '🎯', 'Wochenziel', weeklyGoalSummary(), renderWeeklyGoalSettings())}
 
     ${settingsSection('erinnerungen', '😴', 'Erinnerungen bei eingeschlafenen Projekten',
       `nach ${esc(set.staleDays)} Tagen · ${texts.length} ${texts.length === 1 ? 'Text' : 'Texte'}`,
@@ -1920,6 +1977,8 @@ const actions = {
 
 /* ---------------------------- Formulardefinitionen ----------------------- */
 
+const decimalValue = (n) => (n === null || n === undefined || n === '' ? '' : String(n).replace('.', ','));
+
 function projectForm(p) {
   const isNew = !p;
   p = p || { status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
@@ -1939,8 +1998,10 @@ function projectForm(p) {
         hint: 'Leer = allgemeine Texte aus den Einstellungen. Platzhalter: {projekt}, {tage}, {warum}, {schritt}, {ziel}, {stunden}. Mehrere Zeilen = wechselt täglich.' },
       { name: 'staleDays', label: 'Erinnern nach … Tagen ohne Aktivität', type: 'number', value: p.staleDays,
         placeholder: `Standard: ${data.settings.staleDays}`, hint: 'Leer = Standard aus den Einstellungen.' },
-      { name: 'hourGoal', label: 'Geplante Zeit (Std)', type: 'number', value: p.hourGoal, half: true },
-      { name: 'budget', label: 'Budget (€)', type: 'decimal', value: p.budget != null ? String(p.budget).replace('.', ',') : '', half: true },
+      { name: 'weeklyHours', label: 'Wochenarbeitszeit (Std)', type: 'decimal', value: decimalValue(p.weeklyHours), half: true,
+        placeholder: 'z. B. 4 oder 2,5', hint: 'Leer = kein eigenes Wochenziel' },
+      { name: 'hourGoal', label: 'Geplante Gesamtzeit (Std)', type: 'decimal', value: decimalValue(p.hourGoal), half: true, hint: 'für das ganze Projekt' },
+      { name: 'budget', label: 'Budget (€)', type: 'decimal', value: decimalValue(p.budget), half: true },
       { name: 'targetDate', label: 'Zieltermin', type: 'date', value: p.targetDate, half: true },
       { name: 'color', label: 'Farbe', type: 'color', value: p.color, half: true },
     ],
@@ -2162,7 +2223,7 @@ function demoData() {
   const shop = P({ name: 'Online-Shop für Holzdeko', status: 'aktiv', category: 'Nebenprojekt', color: '#f59e0b',
     description: 'Eigene Holzarbeiten über einen kleinen Online-Shop verkaufen.',
     why: 'Ich möchte mir ein zweites Standbein aufbauen und mein Hobby zum Beruf machen.',
-    goal: 'Shop ist online und die ersten 10 Bestellungen sind verschickt.', hourGoal: 80, budget: 600, targetDate: ahead(45) });
+    goal: 'Shop ist online und die ersten 10 Bestellungen sind verschickt.', hourGoal: 80, weeklyHours: 4, budget: 600, targetDate: ahead(45) });
   const m1 = M(shop, 'Produktfotos fertig', ago(20), ago(18));
   const m2 = M(shop, 'Shop online', ahead(10));
   M(shop, 'Erste 10 Bestellungen', ahead(45));
@@ -2184,7 +2245,7 @@ function demoData() {
 
   const app = P({ name: 'Fitness-App lernen', status: 'aktiv', category: 'Weiterbildung', color: '#6366f1',
     description: 'Programmieren lernen, indem ich eine eigene kleine Trainings-App baue.',
-    why: 'Ich will verstehen, wie Apps funktionieren – und endlich meine eigenen Trainingsdaten auswerten.', hourGoal: 50 });
+    why: 'Ich will verstehen, wie Apps funktionieren – und endlich meine eigenen Trainingsdaten auswerten.', hourGoal: 50, weeklyHours: 2 });
   M(app, 'Grundkurs abgeschlossen', ago(35), ago(33));
   M(app, 'Erste Version auf dem Handy', ahead(20));
   K(app, 'Kapitel 7 (Datenbanken) durcharbeiten', 'mittel');

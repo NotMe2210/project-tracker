@@ -569,3 +569,6 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
 .sync-devices { margin-top: 4px; }
 .sync-devices h3 { margin-top: 12px; }
 .help code { overflow-wrap: anywhere; }
+
+.weekly-list li { padding: 8px 0; }
+.weekly-list .weekly-total { border-top: 2px solid var(--border); }
