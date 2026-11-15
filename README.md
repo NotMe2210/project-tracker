@@ -37,7 +37,8 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - **„Braucht Aufmerksamkeit“**: aktive Projekte ohne Aktivität seit X Tagen werden gelb, ab 2·X Tagen rot markiert
 - **Motivationsbanner**: zeigt das am längsten ruhende Projekt mit deinem *Warum*, dem kleinsten nächsten Schritt und einem „Nur 25 Minuten“-Timer
 - **Nächste Schritte**: die wichtigste offene Aufgabe jedes aktiven Projekts
-- Aktivitäts-Heatmap (12 Wochen) und Stunden-pro-Woche-Diagramm je Projekt
+- Aktivitäts-Heatmap (12 Wochen): Überfahren bzw. Antippen eines Tages zeigt, was an diesem Tag erledigt wurde (Zeiten, Aufgaben, Unterpunkte, Meilensteine, Investitionen, Notizen)
+- Stunden-pro-Woche-Diagramm je Projekt
 - Konfetti und Erfolgsmeldungen, wenn du Meilensteine erreichst oder Projekte abschließt
 
 ## Daten & mehrere Geräte

@@ -1012,9 +1012,40 @@ function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
   return `<div class="banner"><div class="emoji">💡</div><div class="text"><strong>${esc(pick(QUOTES))}</strong></div></div>`;
 }
 
+/** Alle Aktivitäten je Tag mit Details (für das Hinweis-Fenster der Aktivitäts-Ansicht). */
+function dayDetails(fromISO) {
+  const out = {};
+  const add = (date, item) => { if (date && date >= fromISO) (out[date] ||= []).push(item); };
+  const proj = (id) => getProject(id) || { name: '–', color: 'var(--muted)' };
+  data.timeEntries.forEach((e) => add(e.date, { p: proj(e.projectId), icon: '⏱', text: `${fmtDuration(e.minutes)} – ${e.title || autoTimeTitle(e.date)}`, order: 0 }));
+  data.milestones.filter((m) => m.done).forEach((m) => add(m.doneAt, { p: proj(m.projectId), icon: '🏁', text: `Meilenstein erreicht: ${m.title}`, order: 1 }));
+  data.tasks.forEach((t) => {
+    if (t.done) add(t.doneAt, { p: proj(t.projectId), icon: '✅', text: t.title, order: 2 });
+    (t.subtasks || []).filter((st) => st.done).forEach((st) => add(st.doneAt, { p: proj(t.projectId), icon: '☑', text: `${st.title} (${t.title})`, order: 3 }));
+  });
+  data.investments.forEach((i) => add(i.date, { p: proj(i.projectId), icon: '💶', text: `${fmtEUR(i.amount)} – ${i.description}`, order: 4 }));
+  data.notes.forEach((n) => add(n.date, { p: proj(n.projectId), icon: '📝', text: n.text, order: 5 }));
+  for (const k of Object.keys(out)) out[k].sort((x, y) => x.order - y.order);
+  return out;
+}
+
+function dayTip(iso, d, items) {
+  const day = parseISO(iso).toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const head = `<b>${esc(day)}</b>${d && d.minutes ? `<span class="tip-sub">${fmtDuration(d.minutes)} erfasst</span>` : ''}`;
+  if (!items?.length) return `${head}<span class="tip-sub">Keine Aktivität</span>`;
+  const max = matchMedia('(max-width: 640px)').matches ? 5 : 8;
+  const short = (t) => (t.length > 70 ? t.slice(0, 68) + '…' : t);
+  return head + items.slice(0, max).map((it) => `<span class="tip-row tip-activity">
+      <span class="dot-color" style="background:${esc(it.p.color)}"></span>
+      <span><span class="tip-icon">${it.icon}</span> ${esc(short(it.text))}<span class="tip-proj">${esc(it.p.name)}</span></span>
+    </span>`).join('')
+    + (items.length > max ? `<span class="tip-sub">… und ${items.length - max} weitere</span>` : '');
+}
+
 function heatmap(map) {
   const today = todayISO();
   const start = addDays(startOfWeek(new Date()), -11 * 7);
+  const details = dayDetails(toISO(start));
   const cells = [];
   for (let i = 0; i < 84; i++) {
     const iso = toISO(addDays(start, i));
@@ -1022,13 +1053,14 @@ function heatmap(map) {
     const d = map[iso];
     let lvl = 0;
     if (d) lvl = d.minutes >= 120 ? 4 : d.minutes >= 60 ? 3 : d.minutes >= 30 ? 2 : 1;
-    const title = `${fmtDate(iso)}: ${d ? `${fmtDuration(d.minutes)}, ${d.count} Aktivität(en)` : 'keine Aktivität'}`;
-    cells.push(`<span class="l${lvl}${iso === today ? ' today' : ''}" title="${esc(title)}"></span>`);
+    const label = `${fmtDate(iso)}: ${d ? `${fmtDuration(d.minutes)}, ${d.count} Aktivität(en)` : 'keine Aktivität'}`;
+    cells.push(`<span class="l${lvl}${iso === today ? ' today' : ''}" aria-label="${esc(label)}" data-tip="${esc(dayTip(iso, d, details[iso]))}"></span>`);
   }
   const active = Object.keys(map).filter((k) => k >= toISO(start) && k <= today).length;
   return `<div class="heatmap">${cells.join('')}</div>
     <div class="legend">weniger <span style="background:var(--heat-0)"></span><span style="background:var(--heat-1)"></span><span style="background:var(--heat-2)"></span><span style="background:var(--heat-3)"></span><span style="background:var(--heat-4)"></span> mehr
-    <span style="flex:1"></span>${active} aktive Tage</div>`;
+    <span style="flex:1"></span>${active} aktive Tage</div>
+    <div class="small muted heat-hint">Tipp: ${matchMedia('(hover: none)').matches ? 'Tippe' : 'Fahre'} auf einen Tag, um seine Aktivitäten zu sehen.</div>`;
 }
 
 function weekList() {
@@ -1103,12 +1135,19 @@ function showTip(el) {
   tipTarget = el;
   chartTip.innerHTML = el.dataset.tip;
   chartTip.hidden = false;
-  const r = el.getBoundingClientRect(), t = chartTip.getBoundingClientRect();
+  // Freien Raum zwischen Kopfleiste und (mobiler) Navigation bestimmen, Fenster auf der größeren Seite öffnen
+  const topBar = document.querySelector('.topbar')?.getBoundingClientRect().bottom || 0;
+  const nav = document.querySelector('.nav');
+  const navTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : window.innerHeight;
+  const r = el.getBoundingClientRect();
+  const above = r.top - topBar - 16, below = navTop - r.bottom - 16;
+  chartTip.style.maxHeight = `${Math.max(80, Math.max(above, below))}px`;
+  const t = chartTip.getBoundingClientRect();
   const left = Math.min(window.innerWidth - t.width - 8, Math.max(8, r.left + r.width / 2 - t.width / 2));
-  const top = r.top - t.height - 8 > 8 ? r.top - t.height - 8 : r.bottom + 8;
+  const top = (t.height <= above || above > below) ? r.top - t.height - 8 : r.bottom + 8;
   chartTip.style.left = `${left}px`;
   chartTip.style.top = `${top}px`;
-  document.querySelectorAll('.bar.tip-active').forEach((b) => b.classList.remove('tip-active'));
+  document.querySelectorAll('.tip-active').forEach((b) => b.classList.remove('tip-active'));
   el.classList.add('tip-active');
 }
 function hideTip() {
