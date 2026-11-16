@@ -639,3 +639,42 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
   .heatmap span { width: 18px; height: 18px; }
 }
 .app-version { text-align: center; margin-top: 20px; }
+
+/* Breites Formular-Raster (z. B. Projekt anlegen) – nur auf großen Bildschirmen */
+@media (min-width: 861px) {
+  dialog.wide { width: min(940px, calc(100vw - 48px)); }
+  dialog.wide .form { max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); }
+  .form.grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 16px; align-items: start; }
+  .form.grid > h2, .form.grid > .form-error, .form.grid > .form-actions { grid-column: 1 / -1; }
+  .form.grid > .form-error:empty { display: none; }
+  .form.grid .fcell { min-width: 0; }
+  .form.grid .fcell.w1 { grid-column: span 1; }
+  .form.grid .fcell.w2 { grid-column: span 2; }
+  .form.grid .fcell.w3 { grid-column: span 3; }
+  .form.grid .fcell.w4 { grid-column: 1 / -1; }
+  .form.grid textarea.autogrow:not(.single) { min-height: 64px; }
+}
+
+/* ---------- Computer: Navigation als Seitenleiste links ---------- */
+@media (min-width: 1024px) {
+  :root { --side-w: 236px; }
+  body { padding-left: var(--side-w); }
+  .topbar {
+    position: fixed; top: 0; left: 0; bottom: 0; width: var(--side-w); z-index: 20;
+    flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 20px;
+    padding: 20px 14px; border-bottom: none; border-right: 1px solid var(--border); overflow-y: auto;
+  }
+  .brand { padding: 6px 10px; font-size: 1.1rem; }
+  .nav { flex: 0 0 auto; flex-direction: column; gap: 4px; }
+  .nav a { display: flex; align-items: center; gap: 12px; padding: 11px 12px; font-size: .97rem; border-radius: 10px; }
+  .nav .ico { display: inline; font-size: 1.15rem; width: 1.4em; text-align: center; }
+  .topbar-actions { margin-top: auto; flex-direction: column; align-items: stretch; gap: 8px; }
+  .topbar-actions > .btn { width: 100%; padding: 9px 12px; font-size: .9rem; }
+  /* Laufender Timer in der Seitenleiste: zweizeilig */
+  .timer-indicator { flex-wrap: wrap; justify-content: center; border-radius: 12px; padding: 8px 10px; row-gap: 6px; text-align: center; }
+  .timer-indicator .name { flex-basis: 100%; max-width: none; order: 3; }
+  .timer-indicator .btn { order: 4; }
+  .timer-indicator .btn.icon { min-width: 40px; min-height: 34px; }
+  .timer-indicator.pomo { padding-bottom: 10px; }
+  .timer-indicator .t { font-size: 1.15rem; }
+}
