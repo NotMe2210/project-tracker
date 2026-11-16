@@ -3390,6 +3390,7 @@ function openPalette() {
   const input = dlg.querySelector('.palette-input');
   input.addEventListener('input', () => { paletteState.active = 0; renderPalette(input.value); });
   input.addEventListener('keydown', (e) => {
+    if (!paletteState) return;
     const n = paletteState.list.length;
     if (e.key === 'ArrowDown') { e.preventDefault(); paletteState.active = (paletteState.active + 1) % Math.max(1, n); renderPalette(input.value, true); }
     if (e.key === 'ArrowUp') { e.preventDefault(); paletteState.active = (paletteState.active - 1 + n) % Math.max(1, n); renderPalette(input.value, true); }
@@ -3406,6 +3407,7 @@ function openPalette() {
   input.focus();
 }
 function renderPalette(q, keepList = false) {
+  if (!paletteState) return;
   if (!keepList) {
     const words = q.toLocaleLowerCase('de').split(/\s+/).filter(Boolean);
     paletteState.list = paletteState.cmds.filter((c) => words.every((w) => c.key.includes(w))).slice(0, 50);
