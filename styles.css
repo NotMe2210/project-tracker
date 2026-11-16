@@ -21,8 +21,6 @@
   --heat-4: #4338ca;
   --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .08);
   --radius: 12px;
-  --fx-opacity: .62;
-  --fx-blend: multiply;
   color-scheme: light;
 }
 
@@ -51,10 +49,6 @@
     --heat-3: #6366f1;
     --heat-4: #a5b4fc;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4);
-  --fx-opacity: .8;
-  --fx-blend: screen;
-    --fx-opacity: .8;
-    --fx-blend: screen;
     color-scheme: dark;
   }
 }
@@ -936,38 +930,39 @@ li.task.swiping { position: relative; z-index: 1; background: var(--surface); }
 /* ---------- Motivationsbereich: Flammen & pulsierender Balken ---------- */
 .fx-host { position: relative; overflow: hidden; isolation: isolate; flex-wrap: wrap; }
 .fx-host > :not(.banner-fx) { position: relative; z-index: 1; }
-.banner-fx {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 75%; z-index: 0; pointer-events: none;
-  opacity: var(--fx-opacity); mix-blend-mode: var(--fx-blend);
-  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 35%, transparent 100%);
-  mask-image: linear-gradient(to top, #000 0%, #000 35%, transparent 100%);
-}
+.banner-fx { position: absolute; left: 0; right: 0; bottom: 0; height: 56px; z-index: 0; pointer-events: none; }
+/* Platz für den Flammenstreifen, damit nichts überlagert wird */
+.fx-host.has-flames { padding-bottom: 52px; }
+
+/* Stilisierte Emoji-Flammen */
 .flame {
-  position: absolute; bottom: -22px; left: var(--x); width: var(--w); height: calc(var(--w) * 1.7);
+  position: absolute; bottom: -4px; left: var(--x); width: var(--w); height: calc(var(--w) * 1.125);
   margin-left: calc(var(--w) / -2); transform-origin: 50% 100%;
-  border-radius: 50% 50% 45% 45% / 62% 62% 38% 38%;
-  background: radial-gradient(ellipse at 50% 88%, rgba(255, 246, 190, .95) 0%, rgba(255, 196, 60, .9) 22%, rgba(255, 128, 20, .7) 45%, rgba(235, 60, 10, .35) 65%, rgba(220, 40, 0, 0) 78%);
-  filter: blur(4px);
-  animation: flicker var(--d) ease-in-out var(--dl) infinite alternate;
+  animation: flameSway var(--d) ease-in-out var(--dl) infinite alternate;
 }
-.fx-low .flame { bottom: -30px; opacity: .7; }
-.fx-high .flame { filter: blur(3px) saturate(1.2); }
-@keyframes flicker {
-  0%   { transform: scale(1, 1) skewX(0deg); opacity: .85; }
-  20%  { transform: scale(.92, 1.12) skewX(2deg); opacity: 1; }
-  45%  { transform: scale(1.06, .9) skewX(-3deg); opacity: .8; }
-  70%  { transform: scale(.95, 1.18) skewX(1deg); opacity: .95; }
-  100% { transform: scale(1.03, .96) skewX(-1deg); opacity: .88; }
+.flame svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.flame .f-outer { fill: #ff6a13; }
+.flame .f-inner { fill: #ffb627; transform-box: fill-box; transform-origin: 50% 100%; animation: flameCore calc(var(--d) * .8) ease-in-out var(--dl) infinite alternate; }
+.flame .f-core { fill: #fff1a8; transform-box: fill-box; transform-origin: 50% 100%; animation: flameCore calc(var(--d) * .6) ease-in-out var(--dl) infinite alternate; }
+.fx-low .flame { opacity: .85; }
+@keyframes flameSway {
+  0%   { transform: rotate(-4deg) scale(1, 1); }
+  50%  { transform: rotate(2deg) scale(.95, 1.08); }
+  100% { transform: rotate(4deg) scale(1.03, .96); }
 }
-.ember {
-  position: absolute; bottom: 8px; left: var(--x); width: 4px; height: 4px; border-radius: 50%;
-  background: #ffd166; box-shadow: 0 0 6px 2px rgba(255, 150, 40, .8);
-  animation: rise var(--d) linear var(--dl) infinite;
+@keyframes flameCore {
+  0%   { transform: scale(1, 1); }
+  100% { transform: scale(.88, 1.14); }
 }
-@keyframes rise {
+/* kleine runde Funken, flach wie im Icon-Stil */
+.spark-dot {
+  position: absolute; bottom: 18px; left: var(--x); width: 5px; height: 5px; border-radius: 50%;
+  background: #ffb627; animation: sparkRise var(--d) ease-out var(--dl) infinite;
+}
+@keyframes sparkRise {
   0%   { transform: translate(0, 0) scale(1); opacity: 0; }
-  10%  { opacity: 1; }
-  100% { transform: translate(var(--dx), -110px) scale(.4); opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: translate(var(--dx), -34px) scale(.3); opacity: 0; }
 }
 
 .banner-progress { flex-basis: 100%; display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
@@ -986,6 +981,6 @@ li.task.swiping { position: relative; z-index: 1; background: var(--surface); }
   50%      { box-shadow: 0 0 14px 2px rgba(34, 197, 94, .75); filter: brightness(1.15); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .flame, .ember, .pulse-bar > span { animation: none !important; }
-  .ember { display: none; }
+  .flame, .flame path, .spark-dot, .pulse-bar > span { animation: none !important; }
+  .spark-dot { display: none; }
 }
