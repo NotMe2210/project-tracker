@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.16-1';
+const APP_VERSION = '2026.11.16-2';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -1986,6 +1986,12 @@ const projectOptions = () => data.projects
 const actions = {
   newProject() { projectForm(); },
   customizeDashboard() { openDashboardEditor(); },
+  toggleSidebar() {
+    const collapsed = document.documentElement.classList.toggle('side-collapsed');
+    try { localStorage.setItem('projekttracker.ui.sidebar', collapsed ? 'collapsed' : 'open'); } catch { /* ignorieren */ }
+    updateSideToggle();
+    if (data.timer) renderTimer(true);
+  },
   applyUpdate({ id }) {
     // Mit neuem Query-Parameter laden, damit auch eine zwischengespeicherte index.html umgangen wird
     location.replace(`${location.pathname}?v=${encodeURIComponent(id || Date.now())}${location.hash}`);
@@ -2868,6 +2874,15 @@ async function checkForUpdate(force = false) {
 checkForUpdate(true);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
 setInterval(() => checkForUpdate(), 30 * 60 * 1000);
+
+function updateSideToggle() {
+  const btn = document.getElementById('side-toggle');
+  if (!btn) return;
+  const collapsed = document.documentElement.classList.contains('side-collapsed');
+  btn.textContent = collapsed ? '»' : '«';
+  btn.title = btn.ariaLabel = collapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen';
+}
+updateSideToggle();
 
 // Safari löscht Website-Daten sonst nach 7 Tagen ohne Besuch – dauerhaften Speicher anfragen.
 navigator.storage?.persist?.().catch(() => {});

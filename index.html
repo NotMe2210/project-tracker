@@ -12,20 +12,27 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Projekte">
   <meta name="theme-color" content="#4f46e5">
-  <link rel="stylesheet" href="styles.css?v=2026.11.16-1">
+  <script>
+    // Eingeklappte Seitenleiste sofort anwenden (vermeidet Flackern beim Laden)
+    try { if (localStorage.getItem('projekttracker.ui.sidebar') === 'collapsed') document.documentElement.classList.add('side-collapsed'); } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="styles.css?v=2026.11.16-2">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#/">🚀 <span>Projekttracker</span></a>
+    <div class="side-head">
+      <a class="brand" href="#/" title="Projekttracker">🚀 <span>Projekttracker</span></a>
+      <button id="side-toggle" class="side-toggle" type="button" data-action="toggleSidebar" title="Seitenleiste einklappen" aria-label="Seitenleiste einklappen">«</button>
+    </div>
     <nav class="nav">
-      <a href="#/" data-nav="dashboard"><span class="ico">🏠</span><span>Übersicht</span></a>
-      <a href="#/projekte" data-nav="projekte"><span class="ico">📁</span><span>Projekte</span></a>
-      <a href="#/einstellungen" data-nav="einstellungen"><span class="ico">⚙️</span><span>Einstellungen</span></a>
+      <a href="#/" data-nav="dashboard" title="Übersicht"><span class="ico">🏠</span><span class="lbl">Übersicht</span></a>
+      <a href="#/projekte" data-nav="projekte" title="Projekte"><span class="ico">📁</span><span class="lbl">Projekte</span></a>
+      <a href="#/einstellungen" data-nav="einstellungen" title="Einstellungen"><span class="ico">⚙️</span><span class="lbl">Einstellungen</span></a>
     </nav>
     <div class="topbar-actions">
       <div id="timer-indicator" class="timer-indicator" hidden></div>
       <button id="backup-btn" class="btn small backup-btn" data-action="exportData">💾 <span>Sichern</span></button>
-      <button class="btn primary small" data-action="addTime">+ Zeit</button>
+      <button class="btn primary small add-time" data-action="addTime" title="Zeit erfassen">+ <span>Zeit</span></button>
     </div>
   </header>
   <div id="update-bar" class="backup-bar info" hidden></div>
@@ -36,6 +43,6 @@
   <dialog id="modal"></dialog>
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
-  <script src="app.js?v=2026.11.16-1"></script>
+  <script src="app.js?v=2026.11.16-2"></script>
 </body>
 </html>
