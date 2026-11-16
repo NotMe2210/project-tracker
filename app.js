@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.15-8';
+const APP_VERSION = '2026.11.16-1';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -1138,7 +1138,9 @@ function showTip(el) {
   chartTip.innerHTML = el.dataset.tip;
   chartTip.hidden = false;
   // Freien Raum zwischen Kopfleiste und (mobiler) Navigation bestimmen, Fenster auf der größeren Seite öffnen
-  const topBar = document.querySelector('.topbar')?.getBoundingClientRect().bottom || 0;
+  // Kopfleiste oben (sticky) begrenzt den Platz nach oben; als Seitenleiste links (Computer) nicht
+  const tb = document.querySelector('.topbar');
+  const topBar = tb && getComputedStyle(tb).position === 'sticky' ? tb.getBoundingClientRect().bottom : 0;
   const nav = document.querySelector('.nav');
   const navTop = nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : window.innerHeight;
   const r = el.getBoundingClientRect();
