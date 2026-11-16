@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.16-8';
+const APP_VERSION = '2026.11.16-9';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -324,6 +324,7 @@ function applyTheme(settings = data.settings) {
   const vars = {
     '--primary': primary,
     '--primary-contrast': onPrimary,
+    '--primary-rgb': hexToRgb(primary).join(', '),
     '--primary-soft': mixColor(surface, accent, dark ? 0.24 : 0.12),
     '--heat-1': mixColor(heat0, accent, dark ? 0.35 : 0.3),
     '--heat-2': mixColor(heat0, accent, dark ? 0.6 : 0.55),

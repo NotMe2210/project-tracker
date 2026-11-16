@@ -930,21 +930,25 @@ li.task.swiping { position: relative; z-index: 1; background: var(--surface); }
 /* ---------- Motivationsbereich: Flammen & pulsierender Balken ---------- */
 .fx-host { position: relative; overflow: hidden; isolation: isolate; flex-wrap: wrap; }
 .fx-host > :not(.banner-fx) { position: relative; z-index: 1; }
-/* Warmes Glühen: Innenschimmer + Lichtschein am Rand, pulsiert langsam; Stärke nach Serie */
+/* Glühen: Innenschimmer + Lichtschein am Rand, pulsiert langsam; Stärke nach Serie.
+   Die Farbe folgt dem Bereich: Erinnerung = warmes Orange, Erfolg = Grün, neutral = Akzentfarbe */
 .fx-glow-low  { --ga: .16; --gd: 5s; }
 .fx-glow-mid  { --ga: .30; --gd: 3.8s; }
 .fx-glow-high { --ga: .46; --gd: 2.8s; }
+.fx-host { --glow-rgb: var(--primary-rgb, 79, 70, 229); }
+.fx-host.warn { --glow-rgb: 255, 140, 30; }
+.fx-host.good { --glow-rgb: 34, 197, 94; }
 .fx-host[class*="fx-glow-"] { animation: hostGlow var(--gd) ease-in-out infinite; }
 .banner-fx.glow {
   position: absolute; inset: 0; z-index: 0; border-radius: inherit; pointer-events: none;
-  box-shadow: inset 0 0 32px 6px rgba(255, 140, 30, var(--ga));
-  background: linear-gradient(100deg, transparent 25%, rgba(255, 190, 80, calc(var(--ga) * .45)) 50%, transparent 75%);
+  box-shadow: inset 0 0 32px 6px rgba(var(--glow-rgb), var(--ga));
+  background: linear-gradient(100deg, transparent 25%, rgba(var(--glow-rgb), calc(var(--ga) * .35)) 50%, transparent 75%);
   background-size: 250% 100%;
   animation: innerGlow var(--gd) ease-in-out infinite, glowSweep calc(var(--gd) * 3) linear infinite;
 }
 @keyframes hostGlow {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(255, 150, 40, calc(var(--ga) * .7)), 0 0 8px rgba(255, 140, 30, calc(var(--ga) * .4)); }
-  50%      { box-shadow: 0 0 0 1px rgba(255, 150, 40, calc(var(--ga) * 1.5)), 0 0 24px 2px rgba(255, 140, 30, var(--ga)); }
+  0%, 100% { box-shadow: 0 0 0 1px rgba(var(--glow-rgb), calc(var(--ga) * .7)), 0 0 8px rgba(var(--glow-rgb), calc(var(--ga) * .4)); }
+  50%      { box-shadow: 0 0 0 1px rgba(var(--glow-rgb), calc(var(--ga) * 1.5)), 0 0 24px 2px rgba(var(--glow-rgb), var(--ga)); }
 }
 @keyframes innerGlow { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 @keyframes glowSweep { from { background-position: 160% 0; } to { background-position: -160% 0; } }
