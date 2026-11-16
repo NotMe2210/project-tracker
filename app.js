@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.16-1';
+const APP_VERSION = '2026.11.16-4';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -35,6 +35,8 @@ const DEFAULT_DATA = {
   tasks: [],
   notes: [],
   timer: null,
+  counters: { pomodoros: 0 },
+  achievements: null, // { id: Datum } – null = noch nie geprüft
 };
 
 const STATUS = [
@@ -204,6 +206,20 @@ function normalize(d) {
   for (const k of Object.keys(out)) if (d && d[k] !== undefined) out[k] = d[k];
   out.settings = { ...DEFAULT_DATA.settings, ...((d && d.settings) || {}) };
   out.tasks = (out.tasks || []).map((t) => (Array.isArray(t.subtasks) ? t : { ...t, subtasks: [] }));
+  out.counters = { pomodoros: 0, ...(out.counters || {}) };
+  // Neue Übersichts-Bereiche „Heute“ und „Erfolge“ auch in bereits angepassten Layouts einblenden (einmalig)
+  const dash = out.settings.dashboard;
+  if (dash?.widgets && !(out.settings.layoutRev >= 2)) {
+    if (!dash.widgets.some((w) => w.id === 'today')) {
+      const i = dash.widgets.findIndex((w) => w.id === 'banner');
+      dash.widgets.splice(i + 1, 0, { id: 'today', visible: true, wide: true });
+    }
+    if (!dash.widgets.some((w) => w.id === 'achievements')) {
+      const firstHidden = dash.widgets.findIndex((w) => !w.visible);
+      dash.widgets.splice(firstHidden < 0 ? dash.widgets.length : firstHidden, 0, { id: 'achievements', visible: true, wide: true });
+    }
+  }
+  out.settings.layoutRev = 2;
   // Ältere Zeiteinträge hatten nur eine Notiz -> wird zum Titel
   out.timeEntries = (out.timeEntries || []).map((e) => {
     if (e.title !== undefined) return e;
@@ -246,6 +262,7 @@ function fmtDateTime(ts) {
 }
 
 function commit() {
+  checkAchievements();
   save();
   render();
 }
@@ -589,6 +606,7 @@ function parseRoute() {
 
 function render() {
   applyTheme();
+  if (editState && !editMatchesRoute()) editState = null;
   if (typeof hideTip === 'function') hideTip();
   const r = parseRoute();
   const app = $('#app');
@@ -658,12 +676,14 @@ function dueBadge(iso) {
 // Bausteine der Übersicht. wide = volle Breite; visible = Standard-Sichtbarkeit.
 const WIDGETS = [
   { id: 'banner', label: 'Motivation & Erinnerung', icon: '💡', wide: true, visible: true },
+  { id: 'today', label: 'Heute', icon: '☀️', wide: true, visible: true },
   { id: 'stats', label: 'Kennzahlen', icon: '📊', wide: true, visible: true },
   { id: 'attention', label: 'Braucht Aufmerksamkeit', icon: '⚠️', wide: false, visible: true },
   { id: 'milestones', label: 'Anstehende Meilensteine', icon: '🏁', wide: false, visible: true },
   { id: 'nextSteps', label: 'Nächste Schritte', icon: '👉', wide: false, visible: true },
   { id: 'activity', label: 'Aktivität (12 Wochen)', icon: '📈', wide: false, visible: true },
   { id: 'projects', label: 'Alle Projekte (Tabelle)', icon: '📋', wide: true, visible: true },
+  { id: 'achievements', label: 'Erfolge', icon: '🏅', wide: true, visible: true },
   { id: 'dueTasks', label: 'Fällige Aufgaben (7 Tage)', icon: '⏰', wide: false, visible: false },
   { id: 'weekProjects', label: 'Zeit diese Woche je Projekt', icon: '⏱', wide: false, visible: false },
   { id: 'weekChart', label: 'Stunden pro Woche (alle Projekte)', icon: '📊', wide: false, visible: false },
@@ -682,23 +702,285 @@ const STAT_TILES = [
   { id: 'milestonesDone', label: 'Erreichte Meilensteine', visible: false },
 ];
 
+// Bausteine der Projektansicht (Reiter „Übersicht“ eines Projekts)
+const PROJECT_WIDGETS = [
+  { id: 'why', label: 'Warum & Ziel', icon: '💭', wide: true, visible: true },
+  { id: 'stats', label: 'Kennzahlen', icon: '📊', wide: true, visible: true },
+  { id: 'next', label: 'Nächster Schritt', icon: '👉', wide: false, visible: true },
+  { id: 'hours', label: 'Stunden pro Woche', icon: '⏱', wide: false, visible: true },
+  { id: 'milestones', label: 'Nächste Meilensteine', icon: '🏁', wide: false, visible: true },
+  { id: 'recent', label: 'Letzte Aktivitäten', icon: '🕘', wide: false, visible: true },
+  { id: 'description', label: 'Beschreibung', icon: '📝', wide: true, visible: true },
+  { id: 'tasks', label: 'Offene Aufgaben', icon: '✅', wide: false, visible: false },
+  { id: 'invest', label: 'Investitionen nach Kategorie', icon: '💶', wide: false, visible: false },
+];
+const PROJECT_STATS = [
+  { id: 'progress', label: 'Fortschritt', visible: true },
+  { id: 'total', label: 'Zeit gesamt', visible: true },
+  { id: 'week', label: 'Diese Woche', visible: true },
+  { id: 'invested', label: 'Investiert', visible: true },
+  { id: 'openTasks', label: 'Offene Aufgaben', visible: true },
+  { id: 'target', label: 'Zieltermin', visible: true },
+  { id: 'lastActive', label: 'Zuletzt aktiv', visible: false },
+];
+
 /** Gespeicherte Anordnung mit den bekannten Bausteinen abgleichen (neue Bausteine werden hinten angehängt). */
-function dashboardConfig() {
-  const saved = data.settings.dashboard || {};
-  const known = new Map(WIDGETS.map((w) => [w.id, w]));
+/* ---------------------------- Anpassbare Layouts ------------------------- */
+/*
+ * Gemeinsame Layout-Engine für Übersicht und Projektansicht.
+ * Ein Layout ist { widgets: [{ id, visible, wide }], stats: [kachel-ids] }.
+ * Bearbeiten passiert direkt auf der Seite (editState) mit Drag-and-drop und sofortiger Vorschau.
+ */
+
+/** Gespeicherte Anordnung mit den bekannten Bausteinen abgleichen (neue Bausteine werden hinten angehängt). */
+function layoutConfig(saved, defs, statDefs) {
+  saved = saved || {};
+  const known = new Map(defs.map((w) => [w.id, w]));
   const widgets = [];
   for (const w of saved.widgets || []) {
     if (!known.has(w.id) || widgets.some((x) => x.id === w.id)) continue;
     widgets.push({ id: w.id, visible: w.visible !== false, wide: !!w.wide });
   }
-  for (const w of WIDGETS) if (!widgets.some((x) => x.id === w.id)) widgets.push({ id: w.id, visible: saved.widgets ? false : w.visible, wide: w.wide });
-  const stats = Array.isArray(saved.stats) ? saved.stats.filter((id) => STAT_TILES.some((t) => t.id === id)) : STAT_TILES.filter((t) => t.visible).map((t) => t.id);
+  for (const w of defs) if (!widgets.some((x) => x.id === w.id)) widgets.push({ id: w.id, visible: saved.widgets ? false : w.visible, wide: w.wide });
+  const stats = Array.isArray(saved.stats) ? saved.stats.filter((id) => statDefs.some((t) => t.id === id)) : statDefs.filter((t) => t.visible).map((t) => t.id);
   return { widgets, stats };
 }
+const defaultLayout = (defs, statDefs) => ({
+  widgets: defs.map((w) => ({ id: w.id, visible: w.visible, wide: w.wide })),
+  stats: statDefs.filter((t) => t.visible).map((t) => t.id),
+});
 
-const defaultDashboardConfig = () => ({
-  widgets: WIDGETS.map((w) => ({ id: w.id, visible: w.visible, wide: w.wide })),
-  stats: STAT_TILES.filter((t) => t.visible).map((t) => t.id),
+const dashboardConfig = () => layoutConfig(data.settings.dashboard, WIDGETS, STAT_TILES);
+const defaultDashboardConfig = () => defaultLayout(WIDGETS, STAT_TILES);
+const projectLayoutFor = (p) => layoutConfig(p.layout || data.settings.projectLayout, PROJECT_WIDGETS, PROJECT_STATS);
+
+/** Laufender Bearbeitungsmodus: { kind: 'dashboard' | 'project', pid, draft, scope, replaceOthers, tilesOpen } */
+let editState = null;
+const layoutDefs = (kind) => (kind === 'project' ? [PROJECT_WIDGETS, PROJECT_STATS] : [WIDGETS, STAT_TILES]);
+
+/**
+ * Halbe Bausteine stehen paarweise nebeneinander (gleich hoch); ein allein stehender halber
+ * Baustein (vor einem breiten oder am Ende) nimmt die ganze Breite ein.
+ */
+function computeSpans(items) {
+  const spans = new Map();
+  let pending = [];
+  const flush = () => { pending.forEach((id, i) => spans.set(id, pending.length % 2 && i === pending.length - 1 ? 'span2' : 'span1')); pending = []; };
+  for (const it of items) {
+    if (it.wide) { flush(); spans.set(it.id, 'span2'); } else pending.push(it.id);
+  }
+  flush();
+  return spans;
+}
+
+function relayoutGrid(grid) {
+  const items = [...grid.querySelectorAll(':scope > .w-item')].map((el) => ({ id: el.dataset.wid, wide: el.dataset.wide === '1', el }));
+  const spans = computeSpans(items);
+  items.forEach((it) => { it.el.classList.toggle('span2', spans.get(it.id) === 'span2'); it.el.classList.toggle('span1', spans.get(it.id) === 'span1'); });
+}
+
+/** Rendert ein Layout; im Bearbeitungsmodus mit Werkzeugleiste je Baustein und Ablage für ausgeblendete. */
+function renderLayoutGrid(cfg, defs, renderFn, { edit = false, statDefs = [] } = {}) {
+  const meta = (id) => defs.find((d) => d.id === id);
+  const rendered = [];
+  for (const w of cfg.widgets.filter((x) => x.visible)) {
+    let html = renderFn(w.id);
+    if (!html && edit) {
+      const m = meta(w.id);
+      html = `<section class="card w-empty"><h2>${m.icon} ${esc(m.label)}</h2><div class="empty">Zurzeit ohne Inhalt – erscheint, sobald es etwas anzuzeigen gibt.</div></section>`;
+    }
+    if (html) rendered.push({ ...w, html });
+  }
+  const spans = computeSpans(rendered);
+  const items = rendered.map((w) => {
+    const m = meta(w.id);
+    const tools = edit ? `<div class="w-tools">
+        <button type="button" class="w-handle" data-drag aria-label="${esc(m.label)} verschieben" title="Ziehen zum Verschieben (oder Pfeiltasten)">⠿</button>
+        <span class="w-label">${m.icon} ${esc(m.label)}</span>
+        ${w.id === 'stats' ? `<button type="button" class="btn small ${editState?.tilesOpen ? 'active' : ''}" data-edit="tiles">Kacheln</button>` : ''}
+        <button type="button" class="btn small" data-edit="wide" data-wid="${w.id}" title="Breite umschalten">${w.wide ? '▭ Voll' : '◧ Halb'}</button>
+        <button type="button" class="btn small icon" data-edit="hide" data-wid="${w.id}" title="Ausblenden" aria-label="${esc(m.label)} ausblenden">✕</button>
+      </div>
+      ${w.id === 'stats' && editState?.tilesOpen ? `<div class="w-tiles">${statDefs.map((t) => `<button type="button" class="chip ${cfg.stats.includes(t.id) ? 'active' : ''}" data-edit="stat" data-stat="${t.id}">${esc(t.label)}</button>`).join('')}</div>` : ''}` : '';
+    return `<div class="w-item ${spans.get(w.id)}" data-wid="${w.id}" data-wide="${w.wide ? 1 : 0}">${tools}${w.html}</div>`;
+  });
+  const hidden = cfg.widgets.filter((w) => !w.visible);
+  const tray = edit ? `<div class="w-tray">
+      <span class="small muted">${hidden.length ? 'Ausgeblendet – zum Einblenden antippen:' : 'Alle Bereiche sind eingeblendet.'}</span>
+      ${hidden.map((w) => `<button type="button" class="chip" data-edit="show" data-wid="${w.id}">+ ${meta(w.id).icon} ${esc(meta(w.id).label)}</button>`).join('')}
+    </div>` : '';
+  return `<div class="wgrid ${edit ? 'editing' : ''}">${items.join('')}</div>${tray}`;
+}
+
+function editBar() {
+  if (!editState) return '';
+  const p = editState.kind === 'project' ? getProject(editState.pid) : null;
+  const others = editState.kind === 'project' ? data.projects.filter((x) => x.layout && x.id !== editState.pid).length : 0;
+  return `<div class="edit-bar">
+    <div class="edit-bar-text"><b>✏️ ${editState.kind === 'project' ? 'Projektansicht' : 'Übersicht'} anpassen</b>
+      <span class="small muted">Bereiche am ⠿-Griff ziehen · Breite ◧/▭ · ✕ ausblenden. Die Vorschau zeigt sofort das neue Layout.</span></div>
+    ${p ? `<div class="edit-scope">
+        <div class="segmented" role="radiogroup" aria-label="Gilt für">
+          <label><input type="radio" name="editScope" value="all" data-edit-scope ${editState.scope === 'all' ? 'checked' : ''}>Für alle Projekte</label>
+          <label><input type="radio" name="editScope" value="project" data-edit-scope ${editState.scope === 'project' ? 'checked' : ''}>Nur für „${esc(p.name)}“</label>
+        </div>
+        ${editState.scope === 'all' && others ? `<label class="check-row small"><input type="checkbox" data-edit-replace ${editState.replaceOthers ? 'checked' : ''}>
+          Auch die eigenen Anordnungen von ${others} ${others === 1 ? 'anderem Projekt' : 'anderen Projekten'} ersetzen</label>` : ''}
+      </div>` : ''}
+    <div class="btn-row edit-actions">
+      <button type="button" class="btn small" data-edit="reset">Standard</button>
+      <button type="button" class="btn small" data-edit="cancel">Abbrechen</button>
+      <button type="button" class="btn primary small" data-edit="save">Fertig</button>
+    </div>
+  </div>`;
+}
+
+function startEdit(kind, pid) {
+  if (kind === 'project') {
+    const p = getProject(pid);
+    if (!p) return;
+    editState = { kind, pid, draft: structuredClone(projectLayoutFor(p)), scope: p.layout ? 'project' : 'all', replaceOthers: false, tilesOpen: false };
+    if (!editMatchesRoute()) { location.hash = `#/projekt/${pid}/uebersicht`; return; }
+  } else {
+    editState = { kind, draft: structuredClone(dashboardConfig()), tilesOpen: false };
+    if (parseRoute().view !== 'dashboard') { location.hash = '#/'; return; }
+  }
+  render();
+}
+
+function editMatchesRoute() {
+  if (!editState) return false;
+  const r = parseRoute();
+  if (editState.kind === 'dashboard') return r.view === 'dashboard';
+  return r.view === 'projekt' && r.id === editState.pid && r.tab === 'uebersicht';
+}
+
+function saveEdit() {
+  const st = editState;
+  if (st.kind === 'dashboard') {
+    data.settings.dashboard = st.draft;
+  } else if (st.scope === 'project') {
+    getProject(st.pid).layout = st.draft;
+  } else {
+    data.settings.projectLayout = st.draft;
+    delete getProject(st.pid).layout;
+    if (st.replaceOthers) data.projects.forEach((p) => delete p.layout);
+  }
+  editState = null;
+  commit();
+  toast(st.kind === 'dashboard' ? 'Übersicht gespeichert ✔'
+    : st.scope === 'project' ? 'Anordnung für dieses Projekt gespeichert ✔' : 'Anordnung für alle Projekte gespeichert ✔');
+}
+
+/** Reihenfolge aus dem DOM (nach Drag-and-drop) in den Entwurf übernehmen. */
+function syncDraftOrder(grid) {
+  const order = [...grid.querySelectorAll(':scope > .w-item')].map((el) => el.dataset.wid);
+  const ws = editState.draft.widgets;
+  const visible = order.map((id) => ws.find((w) => w.id === id)).filter(Boolean);
+  editState.draft.widgets = [...visible, ...ws.filter((w) => !order.includes(w.id))];
+}
+
+/* Bearbeitungs-Aktionen */
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-edit]');
+  if (!b || !editState) return;
+  const d = editState.draft;
+  const w = d.widgets.find((x) => x.id === b.dataset.wid);
+  switch (b.dataset.edit) {
+    case 'wide': w.wide = !w.wide; break;
+    case 'hide': w.visible = false; break;
+    case 'show': {
+      w.visible = true;
+      // eingeblendete Bausteine kommen ans Ende der sichtbaren
+      d.widgets = [...d.widgets.filter((x) => x.visible && x !== w), w, ...d.widgets.filter((x) => !x.visible)];
+      break;
+    }
+    case 'tiles': editState.tilesOpen = !editState.tilesOpen; break;
+    case 'stat': {
+      const [, statDefs] = layoutDefs(editState.kind);
+      const id = b.dataset.stat;
+      d.stats = statDefs.map((t) => t.id).filter((x) => (x === id ? !d.stats.includes(id) : d.stats.includes(x)));
+      break;
+    }
+    case 'reset': {
+      const [defs, statDefs] = layoutDefs(editState.kind);
+      editState.draft = defaultLayout(defs, statDefs);
+      break;
+    }
+    case 'cancel': editState = null; break;
+    case 'save': return saveEdit();
+  }
+  render();
+});
+document.addEventListener('change', (e) => {
+  if (!editState) return;
+  if (e.target.matches('[data-edit-scope]')) { editState.scope = e.target.value; render(); }
+  if (e.target.matches('[data-edit-replace]')) editState.replaceOthers = e.target.checked;
+});
+
+/* Drag-and-drop mit Zeiger-Ereignissen (Maus, Finger, Stift) – Bausteine rücken sofort nach */
+let drag = null;
+document.addEventListener('pointerdown', (e) => {
+  const handle = e.target.closest('.wgrid.editing [data-drag]');
+  if (!handle || e.button > 0) return;
+  e.preventDefault();
+  const item = handle.closest('.w-item');
+  const r = item.getBoundingClientRect();
+  const ghost = item.cloneNode(true);
+  ghost.classList.add('w-ghost');
+  Object.assign(ghost.style, { width: `${r.width}px`, height: `${Math.min(r.height, 260)}px`, left: `${r.left}px`, top: `${r.top}px` });
+  document.body.appendChild(ghost);
+  item.classList.add('w-placeholder');
+  document.documentElement.classList.add('dragging');
+  drag = { item, grid: item.parentElement, ghost, dx: e.clientX - r.left, dy: e.clientY - r.top, x: e.clientX, y: e.clientY };
+  requestAnimationFrame(dragAutoScroll);
+});
+document.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  drag.x = e.clientX; drag.y = e.clientY;
+  drag.ghost.style.left = `${e.clientX - drag.dx}px`;
+  drag.ghost.style.top = `${e.clientY - drag.dy}px`;
+  dragReorder();
+});
+function dragReorder() {
+  const el = document.elementFromPoint(drag.x, drag.y)?.closest('.w-item');
+  if (!el || el === drag.item || el.parentElement !== drag.grid) return;
+  const items = [...drag.grid.children];
+  if (items.indexOf(drag.item) < items.indexOf(el)) el.after(drag.item); else el.before(drag.item);
+  relayoutGrid(drag.grid);
+}
+function dragAutoScroll() {
+  if (!drag) return;
+  const edge = 70;
+  if (drag.y < edge) window.scrollBy(0, -12);
+  else if (drag.y > window.innerHeight - edge) window.scrollBy(0, 12);
+  if (drag.y < edge || drag.y > window.innerHeight - edge) dragReorder();
+  requestAnimationFrame(dragAutoScroll);
+}
+function endDrag() {
+  if (!drag) return;
+  drag.ghost.remove();
+  drag.item.classList.remove('w-placeholder');
+  document.documentElement.classList.remove('dragging');
+  const grid = drag.grid;
+  drag = null;
+  syncDraftOrder(grid);
+  render();
+}
+document.addEventListener('pointerup', endDrag);
+document.addEventListener('pointercancel', endDrag);
+// Tastatur: Griff fokussieren, Pfeiltasten verschieben
+document.addEventListener('keydown', (e) => {
+  const handle = e.target.closest?.('.wgrid.editing [data-drag]');
+  if (!handle || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  e.preventDefault();
+  const item = handle.closest('.w-item');
+  if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') item.previousElementSibling?.before(item);
+  else item.nextElementSibling?.after(item);
+  const wid = item.dataset.wid;
+  syncDraftOrder(item.parentElement);
+  render();
+  document.querySelector(`.w-item[data-wid="${wid}"] [data-drag]`)?.focus();
 });
 
 function renderDashboard() {
@@ -716,37 +998,17 @@ function renderDashboard() {
   }
 
   const ctx = dashboardContext();
-  const cfg = dashboardConfig();
-  const visible = cfg.widgets.filter((w) => w.visible);
-
-  // Halbe Bausteine werden paarweise in Zeilen gesetzt – beide Kacheln einer Zeile sind gleich hoch.
-  // Bleibt ein halber Baustein allein (vor einem breiten oder am Ende), nimmt er die ganze Breite ein.
-  const blocks = [];
-  let pending = [];
-  const flush = () => {
-    for (let i = 0; i < pending.length; i += 2) {
-      const pair = pending.slice(i, i + 2);
-      blocks.push(`<div class="dash-row ${pair.length === 1 ? 'single' : ''}">${pair.join('')}</div>`);
-    }
-    pending = [];
-  };
-  visible.forEach((w) => {
-    const html = renderWidget(w.id, ctx, cfg);
-    if (!html) return;
-    if (w.wide) { flush(); blocks.push(`<div class="dash-wide">${html}</div>`); }
-    else pending.push(html);
-  });
-  flush();
+  const editing = editState?.kind === 'dashboard';
+  const cfg = editing ? editState.draft : dashboardConfig();
+  const anyVisible = cfg.widgets.some((w) => w.visible);
 
   return `
-    <div class="dash-head">
+    ${editing ? editBar() : `<div class="dash-head">
       <h1>Übersicht</h1>
       <button class="btn small" data-action="customizeDashboard">⚙️ Anpassen</button>
-    </div>
-    <div class="dash">
-      ${blocks.join('')}
-      ${visible.length ? '' : `<div class="card empty">Alle Bereiche sind ausgeblendet.<br><br><button class="btn primary" data-action="customizeDashboard">Übersicht anpassen</button></div>`}
-    </div>`;
+    </div>`}
+    ${renderLayoutGrid(cfg, WIDGETS, (id) => renderWidget(id, ctx, cfg), { edit: editing, statDefs: STAT_TILES })}
+    ${anyVisible || editing ? '' : `<div class="card empty">Alle Bereiche sind ausgeblendet.<br><br><button class="btn primary" data-action="customizeDashboard">Übersicht anpassen</button></div>`}`;
 }
 
 function dashboardContext() {
@@ -780,6 +1042,12 @@ function renderWidget(id, c, cfg) {
     case 'stats':
       return cfg.stats.length ? `<div class="stats">${cfg.stats.map((t) => statTile(t, c)).join('')}</div>` : '';
 
+    case 'today':
+      return renderToday(c);
+
+    case 'achievements':
+      return renderAchievements();
+
     case 'attention':
       return card('⚠️ Braucht Aufmerksamkeit', c.stale.length ? `<ul class="list">${c.stale.map(({ p, s }) => `
         <li>
@@ -789,7 +1057,8 @@ function renderWidget(id, c, cfg) {
             <div class="small why">${esc(reminderFor(p, s).text)}</div>
             <div class="meta">${healthBadge(s)}${s.next ? `<span>Nächster Schritt: ${esc(s.next.title)}</span>` : ''}</div>
           </div>
-          <button class="btn small" data-action="startTimer" data-id="${p.id}">▶ ${Number(data.settings.reminderMinutes) || 25} Min</button>
+          <button class="btn small" data-action="startPomodoro" data-id="${p.id}">🍅 ${Number(data.settings.reminderMinutes) || 25} Min</button>
+          ${qaButton(p)}
         </li>`).join('')}</ul>`
         : '<div class="empty">Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉</div>');
 
@@ -854,7 +1123,7 @@ function renderWidget(id, c, cfg) {
         <tbody>${sorted.map((p) => {
           const s = c.stats.get(p.id);
           return `<tr>
-            <td><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}">${esc(p.name)}</a></td>
+            <td class="name-cell"><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}">${esc(p.name)}</a>${qaButton(p)}</td>
             <td><span class="badge ${p.status}">${statusLabel(p.status)}</span></td>
             <td>${progressBar(s.progress)} <span class="small muted">${s.progress}%</span></td>
             <td class="num">${fmtHours(s.minutes)}</td>
@@ -885,7 +1154,8 @@ function statTile(id, c) {
       const src = c.goal.source === 'projects' ? ` (${c.goal.projects.length} ${c.goal.projects.length === 1 ? 'Projekt' : 'Projekte'})` : '';
       return tile('Diese Woche', fmtHours(c.thisWeek),
         `${c.goalMin ? `Ziel: ${fmtHours(c.goalMin)}${src} · ` : ''}${diff >= 0 ? '▲' : '▼'} ${fmtHours(Math.abs(diff))} ggü. Vorwoche`,
-        c.goalMin ? progressBar((c.thisWeek / c.goalMin) * 100, c.thisWeek >= c.goalMin ? 'good' : '') : '');
+        (c.goalMin ? progressBar((c.thisWeek / c.goalMin) * 100, c.thisWeek >= c.goalMin ? 'good' : '') : '')
+        + sparkline(lastWeeksMinutes(8), 'Stunden der letzten 8 Wochen'));
     }
     case 'streak':
       return tile('Streak', `${c.streak ? '🔥 ' : ''}${c.streak} ${c.streak === 1 ? 'Tag' : 'Tage'}`,
@@ -896,105 +1166,22 @@ function statTile(id, c) {
       return tile('Offene Aufgaben', c.openTasks.length, c.overdue.length ? `<span style="color:var(--bad)">${c.overdue.length} überfällig</span>` : 'nichts überfällig');
     case 'invested':
       return tile('Investiert', fmtEUR(sum(data.investments, (i) => i.amount)),
-        `${fmtEUR(sum(data.investments.filter((i) => i.date.startsWith(monthPrefix)), (i) => i.amount))} in diesem Monat`);
+        `${fmtEUR(sum(data.investments.filter((i) => i.date.startsWith(monthPrefix)), (i) => i.amount))} in diesem Monat`,
+        sparkline(lastMonths(6, (m) => sum(data.investments.filter((i) => i.date.startsWith(m)), (i) => i.amount)), 'Investitionen der letzten 6 Monate'));
     case 'month': {
       const min = sum(data.timeEntries.filter((e) => e.date.startsWith(monthPrefix)), (e) => e.minutes);
-      return tile('Zeit diesen Monat', fmtHours(min), new Date().toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }));
+      return tile('Zeit diesen Monat', fmtHours(min), new Date().toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }),
+        sparkline(lastMonths(6, (m) => sum(data.timeEntries.filter((e) => e.date.startsWith(m)), (e) => e.minutes)), 'Stunden der letzten 6 Monate'));
     }
     case 'total':
-      return tile('Zeit gesamt', fmtHours(sum(data.timeEntries, (e) => e.minutes)), `${data.timeEntries.length} Einträge`);
+      return tile('Zeit gesamt', fmtHours(sum(data.timeEntries, (e) => e.minutes)), `${data.timeEntries.length} Einträge`,
+        sparkline(lastWeeksMinutes(8), 'Stunden der letzten 8 Wochen'));
     case 'milestonesDone': {
       const done = data.milestones.filter((m) => m.done).length;
       return tile('Meilensteine', `${done} / ${data.milestones.length}`, 'erreicht');
     }
   }
   return '';
-}
-
-/* ---------------------------- Übersicht anpassen ------------------------- */
-
-let dashDraft = null;
-
-function openDashboardEditor() {
-  dashDraft = structuredClone(dashboardConfig());
-  const dlg = $('#modal');
-  dlg.innerHTML = `<form class="form dash-editor" novalidate>
-    <h2>Übersicht anpassen</h2>
-    <p class="small muted" style="margin:0">Blende Bereiche ein oder aus, ändere die Reihenfolge mit ↑ ↓ und wähle die Breite.
-    Zwei aufeinanderfolgende halbe Bereiche stehen nebeneinander und sind gleich hoch; ein einzelner halber Bereich nutzt die ganze Breite.
-    Auf dem Handy werden alle Bereiche untereinander angezeigt.</p>
-    <div id="dash-editor-list"></div>
-    <h3 style="margin:8px 0 0">Kennzahlen-Kacheln</h3>
-    <div id="dash-editor-stats" class="stat-picks"></div>
-    <div class="form-actions">
-      <button type="button" class="btn" data-dash="reset" style="margin-right:auto">Standard</button>
-      <button type="button" class="btn" data-close>Abbrechen</button>
-      <button type="submit" class="btn primary">Speichern</button>
-    </div>
-  </form>`;
-  const form = dlg.querySelector('form');
-  renderDashEditor();
-  form.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-dash]');
-    if (!b) return;
-    dashDraft = applyDashEdit(dashDraft, b);
-    renderDashEditor();
-  });
-  form.addEventListener('change', (e) => {
-    if (!e.target.dataset.widget && !e.target.dataset.stat) return;
-    dashDraft = applyDashEdit(dashDraft, e.target);
-    renderDashEditor();
-  });
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    data.settings.dashboard = dashDraft;
-    dlg.close();
-    unlockScroll();
-    commit();
-    toast('Übersicht gespeichert');
-  });
-  form.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
-  lockScroll();
-  dlg.showModal();
-}
-
-function renderDashEditor() {
-  $('#dash-editor-list').innerHTML = dashListHTML(dashDraft);
-  $('#dash-editor-stats').innerHTML = dashStatsHTML(dashDraft);
-}
-
-function dashListHTML(cfg) {
-  const n = cfg.widgets.length;
-  return `<ul class="list dash-editor-list">${cfg.widgets.map((w, i) => {
-    const meta = WIDGETS.find((x) => x.id === w.id);
-    return `<li class="${w.visible ? '' : 'off'}">
-      <label class="dash-toggle"><input type="checkbox" data-widget="${w.id}" ${w.visible ? 'checked' : ''}>
-        <span>${meta.icon} ${esc(meta.label)}</span></label>
-      <button type="button" class="btn small width-toggle" data-dash="wide" data-i="${i}" title="Breite umschalten">${w.wide ? '▭ Voll' : '◧ Halb'}</button>
-      <button type="button" class="btn ghost icon" data-dash="up" data-i="${i}" ${i === 0 ? 'disabled' : ''} title="Nach oben">↑</button>
-      <button type="button" class="btn ghost icon" data-dash="down" data-i="${i}" ${i === n - 1 ? 'disabled' : ''} title="Nach unten">↓</button>
-    </li>`;
-  }).join('')}</ul>`;
-}
-
-function dashStatsHTML(cfg) {
-  return STAT_TILES.map((t) => `
-    <label class="check-row"><input type="checkbox" data-stat="${t.id}" ${cfg.stats.includes(t.id) ? 'checked' : ''}> ${esc(t.label)}</label>`).join('');
-}
-
-/** Gemeinsame Logik für Dialog und Einstellungen: wendet eine Bedienung auf eine Konfiguration an. */
-function applyDashEdit(cfg, el) {
-  const ws = cfg.widgets;
-  const i = Number(el.dataset.i);
-  switch (el.dataset.dash) {
-    case 'up': if (i > 0) [ws[i - 1], ws[i]] = [ws[i], ws[i - 1]]; break;
-    case 'down': if (i < ws.length - 1) [ws[i + 1], ws[i]] = [ws[i], ws[i + 1]]; break;
-    case 'wide': ws[i].wide = !ws[i].wide; break;
-    case 'reset': return defaultDashboardConfig();
-  }
-  if (el.dataset.widget) ws.find((w) => w.id === el.dataset.widget).visible = el.checked;
-  if (el.dataset.stat) cfg.stats = STAT_TILES.map((t) => t.id).filter((id) => (id === el.dataset.stat ? el.checked : cfg.stats.includes(id)));
-  return cfg;
 }
 
 function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
@@ -1056,7 +1243,7 @@ function heatmap(map) {
     let lvl = 0;
     if (d) lvl = d.minutes >= 120 ? 4 : d.minutes >= 60 ? 3 : d.minutes >= 30 ? 2 : 1;
     const label = `${fmtDate(iso)}: ${d ? `${fmtDuration(d.minutes)}, ${d.count} Aktivität(en)` : 'keine Aktivität'}`;
-    cells.push(`<span class="l${lvl}${iso === today ? ' today' : ''}" aria-label="${esc(label)}" data-tip="${esc(dayTip(iso, d, details[iso]))}"></span>`);
+    cells.push(`<span class="l${lvl}${iso === today ? ' today' : ''}" aria-label="${esc(label)}" tabindex="-1" data-detail="day:${iso}" data-tip="${esc(dayTip(iso, d, details[iso]))}"></span>`);
   }
   const active = Object.keys(map).filter((k) => k >= toISO(start) && k <= today).length;
   return `<div class="heatmap">${cells.join('')}</div>
@@ -1081,7 +1268,7 @@ function weekBars(pid) {
   const weeks = weekList().map((w) => ({ ...w, min: weekMinutes(w.i, pid) }));
   const max = Math.max(60, ...weeks.map((w) => w.min));
   return `<div class="bars">${weeks.map((w) => `
-    <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-tip="${esc(`<b>${w.current ? 'Diese Woche' : `Woche ab ${w.label}`}</b><br>${fmtDuration(w.min)}`)}">
+    <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-detail="week:${w.i}:${pid}" data-tip="${esc(`<b>${w.current ? 'Diese Woche' : `Woche ab ${w.label}`}</b><br>${fmtDuration(w.min)}`)}">
       <span style="height:${(w.min / max) * 85}%;background:${esc(p?.color || 'var(--primary)')}"></span><small>${w.current ? 'jetzt' : w.label.slice(0, 3)}</small>
     </div>`).join('')}</div>`;
 }
@@ -1089,12 +1276,13 @@ function weekBars(pid) {
 /** Stunden pro Woche über alle Projekte – gestapelt, jedes Projekt in seiner Farbe. */
 function stackedWeekBars() {
   const weeks = weekList();
-  const projects = data.projects
+  const all = data.projects
     .map((p) => ({ p, per: weeks.map((w) => weekMinutes(w.i, p.id)) }))
     .map((x) => ({ ...x, total: sum(x.per, (m) => m) }))
     .filter((x) => x.total > 0)
     .sort((a, b) => b.total - a.total); // feste Stapel-Reihenfolge: größtes Projekt unten
-  if (!projects.length) return '<div class="empty">In den letzten 12 Wochen wurde noch keine Zeit erfasst.</div>';
+  if (!all.length) return '<div class="empty">In den letzten 12 Wochen wurde noch keine Zeit erfasst.</div>';
+  const projects = all.filter((x) => !hiddenSeries.has(x.p.id));
   const totals = weeks.map((_, wi) => sum(projects, (x) => x.per[wi]));
   const max = Math.max(60, ...totals);
   const scaleH = Math.ceil(max / 60);
@@ -1107,7 +1295,7 @@ function stackedWeekBars() {
     <div class="stack-chart" role="img" aria-label="Stunden pro Woche nach Projekt, letzte 12 Wochen">
       <div class="stack-scale small muted"><span>${scaleH} Std</span><span>0</span></div>
       <div class="bars stacked">${weeks.map((w, wi) => `
-        <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-tip="${esc(totals[wi] ? tip(w, wi) : `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>keine Zeit erfasst`)}">
+        <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-detail="week:${w.i}" data-tip="${esc(totals[wi] ? tip(w, wi) : `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>keine Zeit erfasst`)}">
           <div class="stack" style="height:calc((100% - 22px) * ${(totals[wi] / (scaleH * 60)).toFixed(4)})">
             ${projects.filter((x) => x.per[wi]).map((x) => `<span style="flex-grow:${x.per[wi]};background:${esc(x.p.color)}"></span>`).join('')}
           </div>
@@ -1115,8 +1303,9 @@ function stackedWeekBars() {
         </div>`).join('')}
       </div>
     </div>
-    <ul class="chart-legend">${projects.map((x) => `
-      <li><span class="dot-color" style="background:${esc(x.p.color)}"></span><span class="name">${esc(x.p.name)}</span><span class="val">${fmtHours(x.total)}</span></li>`).join('')}
+    <ul class="chart-legend">${all.map((x) => `
+      <li><button type="button" class="legend-btn ${hiddenSeries.has(x.p.id) ? 'off' : ''}" data-action="toggleSeries" data-id="${x.p.id}" aria-pressed="${!hiddenSeries.has(x.p.id)}" title="${hiddenSeries.has(x.p.id) ? 'Einblenden' : 'Ausblenden'}">
+        <span class="dot-color" style="background:${esc(x.p.color)}"></span><span class="name">${esc(x.p.name)}</span><span class="val">${fmtHours(x.total)}</span></button></li>`).join('')}
     </ul>
     <details class="chart-table">
       <summary class="small muted">Als Tabelle anzeigen</summary>
@@ -1135,7 +1324,8 @@ document.body.appendChild(chartTip);
 let tipTarget = null;
 function showTip(el) {
   tipTarget = el;
-  chartTip.innerHTML = el.dataset.tip;
+  chartTip.innerHTML = el.dataset.tip + (el.dataset.detail
+    ? `<span class="tip-sub tip-hint">${lastPointer === 'mouse' ? 'Klicken für Details' : 'Nochmal tippen für Details'}</span>` : '');
   chartTip.hidden = false;
   // Freien Raum zwischen Kopfleiste und (mobiler) Navigation bestimmen, Fenster auf der größeren Seite öffnen
   // Kopfleiste oben (sticky) begrenzt den Platz nach oben; als Seitenleiste links (Computer) nicht
@@ -1169,13 +1359,19 @@ document.addEventListener('focusout', (e) => { if (lastPointer !== 'touch' && e.
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-tip]');
   if (el) {
-    if (lastPointer === 'mouse') showTip(el);
-    else if (el === tipTarget && !chartTip.hidden) hideTip();
+    if (lastPointer === 'mouse') { if (el.dataset.detail) openDetail(el.dataset.detail); else showTip(el); }
+    else if (el === tipTarget && !chartTip.hidden) { if (el.dataset.detail) openDetail(el.dataset.detail); else hideTip(); }
     else showTip(el);
   } else if (!e.target.closest('.chart-tip')) hideTip();
 });
 window.addEventListener('scroll', hideTip, { passive: true });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideTip();
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('[data-detail]') && !e.target.closest('.wgrid.editing')) {
+    e.preventDefault();
+    openDetail(e.target.closest('[data-detail]').dataset.detail);
+  }
+});
 
 /* ---------------------------- Listeneinträge ----------------------------- */
 
@@ -1277,7 +1473,7 @@ function renderProjects() {
 
 function projectCard(p, s) {
   return `<a class="project-card" href="#/projekt/${p.id}" style="--pc:${esc(p.color)}">
-        <div class="row"><h3>${esc(p.name)}</h3><span class="badge ${p.status}">${statusLabel(p.status)}</span></div>
+        <div class="row"><h3>${esc(p.name)}</h3><span class="row-end"><span class="badge ${p.status}">${statusLabel(p.status)}</span>${qaButton(p)}</span></div>
         ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ''}
         <div>
           <div class="row small muted" style="margin-bottom:4px"><span>Fortschritt</span><span>${s.progress}%</span></div>
@@ -1352,54 +1548,97 @@ function renderProject(id, tab) {
 }
 
 function projectOverview(p, s) {
+  const editing = editState?.kind === 'project' && editState.pid === p.id;
+  const cfg = editing ? editState.draft : projectLayoutFor(p);
+  return `
+    ${editing ? editBar() : ''}
+    ${s.health === 'warn' || s.health === 'kritisch' ? staleBanner(p, s, { withOpen: false }) : ''}
+    ${editing ? '' : `<div class="dash-head view-head">
+      <span class="small muted">${p.layout ? '🎯 Eigene Anordnung für dieses Projekt' : ''}</span>
+      <button class="btn small" data-action="customizeProject" data-id="${p.id}">✏️ Ansicht anpassen</button>
+    </div>`}
+    ${renderLayoutGrid(cfg, PROJECT_WIDGETS, (id) => renderProjectWidget(id, p, s, cfg), { edit: editing, statDefs: PROJECT_STATS })}`;
+}
+
+function renderProjectWidget(id, p, s, cfg) {
   const hourGoal = Number(p.hourGoal) || 0;
   const budget = Number(p.budget) || 0;
-  const ms = data.milestones.filter((m) => m.projectId === p.id && !m.done)
-    .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')).slice(0, 3);
-  const recent = recentActivity(p.id).slice(0, 8);
+  switch (id) {
+    case 'why':
+      return p.why || p.goal ? `<section class="card">
+          ${p.why ? `<h3>💭 Warum ist mir das wichtig?</h3><p class="why" style="font-size:1rem">„${esc(p.why)}“</p>` : ''}
+          ${p.goal ? `<h3>🎯 Ziel / Wann ist es fertig?</h3><p style="margin:0">${esc(p.goal)}</p>` : ''}
+        </section>`
+        : `<div class="callout">💡 Tipp: Trage unter <a href="#" data-action="editProject" data-id="${p.id}">Bearbeiten</a> ein, <b>warum</b> dir das Projekt wichtig ist. Das wird dir angezeigt, wenn das Projekt einzuschlafen droht.</div>`;
 
-  return `
-    ${s.health === 'warn' || s.health === 'kritisch' ? staleBanner(p, s, { withOpen: false }) : ''}
-    ${p.why || p.goal ? `<div class="card" style="margin-bottom:16px">
-      ${p.why ? `<h3>💭 Warum ist mir das wichtig?</h3><p class="why" style="font-size:1rem">„${esc(p.why)}“</p>` : ''}
-      ${p.goal ? `<h3>🎯 Ziel / Wann ist es fertig?</h3><p>${esc(p.goal)}</p>` : ''}
-    </div>` : `<div class="callout" style="margin-bottom:16px">💡 Tipp: Trage unter <a href="#" data-action="editProject" data-id="${p.id}">Bearbeiten</a> ein, <b>warum</b> dir das Projekt wichtig ist. Das wird dir angezeigt, wenn das Projekt einzuschlafen droht.</div>`}
+    case 'stats': {
+      const wk = weekMinutes(0, p.id), wGoal = projectWeeklyMin(p);
+      const tiles = {
+        progress: `<div class="stat"><div class="label">Fortschritt</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
+          <div class="sub">${s.msTotal ? `${s.msDone}/${s.msTotal} Meilensteine` : `${s.tasksDone}/${s.tasksTotal} Aufgaben`}</div></div>`,
+        total: `<div class="stat"><div class="label">Zeit gesamt</div><div class="value">${fmtHours(s.minutes)}</div>
+          ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">von ${hourGoal} Std geplant</div>` : '<div class="sub">keine Gesamtzeit geplant</div>'}</div>`,
+        week: `<div class="stat"><div class="label">Diese Woche</div><div class="value">${fmtHours(wk)}</div>
+          ${wGoal ? progressBar((wk / wGoal) * 100, wk >= wGoal ? 'good' : '') + `<div class="sub">Wochenziel: ${fmtStd(wGoal / 60)}${p.status === 'aktiv' ? '' : ' (zählt nur bei aktiven Projekten)'}</div>`
+            : '<div class="sub">kein eigenes Wochenziel</div>'}</div>`,
+        invested: `<div class="stat"><div class="label">Investiert</div><div class="value">${fmtEUR(s.invested)}</div>
+          ${budget ? progressBar((s.invested / budget) * 100, s.invested > budget ? 'over' : '') + `<div class="sub">Budget ${fmtEUR(budget)} · ${s.invested > budget ? 'überschritten' : `${fmtEUR(budget - s.invested)} übrig`}</div>` : '<div class="sub">kein Budget festgelegt</div>'}</div>`,
+        openTasks: `<div class="stat"><div class="label">Offene Aufgaben</div><div class="value">${s.tasksOpen}</div><div class="sub">${s.tasksDone} erledigt</div></div>`,
+        target: `<div class="stat"><div class="label">Zieltermin</div><div class="value" style="font-size:1.15rem">${p.targetDate ? fmtDate(p.targetDate) : '–'}</div><div class="sub">${p.targetDate ? fmtRelative(p.targetDate) : 'kein Zieltermin'}</div></div>`,
+        lastActive: `<div class="stat"><div class="label">Zuletzt aktiv</div><div class="value" style="font-size:1.15rem">${fmtRelative(s.last)}</div><div class="sub">${s.last ? fmtDate(s.last) : ''}</div></div>`,
+      };
+      const shown = cfg.stats.filter((t) => tiles[t] && (t !== 'target' || p.targetDate || editState));
+      return shown.length ? `<div class="stats">${shown.map((t) => tiles[t]).join('')}</div>` : '';
+    }
 
-    <div class="stats">
-      <div class="stat"><div class="label">Fortschritt</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
-        <div class="sub">${s.msTotal ? `${s.msDone}/${s.msTotal} Meilensteine` : `${s.tasksDone}/${s.tasksTotal} Aufgaben`}</div></div>
-      <div class="stat"><div class="label">Zeit gesamt</div><div class="value">${fmtHours(s.minutes)}</div>
-        ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">von ${hourGoal} Std geplant</div>` : '<div class="sub">keine Gesamtzeit geplant</div>'}</div>
-      <div class="stat"><div class="label">Diese Woche</div><div class="value">${fmtHours(weekMinutes(0, p.id))}</div>
-        ${projectWeeklyMin(p) ? progressBar((weekMinutes(0, p.id) / projectWeeklyMin(p)) * 100, weekMinutes(0, p.id) >= projectWeeklyMin(p) ? 'good' : '')
-          + `<div class="sub">Wochenziel: ${fmtStd(projectWeeklyMin(p) / 60)}${p.status === 'aktiv' ? '' : ' (zählt nur bei aktiven Projekten)'}</div>`
-          : '<div class="sub">kein eigenes Wochenziel</div>'}</div>
-      <div class="stat"><div class="label">Investiert</div><div class="value">${fmtEUR(s.invested)}</div>
-        ${budget ? progressBar((s.invested / budget) * 100, s.invested > budget ? 'over' : '') + `<div class="sub">Budget ${fmtEUR(budget)} · ${s.invested > budget ? 'überschritten' : `${fmtEUR(budget - s.invested)} übrig`}</div>` : '<div class="sub">kein Budget festgelegt</div>'}</div>
-      <div class="stat"><div class="label">Offene Aufgaben</div><div class="value">${s.tasksOpen}</div><div class="sub">${s.tasksDone} erledigt</div></div>
-      ${p.targetDate ? `<div class="stat"><div class="label">Zieltermin</div><div class="value" style="font-size:1.15rem">${fmtDate(p.targetDate)}</div><div class="sub">${fmtRelative(p.targetDate)}</div></div>` : ''}
-    </div>
+    case 'next':
+      return `<section class="card">
+        <div class="card-head"><h2>👉 Nächster Schritt</h2><button class="btn small" data-action="addTask" data-id="${p.id}">+ Aufgabe</button></div>
+        ${s.next ? `<ul class="list">${taskItem(s.next)}</ul>` : '<div class="empty">Keine offene Aufgabe. Was ist der kleinste nächste Schritt?</div>'}
+      </section>`;
 
-    <div class="grid-2">
-      <div class="stack">
-        <section class="card">
-          <div class="card-head"><h2>👉 Nächster Schritt</h2><button class="btn small" data-action="addTask" data-id="${p.id}">+ Aufgabe</button></div>
-          ${s.next ? `<ul class="list">${taskItem(s.next)}</ul>` : '<div class="empty">Keine offene Aufgabe. Was ist der kleinste nächste Schritt?</div>'}
-        </section>
-        <section class="card">
-          <div class="card-head"><h2>🏁 Nächste Meilensteine</h2><button class="btn small" data-action="addMilestone" data-id="${p.id}">+ Meilenstein</button></div>
-          ${ms.length ? `<ul class="list">${ms.map((m) => milestoneItem(m)).join('')}</ul>` : '<div class="empty">Keine offenen Meilensteine.</div>'}
-        </section>
-      </div>
-      <div class="stack">
-        <section class="card"><div class="card-head"><h2>⏱ Stunden pro Woche</h2></div>${weekBars(p.id)}</section>
-        <section class="card">
-          <div class="card-head"><h2>🕘 Letzte Aktivitäten</h2><button class="btn small" data-action="addNote" data-id="${p.id}">+ Notiz</button></div>
-          ${recent.length ? `<ul class="list">${recent.map((a) => `<li><div class="grow"><div class="title">${a.icon} ${esc(a.text)}</div><div class="meta">${fmtDate(a.date)}</div></div></li>`).join('')}</ul>` : '<div class="empty">Noch keine Aktivitäten.</div>'}
-        </section>
-      </div>
-    </div>
-    ${p.description ? `<section class="card" style="margin-top:16px"><h2>Beschreibung</h2><p style="white-space:pre-wrap">${esc(p.description)}</p></section>` : ''}`;
+    case 'milestones': {
+      const ms = data.milestones.filter((m) => m.projectId === p.id && !m.done)
+        .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')).slice(0, 3);
+      return `<section class="card">
+        <div class="card-head"><h2>🏁 Nächste Meilensteine</h2><button class="btn small" data-action="addMilestone" data-id="${p.id}">+ Meilenstein</button></div>
+        ${ms.length ? `<ul class="list">${ms.map((m) => milestoneItem(m)).join('')}</ul>` : '<div class="empty">Keine offenen Meilensteine.</div>'}
+      </section>`;
+    }
+
+    case 'hours':
+      return `<section class="card"><div class="card-head"><h2>⏱ Stunden pro Woche</h2></div>${weekBars(p.id)}</section>`;
+
+    case 'recent': {
+      const recent = recentActivity(p.id).slice(0, 8);
+      return `<section class="card">
+        <div class="card-head"><h2>🕘 Letzte Aktivitäten</h2><button class="btn small" data-action="addNote" data-id="${p.id}">+ Notiz</button></div>
+        ${recent.length ? `<ul class="list">${recent.map((a) => `<li><div class="grow"><div class="title">${a.icon} ${esc(a.text)}</div><div class="meta">${fmtDate(a.date)}</div></div></li>`).join('')}</ul>` : '<div class="empty">Noch keine Aktivitäten.</div>'}
+      </section>`;
+    }
+
+    case 'description':
+      return p.description ? `<section class="card"><h2>📝 Beschreibung</h2><p style="white-space:pre-wrap;margin:0">${esc(p.description)}</p></section>` : '';
+
+    case 'tasks': {
+      const open = sortTasks(data.tasks.filter((t) => t.projectId === p.id && !t.done));
+      return `<section class="card">
+        <div class="card-head"><h2>✅ Offene Aufgaben (${open.length})</h2><a class="btn small" href="#/projekt/${p.id}/aufgaben">Alle</a></div>
+        ${open.length ? `<ul class="list">${open.slice(0, 5).map((t) => taskItem(t)).join('')}</ul>` : '<div class="empty">Keine offenen Aufgaben. 🎉</div>'}
+      </section>`;
+    }
+
+    case 'invest': {
+      const items = data.investments.filter((e) => e.projectId === p.id);
+      const byCat = {};
+      items.forEach((i) => (byCat[i.category || 'Sonstiges'] = (byCat[i.category || 'Sonstiges'] || 0) + i.amount));
+      return `<section class="card">
+        <div class="card-head"><h2>💶 Investitionen · ${fmtEUR(s.invested)}</h2><a class="btn small" href="#/projekt/${p.id}/investitionen">Alle</a></div>
+        ${items.length ? `<dl class="kv">${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${fmtEUR(v)}</dd>`).join('')}</dl>` : '<div class="empty">Noch keine Investitionen.</div>'}
+      </section>`;
+    }
+  }
+  return '';
 }
 
 function recentActivity(pid) {
@@ -1753,18 +1992,20 @@ function renderSettings() {
       `${esc(themeName)} · <span class="dot-color" style="background:${esc(accent)}"></span> ${esc(accentName)}`,
       renderAppearanceSettings())}
 
-    ${settingsSection('uebersicht', '🧩', 'Übersicht (Dashboard)',
-      `${dash.widgets.filter((w) => w.visible).length} von ${dash.widgets.length} Bereichen · ${dash.stats.length} Kennzahlen`,
-      `<div data-dash-scope="settings">
-        <p class="small muted">Blende Bereiche ein oder aus, ändere die Reihenfolge mit ↑ ↓ und wähle die Breite. Änderungen gelten sofort.
-        Zwei aufeinanderfolgende halbe Bereiche stehen nebeneinander und sind gleich hoch. Auf dem Handy stehen alle Bereiche untereinander.</p>
-        ${dashListHTML(dash)}
-        <h3 style="margin:16px 0 8px">Kennzahlen-Kacheln</h3>
-        <div class="stat-picks form" style="padding:0">${dashStatsHTML(dash)}</div>
-        <div class="btn-row" style="margin-top:16px">
-          <button type="button" class="btn" data-dash="reset">Standard wiederherstellen</button>
-          <a class="btn" href="#/">Zur Übersicht</a>
-        </div>
+    ${settingsSection('uebersicht', '🧩', 'Übersicht & Projektansicht',
+      `Übersicht: ${dash.widgets.filter((w) => w.visible).length} von ${dash.widgets.length} Bereichen · ${data.projects.filter((x) => x.layout).length} Projekt(e) mit eigener Anordnung`,
+      `<p class="small muted">Angepasst wird direkt auf der jeweiligen Seite: Bereiche am ⠿-Griff ziehen, Breite wählen, aus- und einblenden –
+      mit sofortiger Vorschau. Für die Projektansicht wählst du beim Speichern, ob die Anordnung für <b>alle Projekte</b> oder <b>nur für ein Projekt</b> gilt.</p>
+      <div class="btn-row">
+        <button type="button" class="btn primary" data-action="customizeDashboard">🧩 Übersicht anpassen</button>
+        ${data.projects.length ? `<button type="button" class="btn" data-action="customizeProject" data-id="${esc((data.projects.find((x) => x.status === 'aktiv') || data.projects[0]).id)}">📁 Projektansicht anpassen</button>` : ''}
+      </div>
+      ${data.projects.some((x) => x.layout) ? `<h3 style="margin-top:16px">Projekte mit eigener Anordnung</h3>
+        <ul class="list">${data.projects.filter((x) => x.layout).map((x) => `<li><span class="dot-color" style="background:${esc(x.color)}"></span>
+          <div class="grow"><a href="#/projekt/${x.id}">${esc(x.name)}</a></div>
+          <button type="button" class="btn small" data-action="resetProjectLayout" data-id="${x.id}">Gemeinsame Anordnung verwenden</button></li>`).join('')}</ul>` : ''}
+      <div class="btn-row" style="margin-top:12px">
+        <button type="button" class="btn small" data-action="resetAllLayouts">Alles auf Standard zurücksetzen</button>
       </div>`)}
 
     ${settingsSection('wochenziel', '🎯', 'Wochenziel', weeklyGoalSummary(), renderWeeklyGoalSettings())}
@@ -1985,7 +2226,46 @@ const projectOptions = () => data.projects
 
 const actions = {
   newProject() { projectForm(); },
-  customizeDashboard() { openDashboardEditor(); },
+  customizeDashboard() { startEdit('dashboard'); },
+  quickMenu({ id }) {
+    const p = getProject(id);
+    const btn = document.querySelector(`.qa-btn[data-id="${CSS.escape(id)}"]:hover`) || [...document.querySelectorAll(`.qa-btn[data-id="${CSS.escape(id)}"]`)].find((b) => b === document.activeElement) || document.querySelector(`.qa-btn[data-id="${CSS.escape(id)}"]`);
+    if (p) openPopover(lastQaButton || btn, projectMenuHTML(p));
+  },
+  goProject({ id }) { location.hash = `#/projekt/${id}`; },
+  setProjectStatus({ id, status }) {
+    const p = getProject(id);
+    const wasDone = p.status === 'abgeschlossen';
+    p.status = status;
+    commit();
+    if (!wasDone && status === 'abgeschlossen') celebrateProject(p);
+    else toast(`Status: ${statusLabel(status)}`);
+  },
+  toggleSeries({ id }) {
+    if (hiddenSeries.has(id)) hiddenSeries.delete(id); else hiddenSeries.add(id);
+    render();
+  },
+  openPalette() { openPalette(); },
+  customizeProject({ id }) { startEdit('project', id); },
+  resetProjectLayout({ id }) {
+    delete getProject(id).layout;
+    commit();
+    toast('Das Projekt nutzt wieder die gemeinsame Anordnung.');
+  },
+  resetAllLayouts() {
+    if (!confirm('Übersicht und Projektansicht (inkl. aller projektspezifischen Anordnungen) auf Standard zurücksetzen?')) return;
+    delete data.settings.dashboard;
+    delete data.settings.projectLayout;
+    data.projects.forEach((p) => delete p.layout);
+    commit();
+    toast('Anordnungen zurückgesetzt');
+  },
+  toggleSidebar() {
+    const collapsed = document.documentElement.classList.toggle('side-collapsed');
+    try { localStorage.setItem('projekttracker.ui.sidebar', collapsed ? 'collapsed' : 'open'); } catch { /* ignorieren */ }
+    updateSideToggle();
+    if (data.timer) renderTimer(true);
+  },
   applyUpdate({ id }) {
     // Mit neuem Query-Parameter laden, damit auch eine zwischengespeicherte index.html umgangen wird
     location.replace(`${location.pathname}?v=${encodeURIComponent(id || Date.now())}${location.hash}`);
@@ -2468,6 +2748,7 @@ function tickPomodoro() {
     if (t.phase === 'work') {
       t.focusMs += t.phaseEnd - t.phaseStart;
       t.count += 1;
+      data.counters.pomodoros = (data.counters.pomodoros || 0) + 1;
       startBreak(t, t.phaseEnd, true);
       signalMsg = t.phase === 'long'
         ? [`🍅 ${t.count} Pomodoros geschafft!`, `Zeit für eine lange Pause (${pomoCfg().long} Min).`]
@@ -2478,6 +2759,7 @@ function tickPomodoro() {
     }
   }
   if (signalMsg) {
+    checkAchievements();
     save();
     renderTimer(true);
     pomoSignal(...signalMsg);
@@ -2671,13 +2953,456 @@ function demoData() {
   return d;
 }
 
+/* ========================================================================
+   Interaktive Übersicht: Sparklines, „Heute“, Erfolge, Schnellaktionen,
+   Detailansichten, Befehlspalette, Wischgesten
+   ======================================================================== */
+
+/* ---------------------------- Sparklines --------------------------------- */
+
+/** Kleine Verlaufslinie (Inline-SVG) – Text bleibt in normaler Schriftfarbe, die Linie in der Akzentfarbe. */
+function sparkline(values, label) {
+  const w = 96, h = 26, pad = 3;
+  const max = Math.max(...values, 1), n = values.length;
+  const pts = values.map((v, i) => [pad + (i * (w - 2 * pad)) / Math.max(1, n - 1), h - pad - (v / max) * (h - 2 * pad)]);
+  const [lx, ly] = pts[pts.length - 1];
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(label)}">
+    <polyline points="${pts.map((p) => p.map((x) => x.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="3" fill="var(--primary)" stroke="var(--surface)" stroke-width="1.5"/>
+  </svg>`;
+}
+const monthKey = (offset) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + offset); return toISO(d).slice(0, 7); };
+const lastWeeksMinutes = (n, pid) => Array.from({ length: n }, (_, i) => weekMinutes(i - n + 1, pid));
+const lastMonths = (n, fn) => Array.from({ length: n }, (_, i) => fn(monthKey(i - n + 1)));
+
+/* ---------------------------- Heute -------------------------------------- */
+
+function renderToday(c) {
+  const today = c.today;
+  const hour = new Date().getHours();
+  const greet = hour < 11 ? 'Guten Morgen' : hour < 18 ? 'Hallo' : 'Guten Abend';
+  const dayLabel = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  const todayMin = minutesInRange(today, toISO(addDays(new Date(), 1)));
+  const doneToday = data.tasks.filter((t) => t.done && t.doneAt === today).length;
+  const min = Number(data.settings.reminderMinutes) || 25;
+
+  const items = [];
+  // 1) Fällige und überfällige Aufgaben
+  sortTasks(c.openTasks.filter((t) => t.dueDate && t.dueDate <= today)).slice(0, 2).forEach((t) => {
+    const p = getProject(t.projectId);
+    items.push(`<li>
+      <span class="today-ico">${t.dueDate < today ? '⚠️' : '⏰'}</span>
+      <div class="grow"><div class="title">${esc(t.title)}</div>
+        <div class="meta"><span><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</span>
+        <span class="${t.dueDate < today ? 'badge overdue' : ''}">${t.dueDate < today ? `überfällig seit ${fmtRelative(t.dueDate).replace('vor ', '')}` : 'heute fällig'}</span></div></div>
+      <div class="btn-row"><button class="btn small" data-action="toggleTask" data-id="${t.id}">✓ Erledigt</button>
+        <button class="btn small primary" data-action="startPomodoro" data-id="${p.id}">🍅 Start</button></div>
+    </li>`);
+  });
+  // 2) Das am längsten ruhende Projekt
+  const sleeping = c.stale.find((x) => x.s.health === 'kritisch') || c.stale[0];
+  if (sleeping && items.length < 3) {
+    items.push(`<li>
+      <span class="today-ico">😴</span>
+      <div class="grow"><div class="title">${esc(sleeping.p.name)} ruht seit ${sleeping.s.idle} Tagen</div>
+        <div class="meta">${sleeping.s.next ? `Kleinster Schritt: ${esc(sleeping.s.next.title)}` : 'Lege einen kleinen nächsten Schritt fest'}</div></div>
+      <div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${sleeping.p.id}">🍅 ${min} Min</button></div>
+    </li>`);
+  }
+  // 3) Rest zum Wochenziel – Vorschlag: aktives Projekt mit dem größten Rückstand
+  if (c.goalMin && c.thisWeek < c.goalMin && items.length < 3) {
+    const rest = c.goalMin - c.thisWeek;
+    const daysLeft = 7 - ((new Date().getDay() + 6) % 7);
+    const behind = c.active.map((p) => ({ p, gap: projectWeeklyMin(p) - weekMinutes(0, p.id) })).sort((a, b) => b.gap - a.gap)[0];
+    items.push(`<li>
+      <span class="today-ico">🎯</span>
+      <div class="grow"><div class="title">Noch ${fmtHours(rest)} bis zum Wochenziel</div>
+        <div class="meta">ca. ${fmtDuration(Math.ceil(rest / daysLeft))} pro Tag bis Sonntag${behind && behind.gap > 0 ? ` · größter Rückstand: ${esc(behind.p.name)}` : ''}</div></div>
+      ${behind ? `<div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${behind.p.id}">🍅 Start</button></div>` : ''}
+    </li>`);
+  }
+  // 4) Meilenstein in den nächsten 7 Tagen
+  const soon = data.milestones.filter((m) => !m.done && m.dueDate && m.dueDate >= today && m.dueDate <= toISO(addDays(new Date(), 7)) && getProject(m.projectId))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+  if (soon && items.length < 3) {
+    items.push(`<li>
+      <span class="today-ico">🏁</span>
+      <div class="grow"><div class="title">${esc(soon.title)}</div>
+        <div class="meta">Meilenstein ${fmtRelative(soon.dueDate)} · ${esc(getProject(soon.projectId).name)}</div></div>
+      <div class="btn-row"><a class="btn small" href="#/projekt/${soon.projectId}/meilensteine">Ansehen</a></div>
+    </li>`);
+  }
+  if (!items.length) {
+    const nxt = c.active.map((p) => c.stats.get(p.id).next).filter(Boolean)[0];
+    items.push(`<li><span class="today-ico">✨</span><div class="grow"><div class="title">Alles im grünen Bereich</div>
+      <div class="meta">${nxt ? `Wie wäre es mit: ${esc(nxt.title)}` : 'Lege für deine Projekte einen nächsten Schritt fest.'}</div></div>
+      ${nxt ? `<div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${nxt.projectId}">🍅 Start</button></div>` : ''}</li>`);
+  }
+  return `<section class="card today">
+    <div class="card-head"><h2>☀️ ${greet}! <span class="muted today-date">${esc(dayLabel)}</span></h2></div>
+    <div class="today-sum small muted">Heute: <b>${fmtDuration(todayMin)}</b> erfasst · <b>${doneToday}</b> ${doneToday === 1 ? 'Aufgabe' : 'Aufgaben'} erledigt${c.streak ? ` · 🔥 ${c.streak} ${c.streak === 1 ? 'Tag' : 'Tage'} in Folge` : ''}</div>
+    <ul class="list today-list">${items.join('')}</ul>
+  </section>`;
+}
+
+/* ---------------------------- Erfolge ------------------------------------ */
+
+function maxStreak() {
+  const days = Object.keys(dayMap()).sort();
+  let best = 0, cur = 0, prev = null;
+  for (const d of days) {
+    cur = prev && daysBetween(prev, d) === 1 ? cur + 1 : 1;
+    best = Math.max(best, cur);
+    prev = d;
+  }
+  return best;
+}
+function hasRevivedProject() {
+  return data.projects.some((p) => {
+    const ds = [...new Set(activities(p.id).map((a) => a.date).filter(Boolean))].sort();
+    return ds.some((d, i) => i > 0 && daysBetween(ds[i - 1], d) >= 14);
+  });
+}
+function weekGoalEverHit() {
+  const g = weeklyGoal().minutes;
+  if (!g) return false;
+  for (let i = -51; i <= 0; i++) if (weekMinutes(i) >= g) return true;
+  return false;
+}
+
+const ACHIEVEMENTS = [
+  { id: 'first_project', icon: '🚀', name: 'Startschuss', desc: 'Erstes Projekt angelegt', goal: 1, val: (x) => x.projects },
+  { id: 'first_hour', icon: '⏱', name: 'Erste Stunde', desc: '1 Stunde Zeit erfasst', goal: 1, val: (x) => x.hours },
+  { id: 'hours_10', icon: '🔟', name: 'Zehner', desc: '10 Stunden erfasst', goal: 10, val: (x) => x.hours },
+  { id: 'hours_50', icon: '💪', name: 'Ausdauer', desc: '50 Stunden erfasst', goal: 50, val: (x) => x.hours },
+  { id: 'hours_100', icon: '🏆', name: 'Hundert', desc: '100 Stunden erfasst', goal: 100, val: (x) => x.hours },
+  { id: 'streak_3', icon: '🔥', name: 'Warmgelaufen', desc: '3 Tage in Folge aktiv', goal: 3, val: (x) => x.streak },
+  { id: 'streak_7', icon: '📅', name: 'Eine Woche dran', desc: '7 Tage in Folge aktiv', goal: 7, val: (x) => x.streak },
+  { id: 'streak_30', icon: '🌋', name: 'Unaufhaltsam', desc: '30 Tage in Folge aktiv', goal: 30, val: (x) => x.streak },
+  { id: 'pomo_1', icon: '🍅', name: 'Erster Pomodoro', desc: 'Einen Pomodoro abgeschlossen', goal: 1, val: (x) => x.pomodoros },
+  { id: 'pomo_10', icon: '🧺', name: 'Tomatenernte', desc: '10 Pomodoros abgeschlossen', goal: 10, val: (x) => x.pomodoros },
+  { id: 'pomo_50', icon: '🚜', name: 'Tomatenfarm', desc: '50 Pomodoros abgeschlossen', goal: 50, val: (x) => x.pomodoros },
+  { id: 'tasks_10', icon: '✅', name: 'Macher', desc: '10 Aufgaben erledigt', goal: 10, val: (x) => x.tasks },
+  { id: 'tasks_50', icon: '⚡', name: 'Abarbeiter', desc: '50 Aufgaben erledigt', goal: 50, val: (x) => x.tasks },
+  { id: 'milestone_1', icon: '🏁', name: 'Etappensieg', desc: 'Ersten Meilenstein erreicht', goal: 1, val: (x) => x.milestones },
+  { id: 'milestone_5', icon: '🗺', name: 'Wegbereiter', desc: '5 Meilensteine erreicht', goal: 5, val: (x) => x.milestones },
+  { id: 'project_done', icon: '🎉', name: 'Geschafft', desc: 'Ein Projekt abgeschlossen', goal: 1, val: (x) => x.projectsDone },
+  { id: 'revived', icon: '🌱', name: 'Wiederbelebt', desc: 'Ein Projekt nach 14+ Tagen Pause weitergeführt', goal: 1, val: (x) => x.revived },
+  { id: 'week_goal', icon: '🎯', name: 'Wochenziel', desc: 'Ein Wochenziel erreicht', goal: 1, val: (x) => x.weekGoal },
+];
+
+function achievementStats() {
+  return {
+    projects: data.projects.length,
+    hours: sum(data.timeEntries, (e) => e.minutes) / 60,
+    streak: maxStreak(),
+    pomodoros: data.counters?.pomodoros || 0,
+    tasks: data.tasks.filter((t) => t.done).length,
+    milestones: data.milestones.filter((m) => m.done).length,
+    projectsDone: data.projects.filter((p) => p.status === 'abgeschlossen').length,
+    revived: hasRevivedProject() ? 1 : 0,
+    weekGoal: weekGoalEverHit() ? 1 : 0,
+  };
+}
+
+/** Neu erreichte Erfolge speichern und feiern. Beim allerersten Mal werden bestehende Erfolge still übernommen. */
+function checkAchievements() {
+  const x = achievementStats();
+  const earned = ACHIEVEMENTS.filter((a) => a.val(x) >= a.goal).map((a) => a.id);
+  if (!data.achievements) {
+    data.achievements = Object.fromEntries(earned.map((id) => [id, todayISO()]));
+    return [];
+  }
+  const fresh = earned.filter((id) => !data.achievements[id]);
+  fresh.forEach((id) => (data.achievements[id] = todayISO()));
+  if (fresh.length) {
+    const first = ACHIEVEMENTS.find((a) => a.id === fresh[0]);
+    setTimeout(() => {
+      toast(`🏅 Erfolg freigeschaltet: ${first.icon} ${first.name}${fresh.length > 1 ? ` (+${fresh.length - 1} weitere)` : ''}`);
+      confetti();
+    }, 300);
+  }
+  return fresh;
+}
+
+function renderAchievements() {
+  const x = achievementStats();
+  const got = data.achievements || {};
+  const n = ACHIEVEMENTS.filter((a) => got[a.id]).length;
+  const badges = ACHIEVEMENTS.map((a) => {
+    const done = !!got[a.id];
+    const v = Math.min(a.goal, a.val(x));
+    const tip = `<b>${a.icon} ${esc(a.name)}</b><span class="tip-sub">${esc(a.desc)}</span>${done ? `<span class="tip-sub">✔ erreicht am ${fmtDate(got[a.id])}</span>` : `<span class="tip-sub">Fortschritt: ${Math.floor(v * 10) / 10} / ${a.goal}</span>`}`;
+    return `<div class="badge-tile ${done ? 'earned' : 'locked'}" tabindex="0" data-tip="${esc(tip)}">
+      <span class="badge-icon">${a.icon}</span><span class="badge-name">${esc(a.name)}</span>
+      ${done ? '' : `<span class="badge-prog"><span style="width:${(v / a.goal) * 100}%"></span></span>`}
+    </div>`;
+  }).join('');
+  return `<section class="card">
+    <div class="card-head"><h2>🏅 Erfolge</h2><span class="small muted">${n} von ${ACHIEVEMENTS.length}</span></div>
+    <div class="badge-grid">${badges}</div>
+  </section>`;
+}
+
+/* ---------------------------- Popover-Menüs (Schnellaktionen) ------------ */
+
+const popover = document.createElement('div');
+popover.className = 'popover';
+popover.hidden = true;
+popover.setAttribute('role', 'menu');
+document.body.appendChild(popover);
+let popoverAnchor = null;
+
+function openPopover(anchor, html) {
+  hideTip();
+  popover.innerHTML = html;
+  popover.hidden = false;
+  popoverAnchor = anchor;
+  if (matchMedia('(max-width: 640px)').matches) { popover.style.left = popover.style.top = ''; }
+  else {
+    const r = anchor.getBoundingClientRect(), pr = popover.getBoundingClientRect();
+    const left = Math.min(window.innerWidth - pr.width - 8, Math.max(8, r.right - pr.width));
+    const top = r.bottom + 6 + pr.height < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - pr.height - 6);
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+  }
+  popover.querySelector('button')?.focus({ preventScroll: true });
+}
+function closePopover() {
+  if (popover.hidden) return;
+  popover.hidden = true;
+  popoverAnchor = null;
+}
+document.addEventListener('click', (e) => {
+  if (popover.hidden || suppressClick) return;
+  if (popover.contains(e.target)) { if (e.target.closest('[data-action]')) setTimeout(closePopover); return; }
+  if (popoverAnchor && popoverAnchor.contains(e.target)) return;
+  closePopover();
+}, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePopover(); });
+window.addEventListener('resize', closePopover);
+
+function projectMenuHTML(p) {
+  return `<div class="pop-title"><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</div>
+    <button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 Pomodoro starten</button>
+    <button class="pop-item" data-action="startTimer" data-id="${p.id}">▶ Stoppuhr starten</button>
+    <button class="pop-item" data-action="addTime" data-id="${p.id}">⏱ Zeit erfassen</button>
+    <button class="pop-item" data-action="addTask" data-id="${p.id}">✅ Aufgabe anlegen</button>
+    <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 Notiz</button>
+    <button class="pop-item" data-action="goProject" data-id="${p.id}">📁 Projekt öffnen</button>
+    <div class="pop-sep"></div>
+    <div class="pop-label">Status</div>
+    <div class="pop-chips">${STATUS.map((st) => `<button class="chip ${p.status === st.value ? 'active' : ''}" data-action="setProjectStatus" data-id="${p.id}" data-status="${st.value}">${st.label}</button>`).join('')}</div>`;
+}
+const qaButton = (p) => `<button class="btn ghost icon qa-btn" data-action="quickMenu" data-id="${p.id}" aria-label="Aktionen für ${esc(p.name)}" title="Aktionen">⋯</button>`;
+
+function taskMenuHTML(t) {
+  const p = getProject(t.projectId);
+  return `<div class="pop-title">${esc(t.title)}</div>
+    <button class="pop-item" data-action="toggleTask" data-id="${t.id}">${t.done ? '↺ Wieder öffnen' : '✓ Erledigt'}</button>
+    <button class="pop-item" data-action="editTask" data-id="${t.id}">✎ Bearbeiten</button>
+    ${t.done ? '' : `<button class="pop-item" data-action="addSubtask" data-id="${t.id}">＋ Unterpunkt</button>`}
+    ${p ? `<button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 Pomodoro für ${esc(p.name)}</button>` : ''}
+    <div class="pop-sep"></div>
+    <button class="pop-item danger" data-action="deleteTask" data-id="${t.id}">🗑 Löschen</button>`;
+}
+
+/* ---------------------------- Detailansichten (Diagramme anklicken) ------- */
+
+/** Ausgeblendete Projekte im Wochendiagramm (per Klick auf die Legende, nur für diese Sitzung) */
+const hiddenSeries = new Set();
+
+function openDetail(spec) {
+  hideTip();
+  const [kind, a, pid] = spec.split(':');
+  let title, body;
+  const entryRow = (e) => {
+    const p = getProject(e.projectId);
+    return `<li><span class="dot-color" style="background:${esc(p?.color || 'var(--muted)')}"></span>
+      <div class="grow"><div class="title">${esc(e.title || autoTimeTitle(e.date))}</div>
+        <div class="meta"><span class="amount">⏱ ${fmtDuration(e.minutes)}</span><span>${esc(p?.name || '–')}</span>${kind === 'week' ? `<span>${esc(autoTimeTitle(e.date))}</span>` : ''}</div>
+        ${e.description ? `<div class="entry-desc">${esc(e.description)}</div>` : ''}</div>
+      <button class="btn ghost icon" data-action="editTime" data-id="${e.id}" title="Bearbeiten" aria-label="Zeiteintrag bearbeiten">✎</button></li>`;
+  };
+  if (kind === 'day') {
+    const items = dayDetails(a)[a] || [];
+    const entries = data.timeEntries.filter((e) => e.date === a);
+    const other = items.filter((it) => it.icon !== '⏱');
+    title = parseISO(a).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    body = `<p class="small muted" style="margin:0">${fmtDuration(sum(entries, (e) => e.minutes))} erfasst · ${items.length} ${items.length === 1 ? 'Aktivität' : 'Aktivitäten'}</p>
+      ${entries.length ? `<h3>⏱ Zeiteinträge</h3><ul class="list">${entries.map(entryRow).join('')}</ul>` : ''}
+      ${other.length ? `<h3>Weitere Aktivitäten</h3><ul class="list">${other.map((it) => `<li><span class="dot-color" style="background:${esc(it.p.color)}"></span><div class="grow"><div class="title">${it.icon} ${esc(it.text)}</div><div class="meta">${esc(it.p.name)}</div></div></li>`).join('')}</ul>` : ''}
+      ${items.length ? '' : '<div class="empty">An diesem Tag gab es keine Aktivität.</div>'}`;
+  } else {
+    const start = addDays(startOfWeek(new Date()), Number(a) * 7);
+    const from = toISO(start), to = toISO(addDays(start, 7));
+    const entries = data.timeEntries.filter((e) => e.date >= from && e.date < to && (!pid || e.projectId === pid))
+      .sort((x, y) => y.date.localeCompare(x.date));
+    const p = pid ? getProject(pid) : null;
+    title = `Woche ${fmtDate(from)} – ${fmtDate(toISO(addDays(start, 6)))}${p ? ` · ${p.name}` : ''}`;
+    const byProject = {};
+    entries.forEach((e) => (byProject[e.projectId] = (byProject[e.projectId] || 0) + e.minutes));
+    body = `<p class="small muted" style="margin:0">${fmtDuration(sum(entries, (e) => e.minutes))} in ${entries.length} ${entries.length === 1 ? 'Eintrag' : 'Einträgen'}</p>
+      ${!pid && Object.keys(byProject).length > 1 ? `<div class="detail-split">${Object.entries(byProject).sort((x, y) => y[1] - x[1]).map(([id, m]) => `<span><span class="dot-color" style="background:${esc(getProject(id)?.color || 'var(--muted)')}"></span> ${esc(getProject(id)?.name || '–')} <b>${fmtDuration(m)}</b></span>`).join('')}</div>` : ''}
+      ${entries.length ? `<ul class="list">${entries.map(entryRow).join('')}</ul>` : '<div class="empty">In dieser Woche wurde keine Zeit erfasst.</div>'}`;
+  }
+  const dlg = $('#modal');
+  dlg.classList.remove('wide');
+  dlg.innerHTML = `<div class="form detail-view"><h2>${esc(title)}</h2>${body}
+    <div class="form-actions"><button type="button" class="btn primary" data-close>Schließen</button></div></div>`;
+  dlg.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
+  lockScroll();
+  dlg.showModal();
+}
+
+/* ---------------------------- Befehlspalette (⌘K / Strg+K) ---------------- */
+
+function paletteCommands() {
+  const cmds = [];
+  const add = (icon, label, run, hint = '') => cmds.push({ icon, label, run, hint, key: `${label} ${hint}`.toLocaleLowerCase('de') });
+  add('🏠', 'Übersicht', () => { location.hash = '#/'; }, 'Navigation');
+  add('📁', 'Projekte', () => { location.hash = '#/projekte'; }, 'Navigation');
+  add('⚙️', 'Einstellungen', () => { location.hash = '#/einstellungen'; }, 'Navigation');
+  add('➕', 'Neues Projekt', () => actions.newProject());
+  add('⏱', 'Zeit erfassen', () => actions.addTime({}));
+  if (data.timer) add('■', data.timer.mode === 'pomodoro' ? 'Pomodoro beenden' : 'Timer stoppen', () => actions.stopTimer());
+  add('💾', 'Sicherung exportieren', () => actions.exportData(), 'Backup');
+  add('⬆', 'Sicherung importieren', () => actions.importData(), 'Backup');
+  add('🧩', 'Übersicht anpassen', () => actions.customizeDashboard(), 'Layout');
+  THEMES.forEach(([v, l]) => add(l.split(' ')[0], `Darstellung: ${l.replace(/^\S+\s/, '')}`, () => { data.settings.theme = v; commit(); }, 'Theme Hell Dunkel'));
+  add('↔', 'Seitenleiste ein-/ausklappen', () => actions.toggleSidebar(), 'Navigation');
+  const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
+  [...data.projects].sort((a, b) => order[a.status] - order[b.status]).forEach((p) => {
+    add('📁', `Öffnen: ${p.name}`, () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
+    if (p.status !== 'abgeschlossen') {
+      add('🍅', `Pomodoro: ${p.name}`, () => actions.startPomodoro({ id: p.id }), 'Timer');
+      add('⏱', `Zeit erfassen: ${p.name}`, () => actions.addTime({ id: p.id }));
+      add('✅', `Aufgabe anlegen: ${p.name}`, () => actions.addTask({ id: p.id }));
+      add('📝', `Notiz: ${p.name}`, () => actions.addNote({ id: p.id }));
+    }
+  });
+  sortTasks(data.tasks.filter((t) => !t.done)).forEach((t) => {
+    add('☐', `Erledigen: ${t.title}`, () => actions.toggleTask({ id: t.id }), getProject(t.projectId)?.name || '');
+  });
+  return cmds;
+}
+
+let paletteState = null;
+function openPalette() {
+  if ($('#modal').open) return;
+  closePopover(); hideTip();
+  paletteState = { cmds: paletteCommands(), list: [], active: 0 };
+  const dlg = $('#modal');
+  dlg.classList.remove('wide');
+  dlg.innerHTML = `<div class="palette">
+    <input type="text" class="palette-input" placeholder="Befehl oder Projekt suchen …" aria-label="Befehl suchen" autocomplete="off" spellcheck="false">
+    <ul class="palette-list" role="listbox"></ul>
+    <div class="palette-foot small muted">↑ ↓ auswählen · Enter ausführen · Esc schließen</div>
+  </div>`;
+  const input = dlg.querySelector('.palette-input');
+  input.addEventListener('input', () => { paletteState.active = 0; renderPalette(input.value); });
+  input.addEventListener('keydown', (e) => {
+    const n = paletteState.list.length;
+    if (e.key === 'ArrowDown') { e.preventDefault(); paletteState.active = (paletteState.active + 1) % Math.max(1, n); renderPalette(input.value, true); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); paletteState.active = (paletteState.active - 1 + n) % Math.max(1, n); renderPalette(input.value, true); }
+    if (e.key === 'Enter') { e.preventDefault(); runPalette(paletteState.active); }
+  });
+  dlg.querySelector('.palette-list').addEventListener('click', (e) => {
+    const li = e.target.closest('[data-i]');
+    if (li) runPalette(Number(li.dataset.i));
+  });
+  dlg.addEventListener('close', () => { paletteState = null; }, { once: true });
+  lockScroll();
+  dlg.showModal();
+  renderPalette('');
+  input.focus();
+}
+function renderPalette(q, keepList = false) {
+  if (!keepList) {
+    const words = q.toLocaleLowerCase('de').split(/\s+/).filter(Boolean);
+    paletteState.list = paletteState.cmds.filter((c) => words.every((w) => c.key.includes(w))).slice(0, 50);
+  }
+  const ul = $('#modal .palette-list');
+  ul.innerHTML = paletteState.list.length ? paletteState.list.map((c, i) => `<li data-i="${i}" role="option" class="${i === paletteState.active ? 'active' : ''}" aria-selected="${i === paletteState.active}">
+      <span class="pal-ico">${c.icon}</span><span class="pal-label">${esc(c.label)}</span>${c.hint ? `<span class="pal-hint">${esc(c.hint)}</span>` : ''}</li>`).join('')
+    : '<li class="pal-empty">Nichts gefunden</li>';
+  ul.querySelector('.active')?.scrollIntoView({ block: 'nearest' });
+}
+function runPalette(i) {
+  const cmd = paletteState?.list[i];
+  if (!cmd) return;
+  $('#modal').close();
+  unlockScroll();
+  setTimeout(() => cmd.run(), 0);
+}
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    if (paletteState) { $('#modal').close(); unlockScroll(); } else openPalette();
+  }
+});
+
+/* ---------------------------- Wischgesten (Touch) ------------------------- */
+/* Aufgabe nach rechts wischen = erledigt, nach links = Optionen */
+
+let swipe = null;
+let suppressClick = false;
+document.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch') return;
+  const li = e.target.closest('li.task');
+  if (!li || e.target.closest('button, a, input, textarea') || li.closest('.wgrid.editing')) return;
+  swipe = { li, x0: e.clientX, y0: e.clientY, dx: 0, dir: null, id: e.pointerId };
+});
+document.addEventListener('pointermove', (e) => {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const dx = e.clientX - swipe.x0, dy = e.clientY - swipe.y0;
+  if (!swipe.dir) {
+    if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
+    if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      swipe.dir = 'h';
+      const li = swipe.li, ul = li.parentElement;
+      ul.style.position = 'relative';
+      swipe.bg = document.createElement('div');
+      swipe.bg.className = 'swipe-bg';
+      Object.assign(swipe.bg.style, { top: `${li.offsetTop}px`, height: `${li.offsetHeight}px` });
+      ul.insertBefore(swipe.bg, li);
+      li.classList.add('swiping');
+    } else return;
+  }
+  swipe.dx = Math.max(-140, Math.min(140, dx));
+  swipe.li.style.transform = `translateX(${swipe.dx}px)`;
+  const done = swipe.li.classList.contains('done');
+  swipe.bg.className = `swipe-bg ${swipe.dx > 0 ? 'right' : 'left'} ${Math.abs(swipe.dx) > 80 ? 'armed' : ''}`;
+  swipe.bg.innerHTML = swipe.dx > 0 ? `<span>${done ? '↺ Wieder öffnen' : '✓ Erledigt'}</span>` : '<span>⋯ Optionen</span>';
+});
+function endSwipe() {
+  if (!swipe) return;
+  const { li, dx, dir, bg } = swipe;
+  swipe = null;
+  if (dir !== 'h') return;
+  suppressClick = true;
+  setTimeout(() => (suppressClick = false), 350);
+  li.style.transition = 'transform .2s ease';
+  li.style.transform = '';
+  setTimeout(() => { li.style.transition = ''; li.classList.remove('swiping'); bg?.remove(); }, 220);
+  const id = li.querySelector('[data-action="toggleTask"]')?.dataset.id;
+  if (!id) return;
+  if (dx > 80) { navigator.vibrate?.(15); setTimeout(() => actions.toggleTask({ id }), 180); }
+  else if (dx < -80) { const t = data.tasks.find((x) => x.id === id); if (t) openPopover(li, taskMenuHTML(t)); }
+}
+document.addEventListener('pointerup', endSwipe);
+document.addEventListener('pointercancel', endSwipe);
+document.addEventListener('click', (e) => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
+
 /* ------------------------------------------------------------------------
    Event-Handling & Start
    ------------------------------------------------------------------------ */
 
+let lastQaButton = null;
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
+  if (el.dataset.action === 'quickMenu') lastQaButton = el;
   const fn = actions[el.dataset.action];
   if (!fn) return;
   e.preventDefault();
@@ -2770,21 +3495,6 @@ document.addEventListener('toggle', (e) => {
   if (btn) btn.textContent = SECTION_IDS.every((id) => openSections.has(id)) ? 'Alle zuklappen' : 'Alle aufklappen';
 }, true);
 
-// Übersicht direkt in den Einstellungen anpassen – Änderungen gelten sofort
-document.addEventListener('click', (e) => {
-  const b = e.target.closest('[data-dash-scope="settings"] [data-dash]');
-  if (!b) return;
-  if (b.dataset.dash === 'reset' && !confirm('Übersicht auf die Standardansicht zurücksetzen?')) return;
-  data.settings.dashboard = applyDashEdit(structuredClone(dashboardConfig()), b);
-  commit();
-});
-document.addEventListener('change', (e) => {
-  const el = e.target;
-  if (!el.closest('[data-dash-scope="settings"]') || (!el.dataset.widget && !el.dataset.stat)) return;
-  data.settings.dashboard = applyDashEdit(structuredClone(dashboardConfig()), el);
-  commit();
-});
-
 // Mitwachsende Textfelder
 document.addEventListener('input', (e) => { if (e.target.matches('textarea.autogrow')) autoGrow(e.target); });
 window.addEventListener('resize', () => growAll());
@@ -2868,6 +3578,23 @@ async function checkForUpdate(force = false) {
 checkForUpdate(true);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
 setInterval(() => checkForUpdate(), 30 * 60 * 1000);
+
+// Tastenkürzel passend zum Betriebssystem anzeigen
+{
+  const kbd = document.querySelector('.cmd-btn kbd');
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  if (kbd) kbd.textContent = mac ? '⌘K' : 'Strg K';
+  document.querySelector('.cmd-btn')?.setAttribute('title', `Befehlspalette (${mac ? '⌘K' : 'Strg+K'})`);
+}
+
+function updateSideToggle() {
+  const btn = document.getElementById('side-toggle');
+  if (!btn) return;
+  const collapsed = document.documentElement.classList.contains('side-collapsed');
+  btn.textContent = collapsed ? '»' : '«';
+  btn.title = btn.ariaLabel = collapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen';
+}
+updateSideToggle();
 
 // Safari löscht Website-Daten sonst nach 7 Tagen ohne Besuch – dauerhaften Speicher anfragen.
 navigator.storage?.persist?.().catch(() => {});
