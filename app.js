@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.16-2';
+const APP_VERSION = '2026.11.16-3';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -589,6 +589,7 @@ function parseRoute() {
 
 function render() {
   applyTheme();
+  if (editState && !editMatchesRoute()) editState = null;
   if (typeof hideTip === 'function') hideTip();
   const r = parseRoute();
   const app = $('#app');
@@ -682,23 +683,285 @@ const STAT_TILES = [
   { id: 'milestonesDone', label: 'Erreichte Meilensteine', visible: false },
 ];
 
+// Bausteine der Projektansicht (Reiter „Übersicht“ eines Projekts)
+const PROJECT_WIDGETS = [
+  { id: 'why', label: 'Warum & Ziel', icon: '💭', wide: true, visible: true },
+  { id: 'stats', label: 'Kennzahlen', icon: '📊', wide: true, visible: true },
+  { id: 'next', label: 'Nächster Schritt', icon: '👉', wide: false, visible: true },
+  { id: 'hours', label: 'Stunden pro Woche', icon: '⏱', wide: false, visible: true },
+  { id: 'milestones', label: 'Nächste Meilensteine', icon: '🏁', wide: false, visible: true },
+  { id: 'recent', label: 'Letzte Aktivitäten', icon: '🕘', wide: false, visible: true },
+  { id: 'description', label: 'Beschreibung', icon: '📝', wide: true, visible: true },
+  { id: 'tasks', label: 'Offene Aufgaben', icon: '✅', wide: false, visible: false },
+  { id: 'invest', label: 'Investitionen nach Kategorie', icon: '💶', wide: false, visible: false },
+];
+const PROJECT_STATS = [
+  { id: 'progress', label: 'Fortschritt', visible: true },
+  { id: 'total', label: 'Zeit gesamt', visible: true },
+  { id: 'week', label: 'Diese Woche', visible: true },
+  { id: 'invested', label: 'Investiert', visible: true },
+  { id: 'openTasks', label: 'Offene Aufgaben', visible: true },
+  { id: 'target', label: 'Zieltermin', visible: true },
+  { id: 'lastActive', label: 'Zuletzt aktiv', visible: false },
+];
+
 /** Gespeicherte Anordnung mit den bekannten Bausteinen abgleichen (neue Bausteine werden hinten angehängt). */
-function dashboardConfig() {
-  const saved = data.settings.dashboard || {};
-  const known = new Map(WIDGETS.map((w) => [w.id, w]));
+/* ---------------------------- Anpassbare Layouts ------------------------- */
+/*
+ * Gemeinsame Layout-Engine für Übersicht und Projektansicht.
+ * Ein Layout ist { widgets: [{ id, visible, wide }], stats: [kachel-ids] }.
+ * Bearbeiten passiert direkt auf der Seite (editState) mit Drag-and-drop und sofortiger Vorschau.
+ */
+
+/** Gespeicherte Anordnung mit den bekannten Bausteinen abgleichen (neue Bausteine werden hinten angehängt). */
+function layoutConfig(saved, defs, statDefs) {
+  saved = saved || {};
+  const known = new Map(defs.map((w) => [w.id, w]));
   const widgets = [];
   for (const w of saved.widgets || []) {
     if (!known.has(w.id) || widgets.some((x) => x.id === w.id)) continue;
     widgets.push({ id: w.id, visible: w.visible !== false, wide: !!w.wide });
   }
-  for (const w of WIDGETS) if (!widgets.some((x) => x.id === w.id)) widgets.push({ id: w.id, visible: saved.widgets ? false : w.visible, wide: w.wide });
-  const stats = Array.isArray(saved.stats) ? saved.stats.filter((id) => STAT_TILES.some((t) => t.id === id)) : STAT_TILES.filter((t) => t.visible).map((t) => t.id);
+  for (const w of defs) if (!widgets.some((x) => x.id === w.id)) widgets.push({ id: w.id, visible: saved.widgets ? false : w.visible, wide: w.wide });
+  const stats = Array.isArray(saved.stats) ? saved.stats.filter((id) => statDefs.some((t) => t.id === id)) : statDefs.filter((t) => t.visible).map((t) => t.id);
   return { widgets, stats };
 }
+const defaultLayout = (defs, statDefs) => ({
+  widgets: defs.map((w) => ({ id: w.id, visible: w.visible, wide: w.wide })),
+  stats: statDefs.filter((t) => t.visible).map((t) => t.id),
+});
 
-const defaultDashboardConfig = () => ({
-  widgets: WIDGETS.map((w) => ({ id: w.id, visible: w.visible, wide: w.wide })),
-  stats: STAT_TILES.filter((t) => t.visible).map((t) => t.id),
+const dashboardConfig = () => layoutConfig(data.settings.dashboard, WIDGETS, STAT_TILES);
+const defaultDashboardConfig = () => defaultLayout(WIDGETS, STAT_TILES);
+const projectLayoutFor = (p) => layoutConfig(p.layout || data.settings.projectLayout, PROJECT_WIDGETS, PROJECT_STATS);
+
+/** Laufender Bearbeitungsmodus: { kind: 'dashboard' | 'project', pid, draft, scope, replaceOthers, tilesOpen } */
+let editState = null;
+const layoutDefs = (kind) => (kind === 'project' ? [PROJECT_WIDGETS, PROJECT_STATS] : [WIDGETS, STAT_TILES]);
+
+/**
+ * Halbe Bausteine stehen paarweise nebeneinander (gleich hoch); ein allein stehender halber
+ * Baustein (vor einem breiten oder am Ende) nimmt die ganze Breite ein.
+ */
+function computeSpans(items) {
+  const spans = new Map();
+  let pending = [];
+  const flush = () => { pending.forEach((id, i) => spans.set(id, pending.length % 2 && i === pending.length - 1 ? 'span2' : 'span1')); pending = []; };
+  for (const it of items) {
+    if (it.wide) { flush(); spans.set(it.id, 'span2'); } else pending.push(it.id);
+  }
+  flush();
+  return spans;
+}
+
+function relayoutGrid(grid) {
+  const items = [...grid.querySelectorAll(':scope > .w-item')].map((el) => ({ id: el.dataset.wid, wide: el.dataset.wide === '1', el }));
+  const spans = computeSpans(items);
+  items.forEach((it) => { it.el.classList.toggle('span2', spans.get(it.id) === 'span2'); it.el.classList.toggle('span1', spans.get(it.id) === 'span1'); });
+}
+
+/** Rendert ein Layout; im Bearbeitungsmodus mit Werkzeugleiste je Baustein und Ablage für ausgeblendete. */
+function renderLayoutGrid(cfg, defs, renderFn, { edit = false, statDefs = [] } = {}) {
+  const meta = (id) => defs.find((d) => d.id === id);
+  const rendered = [];
+  for (const w of cfg.widgets.filter((x) => x.visible)) {
+    let html = renderFn(w.id);
+    if (!html && edit) {
+      const m = meta(w.id);
+      html = `<section class="card w-empty"><h2>${m.icon} ${esc(m.label)}</h2><div class="empty">Zurzeit ohne Inhalt – erscheint, sobald es etwas anzuzeigen gibt.</div></section>`;
+    }
+    if (html) rendered.push({ ...w, html });
+  }
+  const spans = computeSpans(rendered);
+  const items = rendered.map((w) => {
+    const m = meta(w.id);
+    const tools = edit ? `<div class="w-tools">
+        <button type="button" class="w-handle" data-drag aria-label="${esc(m.label)} verschieben" title="Ziehen zum Verschieben (oder Pfeiltasten)">⠿</button>
+        <span class="w-label">${m.icon} ${esc(m.label)}</span>
+        ${w.id === 'stats' ? `<button type="button" class="btn small ${editState?.tilesOpen ? 'active' : ''}" data-edit="tiles">Kacheln</button>` : ''}
+        <button type="button" class="btn small" data-edit="wide" data-wid="${w.id}" title="Breite umschalten">${w.wide ? '▭ Voll' : '◧ Halb'}</button>
+        <button type="button" class="btn small icon" data-edit="hide" data-wid="${w.id}" title="Ausblenden" aria-label="${esc(m.label)} ausblenden">✕</button>
+      </div>
+      ${w.id === 'stats' && editState?.tilesOpen ? `<div class="w-tiles">${statDefs.map((t) => `<button type="button" class="chip ${cfg.stats.includes(t.id) ? 'active' : ''}" data-edit="stat" data-stat="${t.id}">${esc(t.label)}</button>`).join('')}</div>` : ''}` : '';
+    return `<div class="w-item ${spans.get(w.id)}" data-wid="${w.id}" data-wide="${w.wide ? 1 : 0}">${tools}${w.html}</div>`;
+  });
+  const hidden = cfg.widgets.filter((w) => !w.visible);
+  const tray = edit ? `<div class="w-tray">
+      <span class="small muted">${hidden.length ? 'Ausgeblendet – zum Einblenden antippen:' : 'Alle Bereiche sind eingeblendet.'}</span>
+      ${hidden.map((w) => `<button type="button" class="chip" data-edit="show" data-wid="${w.id}">+ ${meta(w.id).icon} ${esc(meta(w.id).label)}</button>`).join('')}
+    </div>` : '';
+  return `<div class="wgrid ${edit ? 'editing' : ''}">${items.join('')}</div>${tray}`;
+}
+
+function editBar() {
+  if (!editState) return '';
+  const p = editState.kind === 'project' ? getProject(editState.pid) : null;
+  const others = editState.kind === 'project' ? data.projects.filter((x) => x.layout && x.id !== editState.pid).length : 0;
+  return `<div class="edit-bar">
+    <div class="edit-bar-text"><b>✏️ ${editState.kind === 'project' ? 'Projektansicht' : 'Übersicht'} anpassen</b>
+      <span class="small muted">Bereiche am ⠿-Griff ziehen · Breite ◧/▭ · ✕ ausblenden. Die Vorschau zeigt sofort das neue Layout.</span></div>
+    ${p ? `<div class="edit-scope">
+        <div class="segmented" role="radiogroup" aria-label="Gilt für">
+          <label><input type="radio" name="editScope" value="all" data-edit-scope ${editState.scope === 'all' ? 'checked' : ''}>Für alle Projekte</label>
+          <label><input type="radio" name="editScope" value="project" data-edit-scope ${editState.scope === 'project' ? 'checked' : ''}>Nur für „${esc(p.name)}“</label>
+        </div>
+        ${editState.scope === 'all' && others ? `<label class="check-row small"><input type="checkbox" data-edit-replace ${editState.replaceOthers ? 'checked' : ''}>
+          Auch die eigenen Anordnungen von ${others} ${others === 1 ? 'anderem Projekt' : 'anderen Projekten'} ersetzen</label>` : ''}
+      </div>` : ''}
+    <div class="btn-row edit-actions">
+      <button type="button" class="btn small" data-edit="reset">Standard</button>
+      <button type="button" class="btn small" data-edit="cancel">Abbrechen</button>
+      <button type="button" class="btn primary small" data-edit="save">Fertig</button>
+    </div>
+  </div>`;
+}
+
+function startEdit(kind, pid) {
+  if (kind === 'project') {
+    const p = getProject(pid);
+    if (!p) return;
+    editState = { kind, pid, draft: structuredClone(projectLayoutFor(p)), scope: p.layout ? 'project' : 'all', replaceOthers: false, tilesOpen: false };
+    if (!editMatchesRoute()) { location.hash = `#/projekt/${pid}/uebersicht`; return; }
+  } else {
+    editState = { kind, draft: structuredClone(dashboardConfig()), tilesOpen: false };
+    if (parseRoute().view !== 'dashboard') { location.hash = '#/'; return; }
+  }
+  render();
+}
+
+function editMatchesRoute() {
+  if (!editState) return false;
+  const r = parseRoute();
+  if (editState.kind === 'dashboard') return r.view === 'dashboard';
+  return r.view === 'projekt' && r.id === editState.pid && r.tab === 'uebersicht';
+}
+
+function saveEdit() {
+  const st = editState;
+  if (st.kind === 'dashboard') {
+    data.settings.dashboard = st.draft;
+  } else if (st.scope === 'project') {
+    getProject(st.pid).layout = st.draft;
+  } else {
+    data.settings.projectLayout = st.draft;
+    delete getProject(st.pid).layout;
+    if (st.replaceOthers) data.projects.forEach((p) => delete p.layout);
+  }
+  editState = null;
+  commit();
+  toast(st.kind === 'dashboard' ? 'Übersicht gespeichert ✔'
+    : st.scope === 'project' ? 'Anordnung für dieses Projekt gespeichert ✔' : 'Anordnung für alle Projekte gespeichert ✔');
+}
+
+/** Reihenfolge aus dem DOM (nach Drag-and-drop) in den Entwurf übernehmen. */
+function syncDraftOrder(grid) {
+  const order = [...grid.querySelectorAll(':scope > .w-item')].map((el) => el.dataset.wid);
+  const ws = editState.draft.widgets;
+  const visible = order.map((id) => ws.find((w) => w.id === id)).filter(Boolean);
+  editState.draft.widgets = [...visible, ...ws.filter((w) => !order.includes(w.id))];
+}
+
+/* Bearbeitungs-Aktionen */
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-edit]');
+  if (!b || !editState) return;
+  const d = editState.draft;
+  const w = d.widgets.find((x) => x.id === b.dataset.wid);
+  switch (b.dataset.edit) {
+    case 'wide': w.wide = !w.wide; break;
+    case 'hide': w.visible = false; break;
+    case 'show': {
+      w.visible = true;
+      // eingeblendete Bausteine kommen ans Ende der sichtbaren
+      d.widgets = [...d.widgets.filter((x) => x.visible && x !== w), w, ...d.widgets.filter((x) => !x.visible)];
+      break;
+    }
+    case 'tiles': editState.tilesOpen = !editState.tilesOpen; break;
+    case 'stat': {
+      const [, statDefs] = layoutDefs(editState.kind);
+      const id = b.dataset.stat;
+      d.stats = statDefs.map((t) => t.id).filter((x) => (x === id ? !d.stats.includes(id) : d.stats.includes(x)));
+      break;
+    }
+    case 'reset': {
+      const [defs, statDefs] = layoutDefs(editState.kind);
+      editState.draft = defaultLayout(defs, statDefs);
+      break;
+    }
+    case 'cancel': editState = null; break;
+    case 'save': return saveEdit();
+  }
+  render();
+});
+document.addEventListener('change', (e) => {
+  if (!editState) return;
+  if (e.target.matches('[data-edit-scope]')) { editState.scope = e.target.value; render(); }
+  if (e.target.matches('[data-edit-replace]')) editState.replaceOthers = e.target.checked;
+});
+
+/* Drag-and-drop mit Zeiger-Ereignissen (Maus, Finger, Stift) – Bausteine rücken sofort nach */
+let drag = null;
+document.addEventListener('pointerdown', (e) => {
+  const handle = e.target.closest('.wgrid.editing [data-drag]');
+  if (!handle || e.button > 0) return;
+  e.preventDefault();
+  const item = handle.closest('.w-item');
+  const r = item.getBoundingClientRect();
+  const ghost = item.cloneNode(true);
+  ghost.classList.add('w-ghost');
+  Object.assign(ghost.style, { width: `${r.width}px`, height: `${Math.min(r.height, 260)}px`, left: `${r.left}px`, top: `${r.top}px` });
+  document.body.appendChild(ghost);
+  item.classList.add('w-placeholder');
+  document.documentElement.classList.add('dragging');
+  drag = { item, grid: item.parentElement, ghost, dx: e.clientX - r.left, dy: e.clientY - r.top, x: e.clientX, y: e.clientY };
+  requestAnimationFrame(dragAutoScroll);
+});
+document.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  drag.x = e.clientX; drag.y = e.clientY;
+  drag.ghost.style.left = `${e.clientX - drag.dx}px`;
+  drag.ghost.style.top = `${e.clientY - drag.dy}px`;
+  dragReorder();
+});
+function dragReorder() {
+  const el = document.elementFromPoint(drag.x, drag.y)?.closest('.w-item');
+  if (!el || el === drag.item || el.parentElement !== drag.grid) return;
+  const items = [...drag.grid.children];
+  if (items.indexOf(drag.item) < items.indexOf(el)) el.after(drag.item); else el.before(drag.item);
+  relayoutGrid(drag.grid);
+}
+function dragAutoScroll() {
+  if (!drag) return;
+  const edge = 70;
+  if (drag.y < edge) window.scrollBy(0, -12);
+  else if (drag.y > window.innerHeight - edge) window.scrollBy(0, 12);
+  if (drag.y < edge || drag.y > window.innerHeight - edge) dragReorder();
+  requestAnimationFrame(dragAutoScroll);
+}
+function endDrag() {
+  if (!drag) return;
+  drag.ghost.remove();
+  drag.item.classList.remove('w-placeholder');
+  document.documentElement.classList.remove('dragging');
+  const grid = drag.grid;
+  drag = null;
+  syncDraftOrder(grid);
+  render();
+}
+document.addEventListener('pointerup', endDrag);
+document.addEventListener('pointercancel', endDrag);
+// Tastatur: Griff fokussieren, Pfeiltasten verschieben
+document.addEventListener('keydown', (e) => {
+  const handle = e.target.closest?.('.wgrid.editing [data-drag]');
+  if (!handle || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+  e.preventDefault();
+  const item = handle.closest('.w-item');
+  if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') item.previousElementSibling?.before(item);
+  else item.nextElementSibling?.after(item);
+  const wid = item.dataset.wid;
+  syncDraftOrder(item.parentElement);
+  render();
+  document.querySelector(`.w-item[data-wid="${wid}"] [data-drag]`)?.focus();
 });
 
 function renderDashboard() {
@@ -716,37 +979,17 @@ function renderDashboard() {
   }
 
   const ctx = dashboardContext();
-  const cfg = dashboardConfig();
-  const visible = cfg.widgets.filter((w) => w.visible);
-
-  // Halbe Bausteine werden paarweise in Zeilen gesetzt – beide Kacheln einer Zeile sind gleich hoch.
-  // Bleibt ein halber Baustein allein (vor einem breiten oder am Ende), nimmt er die ganze Breite ein.
-  const blocks = [];
-  let pending = [];
-  const flush = () => {
-    for (let i = 0; i < pending.length; i += 2) {
-      const pair = pending.slice(i, i + 2);
-      blocks.push(`<div class="dash-row ${pair.length === 1 ? 'single' : ''}">${pair.join('')}</div>`);
-    }
-    pending = [];
-  };
-  visible.forEach((w) => {
-    const html = renderWidget(w.id, ctx, cfg);
-    if (!html) return;
-    if (w.wide) { flush(); blocks.push(`<div class="dash-wide">${html}</div>`); }
-    else pending.push(html);
-  });
-  flush();
+  const editing = editState?.kind === 'dashboard';
+  const cfg = editing ? editState.draft : dashboardConfig();
+  const anyVisible = cfg.widgets.some((w) => w.visible);
 
   return `
-    <div class="dash-head">
+    ${editing ? editBar() : `<div class="dash-head">
       <h1>Übersicht</h1>
       <button class="btn small" data-action="customizeDashboard">⚙️ Anpassen</button>
-    </div>
-    <div class="dash">
-      ${blocks.join('')}
-      ${visible.length ? '' : `<div class="card empty">Alle Bereiche sind ausgeblendet.<br><br><button class="btn primary" data-action="customizeDashboard">Übersicht anpassen</button></div>`}
-    </div>`;
+    </div>`}
+    ${renderLayoutGrid(cfg, WIDGETS, (id) => renderWidget(id, ctx, cfg), { edit: editing, statDefs: STAT_TILES })}
+    ${anyVisible || editing ? '' : `<div class="card empty">Alle Bereiche sind ausgeblendet.<br><br><button class="btn primary" data-action="customizeDashboard">Übersicht anpassen</button></div>`}`;
 }
 
 function dashboardContext() {
@@ -909,92 +1152,6 @@ function statTile(id, c) {
     }
   }
   return '';
-}
-
-/* ---------------------------- Übersicht anpassen ------------------------- */
-
-let dashDraft = null;
-
-function openDashboardEditor() {
-  dashDraft = structuredClone(dashboardConfig());
-  const dlg = $('#modal');
-  dlg.innerHTML = `<form class="form dash-editor" novalidate>
-    <h2>Übersicht anpassen</h2>
-    <p class="small muted" style="margin:0">Blende Bereiche ein oder aus, ändere die Reihenfolge mit ↑ ↓ und wähle die Breite.
-    Zwei aufeinanderfolgende halbe Bereiche stehen nebeneinander und sind gleich hoch; ein einzelner halber Bereich nutzt die ganze Breite.
-    Auf dem Handy werden alle Bereiche untereinander angezeigt.</p>
-    <div id="dash-editor-list"></div>
-    <h3 style="margin:8px 0 0">Kennzahlen-Kacheln</h3>
-    <div id="dash-editor-stats" class="stat-picks"></div>
-    <div class="form-actions">
-      <button type="button" class="btn" data-dash="reset" style="margin-right:auto">Standard</button>
-      <button type="button" class="btn" data-close>Abbrechen</button>
-      <button type="submit" class="btn primary">Speichern</button>
-    </div>
-  </form>`;
-  const form = dlg.querySelector('form');
-  renderDashEditor();
-  form.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-dash]');
-    if (!b) return;
-    dashDraft = applyDashEdit(dashDraft, b);
-    renderDashEditor();
-  });
-  form.addEventListener('change', (e) => {
-    if (!e.target.dataset.widget && !e.target.dataset.stat) return;
-    dashDraft = applyDashEdit(dashDraft, e.target);
-    renderDashEditor();
-  });
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    data.settings.dashboard = dashDraft;
-    dlg.close();
-    unlockScroll();
-    commit();
-    toast('Übersicht gespeichert');
-  });
-  form.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
-  lockScroll();
-  dlg.showModal();
-}
-
-function renderDashEditor() {
-  $('#dash-editor-list').innerHTML = dashListHTML(dashDraft);
-  $('#dash-editor-stats').innerHTML = dashStatsHTML(dashDraft);
-}
-
-function dashListHTML(cfg) {
-  const n = cfg.widgets.length;
-  return `<ul class="list dash-editor-list">${cfg.widgets.map((w, i) => {
-    const meta = WIDGETS.find((x) => x.id === w.id);
-    return `<li class="${w.visible ? '' : 'off'}">
-      <label class="dash-toggle"><input type="checkbox" data-widget="${w.id}" ${w.visible ? 'checked' : ''}>
-        <span>${meta.icon} ${esc(meta.label)}</span></label>
-      <button type="button" class="btn small width-toggle" data-dash="wide" data-i="${i}" title="Breite umschalten">${w.wide ? '▭ Voll' : '◧ Halb'}</button>
-      <button type="button" class="btn ghost icon" data-dash="up" data-i="${i}" ${i === 0 ? 'disabled' : ''} title="Nach oben">↑</button>
-      <button type="button" class="btn ghost icon" data-dash="down" data-i="${i}" ${i === n - 1 ? 'disabled' : ''} title="Nach unten">↓</button>
-    </li>`;
-  }).join('')}</ul>`;
-}
-
-function dashStatsHTML(cfg) {
-  return STAT_TILES.map((t) => `
-    <label class="check-row"><input type="checkbox" data-stat="${t.id}" ${cfg.stats.includes(t.id) ? 'checked' : ''}> ${esc(t.label)}</label>`).join('');
-}
-
-/** Gemeinsame Logik für Dialog und Einstellungen: wendet eine Bedienung auf eine Konfiguration an. */
-function applyDashEdit(cfg, el) {
-  const ws = cfg.widgets;
-  const i = Number(el.dataset.i);
-  switch (el.dataset.dash) {
-    case 'up': if (i > 0) [ws[i - 1], ws[i]] = [ws[i], ws[i - 1]]; break;
-    case 'down': if (i < ws.length - 1) [ws[i + 1], ws[i]] = [ws[i], ws[i + 1]]; break;
-    case 'wide': ws[i].wide = !ws[i].wide; break;
-    case 'reset': return defaultDashboardConfig();
-  }
-  if (el.dataset.widget) ws.find((w) => w.id === el.dataset.widget).visible = el.checked;
-  if (el.dataset.stat) cfg.stats = STAT_TILES.map((t) => t.id).filter((id) => (id === el.dataset.stat ? el.checked : cfg.stats.includes(id)));
-  return cfg;
 }
 
 function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
@@ -1352,54 +1509,97 @@ function renderProject(id, tab) {
 }
 
 function projectOverview(p, s) {
+  const editing = editState?.kind === 'project' && editState.pid === p.id;
+  const cfg = editing ? editState.draft : projectLayoutFor(p);
+  return `
+    ${editing ? editBar() : ''}
+    ${s.health === 'warn' || s.health === 'kritisch' ? staleBanner(p, s, { withOpen: false }) : ''}
+    ${editing ? '' : `<div class="dash-head view-head">
+      <span class="small muted">${p.layout ? '🎯 Eigene Anordnung für dieses Projekt' : ''}</span>
+      <button class="btn small" data-action="customizeProject" data-id="${p.id}">✏️ Ansicht anpassen</button>
+    </div>`}
+    ${renderLayoutGrid(cfg, PROJECT_WIDGETS, (id) => renderProjectWidget(id, p, s, cfg), { edit: editing, statDefs: PROJECT_STATS })}`;
+}
+
+function renderProjectWidget(id, p, s, cfg) {
   const hourGoal = Number(p.hourGoal) || 0;
   const budget = Number(p.budget) || 0;
-  const ms = data.milestones.filter((m) => m.projectId === p.id && !m.done)
-    .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')).slice(0, 3);
-  const recent = recentActivity(p.id).slice(0, 8);
+  switch (id) {
+    case 'why':
+      return p.why || p.goal ? `<section class="card">
+          ${p.why ? `<h3>💭 Warum ist mir das wichtig?</h3><p class="why" style="font-size:1rem">„${esc(p.why)}“</p>` : ''}
+          ${p.goal ? `<h3>🎯 Ziel / Wann ist es fertig?</h3><p style="margin:0">${esc(p.goal)}</p>` : ''}
+        </section>`
+        : `<div class="callout">💡 Tipp: Trage unter <a href="#" data-action="editProject" data-id="${p.id}">Bearbeiten</a> ein, <b>warum</b> dir das Projekt wichtig ist. Das wird dir angezeigt, wenn das Projekt einzuschlafen droht.</div>`;
 
-  return `
-    ${s.health === 'warn' || s.health === 'kritisch' ? staleBanner(p, s, { withOpen: false }) : ''}
-    ${p.why || p.goal ? `<div class="card" style="margin-bottom:16px">
-      ${p.why ? `<h3>💭 Warum ist mir das wichtig?</h3><p class="why" style="font-size:1rem">„${esc(p.why)}“</p>` : ''}
-      ${p.goal ? `<h3>🎯 Ziel / Wann ist es fertig?</h3><p>${esc(p.goal)}</p>` : ''}
-    </div>` : `<div class="callout" style="margin-bottom:16px">💡 Tipp: Trage unter <a href="#" data-action="editProject" data-id="${p.id}">Bearbeiten</a> ein, <b>warum</b> dir das Projekt wichtig ist. Das wird dir angezeigt, wenn das Projekt einzuschlafen droht.</div>`}
+    case 'stats': {
+      const wk = weekMinutes(0, p.id), wGoal = projectWeeklyMin(p);
+      const tiles = {
+        progress: `<div class="stat"><div class="label">Fortschritt</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
+          <div class="sub">${s.msTotal ? `${s.msDone}/${s.msTotal} Meilensteine` : `${s.tasksDone}/${s.tasksTotal} Aufgaben`}</div></div>`,
+        total: `<div class="stat"><div class="label">Zeit gesamt</div><div class="value">${fmtHours(s.minutes)}</div>
+          ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">von ${hourGoal} Std geplant</div>` : '<div class="sub">keine Gesamtzeit geplant</div>'}</div>`,
+        week: `<div class="stat"><div class="label">Diese Woche</div><div class="value">${fmtHours(wk)}</div>
+          ${wGoal ? progressBar((wk / wGoal) * 100, wk >= wGoal ? 'good' : '') + `<div class="sub">Wochenziel: ${fmtStd(wGoal / 60)}${p.status === 'aktiv' ? '' : ' (zählt nur bei aktiven Projekten)'}</div>`
+            : '<div class="sub">kein eigenes Wochenziel</div>'}</div>`,
+        invested: `<div class="stat"><div class="label">Investiert</div><div class="value">${fmtEUR(s.invested)}</div>
+          ${budget ? progressBar((s.invested / budget) * 100, s.invested > budget ? 'over' : '') + `<div class="sub">Budget ${fmtEUR(budget)} · ${s.invested > budget ? 'überschritten' : `${fmtEUR(budget - s.invested)} übrig`}</div>` : '<div class="sub">kein Budget festgelegt</div>'}</div>`,
+        openTasks: `<div class="stat"><div class="label">Offene Aufgaben</div><div class="value">${s.tasksOpen}</div><div class="sub">${s.tasksDone} erledigt</div></div>`,
+        target: `<div class="stat"><div class="label">Zieltermin</div><div class="value" style="font-size:1.15rem">${p.targetDate ? fmtDate(p.targetDate) : '–'}</div><div class="sub">${p.targetDate ? fmtRelative(p.targetDate) : 'kein Zieltermin'}</div></div>`,
+        lastActive: `<div class="stat"><div class="label">Zuletzt aktiv</div><div class="value" style="font-size:1.15rem">${fmtRelative(s.last)}</div><div class="sub">${s.last ? fmtDate(s.last) : ''}</div></div>`,
+      };
+      const shown = cfg.stats.filter((t) => tiles[t] && (t !== 'target' || p.targetDate || editState));
+      return shown.length ? `<div class="stats">${shown.map((t) => tiles[t]).join('')}</div>` : '';
+    }
 
-    <div class="stats">
-      <div class="stat"><div class="label">Fortschritt</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
-        <div class="sub">${s.msTotal ? `${s.msDone}/${s.msTotal} Meilensteine` : `${s.tasksDone}/${s.tasksTotal} Aufgaben`}</div></div>
-      <div class="stat"><div class="label">Zeit gesamt</div><div class="value">${fmtHours(s.minutes)}</div>
-        ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">von ${hourGoal} Std geplant</div>` : '<div class="sub">keine Gesamtzeit geplant</div>'}</div>
-      <div class="stat"><div class="label">Diese Woche</div><div class="value">${fmtHours(weekMinutes(0, p.id))}</div>
-        ${projectWeeklyMin(p) ? progressBar((weekMinutes(0, p.id) / projectWeeklyMin(p)) * 100, weekMinutes(0, p.id) >= projectWeeklyMin(p) ? 'good' : '')
-          + `<div class="sub">Wochenziel: ${fmtStd(projectWeeklyMin(p) / 60)}${p.status === 'aktiv' ? '' : ' (zählt nur bei aktiven Projekten)'}</div>`
-          : '<div class="sub">kein eigenes Wochenziel</div>'}</div>
-      <div class="stat"><div class="label">Investiert</div><div class="value">${fmtEUR(s.invested)}</div>
-        ${budget ? progressBar((s.invested / budget) * 100, s.invested > budget ? 'over' : '') + `<div class="sub">Budget ${fmtEUR(budget)} · ${s.invested > budget ? 'überschritten' : `${fmtEUR(budget - s.invested)} übrig`}</div>` : '<div class="sub">kein Budget festgelegt</div>'}</div>
-      <div class="stat"><div class="label">Offene Aufgaben</div><div class="value">${s.tasksOpen}</div><div class="sub">${s.tasksDone} erledigt</div></div>
-      ${p.targetDate ? `<div class="stat"><div class="label">Zieltermin</div><div class="value" style="font-size:1.15rem">${fmtDate(p.targetDate)}</div><div class="sub">${fmtRelative(p.targetDate)}</div></div>` : ''}
-    </div>
+    case 'next':
+      return `<section class="card">
+        <div class="card-head"><h2>👉 Nächster Schritt</h2><button class="btn small" data-action="addTask" data-id="${p.id}">+ Aufgabe</button></div>
+        ${s.next ? `<ul class="list">${taskItem(s.next)}</ul>` : '<div class="empty">Keine offene Aufgabe. Was ist der kleinste nächste Schritt?</div>'}
+      </section>`;
 
-    <div class="grid-2">
-      <div class="stack">
-        <section class="card">
-          <div class="card-head"><h2>👉 Nächster Schritt</h2><button class="btn small" data-action="addTask" data-id="${p.id}">+ Aufgabe</button></div>
-          ${s.next ? `<ul class="list">${taskItem(s.next)}</ul>` : '<div class="empty">Keine offene Aufgabe. Was ist der kleinste nächste Schritt?</div>'}
-        </section>
-        <section class="card">
-          <div class="card-head"><h2>🏁 Nächste Meilensteine</h2><button class="btn small" data-action="addMilestone" data-id="${p.id}">+ Meilenstein</button></div>
-          ${ms.length ? `<ul class="list">${ms.map((m) => milestoneItem(m)).join('')}</ul>` : '<div class="empty">Keine offenen Meilensteine.</div>'}
-        </section>
-      </div>
-      <div class="stack">
-        <section class="card"><div class="card-head"><h2>⏱ Stunden pro Woche</h2></div>${weekBars(p.id)}</section>
-        <section class="card">
-          <div class="card-head"><h2>🕘 Letzte Aktivitäten</h2><button class="btn small" data-action="addNote" data-id="${p.id}">+ Notiz</button></div>
-          ${recent.length ? `<ul class="list">${recent.map((a) => `<li><div class="grow"><div class="title">${a.icon} ${esc(a.text)}</div><div class="meta">${fmtDate(a.date)}</div></div></li>`).join('')}</ul>` : '<div class="empty">Noch keine Aktivitäten.</div>'}
-        </section>
-      </div>
-    </div>
-    ${p.description ? `<section class="card" style="margin-top:16px"><h2>Beschreibung</h2><p style="white-space:pre-wrap">${esc(p.description)}</p></section>` : ''}`;
+    case 'milestones': {
+      const ms = data.milestones.filter((m) => m.projectId === p.id && !m.done)
+        .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')).slice(0, 3);
+      return `<section class="card">
+        <div class="card-head"><h2>🏁 Nächste Meilensteine</h2><button class="btn small" data-action="addMilestone" data-id="${p.id}">+ Meilenstein</button></div>
+        ${ms.length ? `<ul class="list">${ms.map((m) => milestoneItem(m)).join('')}</ul>` : '<div class="empty">Keine offenen Meilensteine.</div>'}
+      </section>`;
+    }
+
+    case 'hours':
+      return `<section class="card"><div class="card-head"><h2>⏱ Stunden pro Woche</h2></div>${weekBars(p.id)}</section>`;
+
+    case 'recent': {
+      const recent = recentActivity(p.id).slice(0, 8);
+      return `<section class="card">
+        <div class="card-head"><h2>🕘 Letzte Aktivitäten</h2><button class="btn small" data-action="addNote" data-id="${p.id}">+ Notiz</button></div>
+        ${recent.length ? `<ul class="list">${recent.map((a) => `<li><div class="grow"><div class="title">${a.icon} ${esc(a.text)}</div><div class="meta">${fmtDate(a.date)}</div></div></li>`).join('')}</ul>` : '<div class="empty">Noch keine Aktivitäten.</div>'}
+      </section>`;
+    }
+
+    case 'description':
+      return p.description ? `<section class="card"><h2>📝 Beschreibung</h2><p style="white-space:pre-wrap;margin:0">${esc(p.description)}</p></section>` : '';
+
+    case 'tasks': {
+      const open = sortTasks(data.tasks.filter((t) => t.projectId === p.id && !t.done));
+      return `<section class="card">
+        <div class="card-head"><h2>✅ Offene Aufgaben (${open.length})</h2><a class="btn small" href="#/projekt/${p.id}/aufgaben">Alle</a></div>
+        ${open.length ? `<ul class="list">${open.slice(0, 5).map((t) => taskItem(t)).join('')}</ul>` : '<div class="empty">Keine offenen Aufgaben. 🎉</div>'}
+      </section>`;
+    }
+
+    case 'invest': {
+      const items = data.investments.filter((e) => e.projectId === p.id);
+      const byCat = {};
+      items.forEach((i) => (byCat[i.category || 'Sonstiges'] = (byCat[i.category || 'Sonstiges'] || 0) + i.amount));
+      return `<section class="card">
+        <div class="card-head"><h2>💶 Investitionen · ${fmtEUR(s.invested)}</h2><a class="btn small" href="#/projekt/${p.id}/investitionen">Alle</a></div>
+        ${items.length ? `<dl class="kv">${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${fmtEUR(v)}</dd>`).join('')}</dl>` : '<div class="empty">Noch keine Investitionen.</div>'}
+      </section>`;
+    }
+  }
+  return '';
 }
 
 function recentActivity(pid) {
@@ -1753,18 +1953,20 @@ function renderSettings() {
       `${esc(themeName)} · <span class="dot-color" style="background:${esc(accent)}"></span> ${esc(accentName)}`,
       renderAppearanceSettings())}
 
-    ${settingsSection('uebersicht', '🧩', 'Übersicht (Dashboard)',
-      `${dash.widgets.filter((w) => w.visible).length} von ${dash.widgets.length} Bereichen · ${dash.stats.length} Kennzahlen`,
-      `<div data-dash-scope="settings">
-        <p class="small muted">Blende Bereiche ein oder aus, ändere die Reihenfolge mit ↑ ↓ und wähle die Breite. Änderungen gelten sofort.
-        Zwei aufeinanderfolgende halbe Bereiche stehen nebeneinander und sind gleich hoch. Auf dem Handy stehen alle Bereiche untereinander.</p>
-        ${dashListHTML(dash)}
-        <h3 style="margin:16px 0 8px">Kennzahlen-Kacheln</h3>
-        <div class="stat-picks form" style="padding:0">${dashStatsHTML(dash)}</div>
-        <div class="btn-row" style="margin-top:16px">
-          <button type="button" class="btn" data-dash="reset">Standard wiederherstellen</button>
-          <a class="btn" href="#/">Zur Übersicht</a>
-        </div>
+    ${settingsSection('uebersicht', '🧩', 'Übersicht & Projektansicht',
+      `Übersicht: ${dash.widgets.filter((w) => w.visible).length} von ${dash.widgets.length} Bereichen · ${data.projects.filter((x) => x.layout).length} Projekt(e) mit eigener Anordnung`,
+      `<p class="small muted">Angepasst wird direkt auf der jeweiligen Seite: Bereiche am ⠿-Griff ziehen, Breite wählen, aus- und einblenden –
+      mit sofortiger Vorschau. Für die Projektansicht wählst du beim Speichern, ob die Anordnung für <b>alle Projekte</b> oder <b>nur für ein Projekt</b> gilt.</p>
+      <div class="btn-row">
+        <button type="button" class="btn primary" data-action="customizeDashboard">🧩 Übersicht anpassen</button>
+        ${data.projects.length ? `<button type="button" class="btn" data-action="customizeProject" data-id="${esc((data.projects.find((x) => x.status === 'aktiv') || data.projects[0]).id)}">📁 Projektansicht anpassen</button>` : ''}
+      </div>
+      ${data.projects.some((x) => x.layout) ? `<h3 style="margin-top:16px">Projekte mit eigener Anordnung</h3>
+        <ul class="list">${data.projects.filter((x) => x.layout).map((x) => `<li><span class="dot-color" style="background:${esc(x.color)}"></span>
+          <div class="grow"><a href="#/projekt/${x.id}">${esc(x.name)}</a></div>
+          <button type="button" class="btn small" data-action="resetProjectLayout" data-id="${x.id}">Gemeinsame Anordnung verwenden</button></li>`).join('')}</ul>` : ''}
+      <div class="btn-row" style="margin-top:12px">
+        <button type="button" class="btn small" data-action="resetAllLayouts">Alles auf Standard zurücksetzen</button>
       </div>`)}
 
     ${settingsSection('wochenziel', '🎯', 'Wochenziel', weeklyGoalSummary(), renderWeeklyGoalSettings())}
@@ -1985,7 +2187,21 @@ const projectOptions = () => data.projects
 
 const actions = {
   newProject() { projectForm(); },
-  customizeDashboard() { openDashboardEditor(); },
+  customizeDashboard() { startEdit('dashboard'); },
+  customizeProject({ id }) { startEdit('project', id); },
+  resetProjectLayout({ id }) {
+    delete getProject(id).layout;
+    commit();
+    toast('Das Projekt nutzt wieder die gemeinsame Anordnung.');
+  },
+  resetAllLayouts() {
+    if (!confirm('Übersicht und Projektansicht (inkl. aller projektspezifischen Anordnungen) auf Standard zurücksetzen?')) return;
+    delete data.settings.dashboard;
+    delete data.settings.projectLayout;
+    data.projects.forEach((p) => delete p.layout);
+    commit();
+    toast('Anordnungen zurückgesetzt');
+  },
   toggleSidebar() {
     const collapsed = document.documentElement.classList.toggle('side-collapsed');
     try { localStorage.setItem('projekttracker.ui.sidebar', collapsed ? 'collapsed' : 'open'); } catch { /* ignorieren */ }
@@ -2775,21 +2991,6 @@ document.addEventListener('toggle', (e) => {
   const btn = document.querySelector('[data-action="toggleAllSections"]');
   if (btn) btn.textContent = SECTION_IDS.every((id) => openSections.has(id)) ? 'Alle zuklappen' : 'Alle aufklappen';
 }, true);
-
-// Übersicht direkt in den Einstellungen anpassen – Änderungen gelten sofort
-document.addEventListener('click', (e) => {
-  const b = e.target.closest('[data-dash-scope="settings"] [data-dash]');
-  if (!b) return;
-  if (b.dataset.dash === 'reset' && !confirm('Übersicht auf die Standardansicht zurücksetzen?')) return;
-  data.settings.dashboard = applyDashEdit(structuredClone(dashboardConfig()), b);
-  commit();
-});
-document.addEventListener('change', (e) => {
-  const el = e.target;
-  if (!el.closest('[data-dash-scope="settings"]') || (!el.dataset.widget && !el.dataset.stat)) return;
-  data.settings.dashboard = applyDashEdit(structuredClone(dashboardConfig()), el);
-  commit();
-});
 
 // Mitwachsende Textfelder
 document.addEventListener('input', (e) => { if (e.target.matches('textarea.autogrow')) autoGrow(e.target); });

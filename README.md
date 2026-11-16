@@ -32,7 +32,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - **Akzentfarbe** frei wählbar (Vorschläge oder eigene Farbe). Abgeleitete Töne werden automatisch angepasst und bleiben in beiden Modi lesbar.
 
 **Übersicht & Motivation**
-- **Anpassbare Übersicht** (⚙️ Anpassen): Bereiche ein- und ausblenden, Reihenfolge ändern, halbe oder volle Breite, Kennzahlen-Kacheln auswählen. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche (gestapelt nach Projekt in den Projektfarben, mit Legende und Tabellenansicht), letzte Aktivitäten, Projektkacheln.
+- **Anpassbare Übersicht und Projektansicht** direkt auf der Seite (⚙️ Anpassen bzw. ✏️ Ansicht anpassen): Bereiche per **Drag-and-drop** am ⠿-Griff verschieben (Maus, Finger oder Pfeiltasten) mit sofortiger Vorschau, Breite ◧ Halb / ▭ Voll, ausblenden ✕, wieder einblenden, Kennzahlen-Kacheln wählen. Die Projektansicht gilt wahlweise **für alle Projekte** oder **nur für ein Projekt**. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche (gestapelt nach Projekt), letzte Aktivitäten, Projektkacheln, offene Aufgaben, Investitionen nach Kategorie.
 - Dashboard mit Wochenstunden, Wochenziel, Streak, offenen bzw. überfälligen Aufgaben und Investitionen
 - **„Braucht Aufmerksamkeit“**: aktive Projekte ohne Aktivität seit X Tagen werden gelb, ab 2·X Tagen rot markiert
 - **Motivationsbanner**: zeigt das am längsten ruhende Projekt mit deinem *Warum*, dem kleinsten nächsten Schritt und einem „Nur 25 Minuten“-Timer
