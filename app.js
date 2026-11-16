@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.16-5';
+const APP_VERSION = '2026.11.16-6';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -21,6 +21,7 @@ const DEFAULT_DATA = {
     theme: 'system', // 'system' | 'light' | 'dark'
     accent: '#4f46e5',
     syncService: 'icloud', // Dienst für den Gerätewechsel (nur für Anleitung & Hinweise)
+    bannerFx: 'both', // Animation im Motivationsbereich: both | flames | bar | off
     pomoWork: 25, // Minuten Fokus
     pomoShort: 5, // kurze Pause
     pomoLong: 15, // lange Pause
@@ -1039,7 +1040,7 @@ const card = (title, body, extraHead = '') => `<section class="card">
 function renderWidget(id, c, cfg) {
   switch (id) {
     case 'banner':
-      return renderBanner(c);
+      return decorateBanner(renderBanner(c), c);
 
     case 'stats':
       return cfg.stats.length ? `<div class="stats">${cfg.stats.map((t) => statTile(t, c)).join('')}</div>` : '';
@@ -1201,6 +1202,44 @@ function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
     return `<div class="banner"><div class="emoji">🎯</div><div class="text"><strong>Noch ${fmtHours(rest)} bis zu deinem Wochenziel.</strong>Das sind ca. ${fmtDuration(Math.ceil(rest / daysLeft))} pro Tag bis Sonntag. ${esc(pick(QUOTES))}</div></div>`;
   }
   return `<div class="banner"><div class="emoji">💡</div><div class="text"><strong>${esc(pick(QUOTES))}</strong></div></div>`;
+}
+
+/* Animation im Motivationsbereich: lodernde Flammen (Intensität nach Serie) und/oder pulsierender Wochenziel-Balken */
+const BANNER_FX = [['both', '🔥🟢 Flammen & Balken'], ['flames', '🔥 Flammen'], ['bar', '🟢 Balken'], ['off', 'Aus']];
+
+function flamesHTML(streak) {
+  const level = streak >= 7 ? 'high' : streak >= 2 ? 'mid' : 'low';
+  const n = level === 'high' ? 22 : level === 'mid' ? 14 : 7;
+  const flames = Array.from({ length: n }, (_, i) => {
+    // deterministisch „zufällig“ verteilt, damit es beim Neuzeichnen nicht springt
+    const r = (k) => ((Math.sin((i + 1) * k) + 1) / 2);
+    const x = ((i + 0.5) / n) * 100 + (r(12.9898) - 0.5) * (100 / n);
+    const w = (level === 'low' ? 26 : level === 'mid' ? 40 : 54) + r(78.233) * 34;
+    return `<span class="flame" style="--x:${x.toFixed(1)}%;--w:${w.toFixed(0)}px;--d:${(1.1 + r(37.719) * 1.2).toFixed(2)}s;--dl:-${(r(4.581) * 2).toFixed(2)}s"></span>`;
+  }).join('');
+  const embers = Array.from({ length: level === 'low' ? 5 : 12 }, (_, i) => {
+    const r = (k) => ((Math.sin((i + 3) * k) + 1) / 2);
+    return `<span class="ember" style="--x:${(r(9.17) * 100).toFixed(1)}%;--dx:${((r(3.3) - 0.5) * 60).toFixed(0)}px;--d:${(2.2 + r(5.71) * 2.4).toFixed(2)}s;--dl:-${(r(7.13) * 4).toFixed(2)}s"></span>`;
+  }).join('');
+  return `<div class="banner-fx fx-${level}" aria-hidden="true">${flames}${embers}</div>`;
+}
+
+function decorateBanner(html, c) {
+  const mode = data.settings.bannerFx || 'both';
+  if (mode === 'off' || !html) return html;
+  const fx = mode === 'both' || mode === 'flames' ? flamesHTML(c.streak) : '';
+  let bar = '';
+  if ((mode === 'both' || mode === 'bar') && c.goalMin) {
+    const pct = Math.round((c.thisWeek / c.goalMin) * 100);
+    bar = `<div class="banner-progress">
+      <div class="bp-label"><span>${pct >= 100 ? '🏆 Wochenziel erreicht' : '🎯 Wochenziel'}</span><span><b>${fmtHours(c.thisWeek)}</b> von ${fmtHours(c.goalMin)} (${pct} %)</span></div>
+      <div class="pulse-bar ${pct >= 100 ? 'full' : ''}" role="progressbar" aria-valuenow="${Math.min(100, pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Wochenziel"><span style="width:${Math.max(3, Math.min(100, pct))}%"></span></div>
+    </div>`;
+  }
+  return html
+    .replace(/^(\s*)<div class="banner/, `$1<div class="fx-host banner`)
+    .replace(/(<div class="[^"]*banner[^"]*">)/, `$1${fx}`)
+    .replace(/<\/div>\s*$/, `${bar}</div>`);
 }
 
 /** Alle Aktivitäten je Tag mit Details (für das Hinweis-Fenster der Aktivitäts-Ansicht). */
@@ -1799,6 +1838,13 @@ function renderAppearanceSettings() {
             <input type="color" id="accent-custom" value="${esc(accent)}" aria-label="Eigene Farbe"> Eigene Farbe
           </label>
         </div>
+      </div>
+      <div>
+        <div class="field-label">Animation im Motivationsbereich (Übersicht)</div>
+        <div class="segmented" role="radiogroup" aria-label="Animation">
+          ${BANNER_FX.map(([v, l]) => `<label><input type="radio" name="bannerFx" value="${v}" data-fx-opt ${(set.bannerFx || 'both') === v ? 'checked' : ''}>${l}</label>`).join('')}
+        </div>
+        <div class="hint" style="margin-top:6px">Die Flammen lodern stärker, je länger deine Serie ist. Der Balken zeigt dein Wochenziel.</div>
       </div>
       <div>
         <div class="field-label">Vorschau</div>
@@ -3497,6 +3543,13 @@ document.addEventListener('submit', (e) => {
   Object.assign(data.settings, v);
   commit();
   toast('Erinnerungen gespeichert');
+});
+
+// Animation im Motivationsbereich
+document.addEventListener('change', (e) => {
+  if (!e.target.matches('[data-fx-opt]')) return;
+  data.settings.bannerFx = e.target.value;
+  commit();
 });
 
 // Dienst für den Gerätewechsel

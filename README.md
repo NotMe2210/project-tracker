@@ -32,6 +32,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - **Akzentfarbe** frei wählbar (Vorschläge oder eigene Farbe). Abgeleitete Töne werden automatisch angepasst und bleiben in beiden Modi lesbar.
 
 **Übersicht & Motivation**
+- 🔥 **Animierter Motivationsbereich:** lodernde Flammen (je länger die Serie, desto stärker) und ein pulsierender grüner Wochenziel-Balken, wählbar unter Einstellungen › Darstellung
 - ☀️ **Heute:** bis zu 3 Vorschläge für den Tag (fällige Aufgaben, ruhendes Projekt, Rest zum Wochenziel, nahender Meilenstein) mit direktem Start
 - ⋯ **Schnellaktionen** pro Projekt (Pomodoro, Stoppuhr, Zeit, Aufgabe, Notiz, Status) in Tabelle, Kacheln und „Braucht Aufmerksamkeit“
 - **Klickbare Diagramme:** Tag bzw. Woche anklicken öffnet die Einträge (mit Bearbeiten). Projekte in der Legende ein- und ausblenden.
