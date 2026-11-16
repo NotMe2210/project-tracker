@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.16-7';
+const APP_VERSION = '2026.11.16-8';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -1204,37 +1204,17 @@ function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
   return `<div class="banner"><div class="emoji">💡</div><div class="text"><strong>${esc(pick(QUOTES))}</strong></div></div>`;
 }
 
-/* Animation im Motivationsbereich: lodernde Flammen (Intensität nach Serie) und/oder pulsierender Wochenziel-Balken */
-const BANNER_FX = [['both', '🔥🟢 Flammen & Balken'], ['flames', '🔥 Flammen'], ['bar', '🟢 Balken'], ['off', 'Aus']];
+/* Animation im Motivationsbereich: warmes Glühen (Intensität nach Serie) und/oder pulsierender Wochenziel-Balken */
+const BANNER_FX = [['both', '✨🟢 Glühen & Balken'], ['flames', '✨ Glühen'], ['bar', '🟢 Balken'], ['off', 'Aus']];
 
-// Stilisierte Flamme im Stil des 🔥-Emojis: Außenflamme, Kern, heller Mittelpunkt – flach, ohne Unschärfe
-const FLAME_SVG = `<svg viewBox="0 0 32 36" aria-hidden="true">
-  <path class="f-outer" d="M16 1c2 6.5 10.5 10 10.5 20.5C26.5 29 21.8 35 16 35S5.5 29 5.5 21.5c0-5.2 2.9-8.6 5.4-11.6.4 3.2 1.8 5.4 3.6 6.1C13.9 11 14.1 5.6 16 1z"/>
-  <path class="f-inner" d="M16 14.5c1.6 3.4 6 5.6 6 11 0 4.4-2.7 7.5-6 7.5s-6-3.1-6-7.5c0-2.9 1.5-4.7 2.7-6.1.4 2 1.4 3.2 2.6 3.6-.4-2.9-.1-5.6.7-8.5z"/>
-  <path class="f-core" d="M16 23c.9 1.6 2.9 2.7 2.9 5.1 0 2-1.3 3.5-2.9 3.5s-2.9-1.5-2.9-3.5c0-1.6.9-2.6 1.6-3.4.3.9.7 1.4 1.2 1.6-.1-1.2 0-2.3.1-3.3z"/>
-</svg>`;
-
-function flamesHTML(streak) {
-  const level = streak >= 7 ? 'high' : streak >= 2 ? 'mid' : 'low';
-  const n = level === 'high' ? 18 : level === 'mid' ? 11 : 5;
-  const flames = Array.from({ length: n }, (_, i) => {
-    // deterministisch „zufällig“ verteilt, damit es beim Neuzeichnen nicht springt
-    const r = (k) => ((Math.sin((i + 1) * k) + 1) / 2);
-    const x = ((i + 0.5) / n) * 100 + (r(12.9898) - 0.5) * (60 / n);
-    const w = (level === 'low' ? 18 : level === 'mid' ? 24 : 28) + r(78.233) * (level === 'high' ? 18 : 12);
-    return `<span class="flame" style="--x:${x.toFixed(1)}%;--w:${w.toFixed(0)}px;--d:${(0.7 + r(37.719) * 0.6).toFixed(2)}s;--dl:-${(r(4.581) * 1.4).toFixed(2)}s">${FLAME_SVG}</span>`;
-  }).join('');
-  const sparks = Array.from({ length: level === 'low' ? 3 : level === 'mid' ? 6 : 10 }, (_, i) => {
-    const r = (k) => ((Math.sin((i + 3) * k) + 1) / 2);
-    return `<span class="spark-dot" style="--x:${(r(9.17) * 100).toFixed(1)}%;--dx:${((r(3.3) - 0.5) * 24).toFixed(0)}px;--d:${(1.6 + r(5.71) * 1.4).toFixed(2)}s;--dl:-${(r(7.13) * 3).toFixed(2)}s"></span>`;
-  }).join('');
-  return `<div class="banner-fx fx-${level}" aria-hidden="true">${sparks}${flames}</div>`;
-}
+/** Stufe des warmen Glühens nach Serie: ruhig, deutlich, kräftig */
+const glowLevel = (streak) => (streak >= 7 ? 'high' : streak >= 2 ? 'mid' : 'low');
 
 function decorateBanner(html, c) {
   const mode = data.settings.bannerFx || 'both';
   if (mode === 'off' || !html) return html;
-  const fx = mode === 'both' || mode === 'flames' ? flamesHTML(c.streak) : '';
+  const glow = mode === 'both' || mode === 'flames' ? glowLevel(c.streak) : '';
+  const fx = glow ? '<div class="banner-fx glow" aria-hidden="true"></div>' : '';
   let bar = '';
   if ((mode === 'both' || mode === 'bar') && c.goalMin) {
     const pct = Math.round((c.thisWeek / c.goalMin) * 100);
@@ -1244,7 +1224,7 @@ function decorateBanner(html, c) {
     </div>`;
   }
   return html
-    .replace(/^(\s*)<div class="banner/, `$1<div class="fx-host${fx ? ' has-flames' : ''} banner`)
+    .replace(/^(\s*)<div class="banner/, `$1<div class="fx-host${glow ? ` fx-glow-${glow}` : ''} banner`)
     .replace(/(<div class="[^"]*banner[^"]*">)/, `$1${fx}`)
     .replace(/<\/div>\s*$/, `${bar}</div>`);
 }
@@ -1851,7 +1831,7 @@ function renderAppearanceSettings() {
         <div class="segmented" role="radiogroup" aria-label="Animation">
           ${BANNER_FX.map(([v, l]) => `<label><input type="radio" name="bannerFx" value="${v}" data-fx-opt ${(set.bannerFx || 'both') === v ? 'checked' : ''}>${l}</label>`).join('')}
         </div>
-        <div class="hint" style="margin-top:6px">Die Flammen lodern stärker, je länger deine Serie ist. Der Balken zeigt dein Wochenziel.</div>
+        <div class="hint" style="margin-top:6px">Das warme Glühen wird kräftiger, je länger deine Serie ist. Der Balken zeigt dein Wochenziel.</div>
       </div>
       <div>
         <div class="field-label">Vorschau</div>
