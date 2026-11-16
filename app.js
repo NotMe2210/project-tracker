@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.16-3';
+const APP_VERSION = '2026.11.16-4';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -35,6 +35,8 @@ const DEFAULT_DATA = {
   tasks: [],
   notes: [],
   timer: null,
+  counters: { pomodoros: 0 },
+  achievements: null, // { id: Datum } – null = noch nie geprüft
 };
 
 const STATUS = [
@@ -204,6 +206,20 @@ function normalize(d) {
   for (const k of Object.keys(out)) if (d && d[k] !== undefined) out[k] = d[k];
   out.settings = { ...DEFAULT_DATA.settings, ...((d && d.settings) || {}) };
   out.tasks = (out.tasks || []).map((t) => (Array.isArray(t.subtasks) ? t : { ...t, subtasks: [] }));
+  out.counters = { pomodoros: 0, ...(out.counters || {}) };
+  // Neue Übersichts-Bereiche „Heute“ und „Erfolge“ auch in bereits angepassten Layouts einblenden (einmalig)
+  const dash = out.settings.dashboard;
+  if (dash?.widgets && !(out.settings.layoutRev >= 2)) {
+    if (!dash.widgets.some((w) => w.id === 'today')) {
+      const i = dash.widgets.findIndex((w) => w.id === 'banner');
+      dash.widgets.splice(i + 1, 0, { id: 'today', visible: true, wide: true });
+    }
+    if (!dash.widgets.some((w) => w.id === 'achievements')) {
+      const firstHidden = dash.widgets.findIndex((w) => !w.visible);
+      dash.widgets.splice(firstHidden < 0 ? dash.widgets.length : firstHidden, 0, { id: 'achievements', visible: true, wide: true });
+    }
+  }
+  out.settings.layoutRev = 2;
   // Ältere Zeiteinträge hatten nur eine Notiz -> wird zum Titel
   out.timeEntries = (out.timeEntries || []).map((e) => {
     if (e.title !== undefined) return e;
@@ -246,6 +262,7 @@ function fmtDateTime(ts) {
 }
 
 function commit() {
+  checkAchievements();
   save();
   render();
 }
@@ -659,12 +676,14 @@ function dueBadge(iso) {
 // Bausteine der Übersicht. wide = volle Breite; visible = Standard-Sichtbarkeit.
 const WIDGETS = [
   { id: 'banner', label: 'Motivation & Erinnerung', icon: '💡', wide: true, visible: true },
+  { id: 'today', label: 'Heute', icon: '☀️', wide: true, visible: true },
   { id: 'stats', label: 'Kennzahlen', icon: '📊', wide: true, visible: true },
   { id: 'attention', label: 'Braucht Aufmerksamkeit', icon: '⚠️', wide: false, visible: true },
   { id: 'milestones', label: 'Anstehende Meilensteine', icon: '🏁', wide: false, visible: true },
   { id: 'nextSteps', label: 'Nächste Schritte', icon: '👉', wide: false, visible: true },
   { id: 'activity', label: 'Aktivität (12 Wochen)', icon: '📈', wide: false, visible: true },
   { id: 'projects', label: 'Alle Projekte (Tabelle)', icon: '📋', wide: true, visible: true },
+  { id: 'achievements', label: 'Erfolge', icon: '🏅', wide: true, visible: true },
   { id: 'dueTasks', label: 'Fällige Aufgaben (7 Tage)', icon: '⏰', wide: false, visible: false },
   { id: 'weekProjects', label: 'Zeit diese Woche je Projekt', icon: '⏱', wide: false, visible: false },
   { id: 'weekChart', label: 'Stunden pro Woche (alle Projekte)', icon: '📊', wide: false, visible: false },
@@ -1023,6 +1042,12 @@ function renderWidget(id, c, cfg) {
     case 'stats':
       return cfg.stats.length ? `<div class="stats">${cfg.stats.map((t) => statTile(t, c)).join('')}</div>` : '';
 
+    case 'today':
+      return renderToday(c);
+
+    case 'achievements':
+      return renderAchievements();
+
     case 'attention':
       return card('⚠️ Braucht Aufmerksamkeit', c.stale.length ? `<ul class="list">${c.stale.map(({ p, s }) => `
         <li>
@@ -1032,7 +1057,8 @@ function renderWidget(id, c, cfg) {
             <div class="small why">${esc(reminderFor(p, s).text)}</div>
             <div class="meta">${healthBadge(s)}${s.next ? `<span>Nächster Schritt: ${esc(s.next.title)}</span>` : ''}</div>
           </div>
-          <button class="btn small" data-action="startTimer" data-id="${p.id}">▶ ${Number(data.settings.reminderMinutes) || 25} Min</button>
+          <button class="btn small" data-action="startPomodoro" data-id="${p.id}">🍅 ${Number(data.settings.reminderMinutes) || 25} Min</button>
+          ${qaButton(p)}
         </li>`).join('')}</ul>`
         : '<div class="empty">Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉</div>');
 
@@ -1097,7 +1123,7 @@ function renderWidget(id, c, cfg) {
         <tbody>${sorted.map((p) => {
           const s = c.stats.get(p.id);
           return `<tr>
-            <td><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}">${esc(p.name)}</a></td>
+            <td class="name-cell"><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}">${esc(p.name)}</a>${qaButton(p)}</td>
             <td><span class="badge ${p.status}">${statusLabel(p.status)}</span></td>
             <td>${progressBar(s.progress)} <span class="small muted">${s.progress}%</span></td>
             <td class="num">${fmtHours(s.minutes)}</td>
@@ -1128,7 +1154,8 @@ function statTile(id, c) {
       const src = c.goal.source === 'projects' ? ` (${c.goal.projects.length} ${c.goal.projects.length === 1 ? 'Projekt' : 'Projekte'})` : '';
       return tile('Diese Woche', fmtHours(c.thisWeek),
         `${c.goalMin ? `Ziel: ${fmtHours(c.goalMin)}${src} · ` : ''}${diff >= 0 ? '▲' : '▼'} ${fmtHours(Math.abs(diff))} ggü. Vorwoche`,
-        c.goalMin ? progressBar((c.thisWeek / c.goalMin) * 100, c.thisWeek >= c.goalMin ? 'good' : '') : '');
+        (c.goalMin ? progressBar((c.thisWeek / c.goalMin) * 100, c.thisWeek >= c.goalMin ? 'good' : '') : '')
+        + sparkline(lastWeeksMinutes(8), 'Stunden der letzten 8 Wochen'));
     }
     case 'streak':
       return tile('Streak', `${c.streak ? '🔥 ' : ''}${c.streak} ${c.streak === 1 ? 'Tag' : 'Tage'}`,
@@ -1139,13 +1166,16 @@ function statTile(id, c) {
       return tile('Offene Aufgaben', c.openTasks.length, c.overdue.length ? `<span style="color:var(--bad)">${c.overdue.length} überfällig</span>` : 'nichts überfällig');
     case 'invested':
       return tile('Investiert', fmtEUR(sum(data.investments, (i) => i.amount)),
-        `${fmtEUR(sum(data.investments.filter((i) => i.date.startsWith(monthPrefix)), (i) => i.amount))} in diesem Monat`);
+        `${fmtEUR(sum(data.investments.filter((i) => i.date.startsWith(monthPrefix)), (i) => i.amount))} in diesem Monat`,
+        sparkline(lastMonths(6, (m) => sum(data.investments.filter((i) => i.date.startsWith(m)), (i) => i.amount)), 'Investitionen der letzten 6 Monate'));
     case 'month': {
       const min = sum(data.timeEntries.filter((e) => e.date.startsWith(monthPrefix)), (e) => e.minutes);
-      return tile('Zeit diesen Monat', fmtHours(min), new Date().toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }));
+      return tile('Zeit diesen Monat', fmtHours(min), new Date().toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }),
+        sparkline(lastMonths(6, (m) => sum(data.timeEntries.filter((e) => e.date.startsWith(m)), (e) => e.minutes)), 'Stunden der letzten 6 Monate'));
     }
     case 'total':
-      return tile('Zeit gesamt', fmtHours(sum(data.timeEntries, (e) => e.minutes)), `${data.timeEntries.length} Einträge`);
+      return tile('Zeit gesamt', fmtHours(sum(data.timeEntries, (e) => e.minutes)), `${data.timeEntries.length} Einträge`,
+        sparkline(lastWeeksMinutes(8), 'Stunden der letzten 8 Wochen'));
     case 'milestonesDone': {
       const done = data.milestones.filter((m) => m.done).length;
       return tile('Meilensteine', `${done} / ${data.milestones.length}`, 'erreicht');
@@ -1213,7 +1243,7 @@ function heatmap(map) {
     let lvl = 0;
     if (d) lvl = d.minutes >= 120 ? 4 : d.minutes >= 60 ? 3 : d.minutes >= 30 ? 2 : 1;
     const label = `${fmtDate(iso)}: ${d ? `${fmtDuration(d.minutes)}, ${d.count} Aktivität(en)` : 'keine Aktivität'}`;
-    cells.push(`<span class="l${lvl}${iso === today ? ' today' : ''}" aria-label="${esc(label)}" data-tip="${esc(dayTip(iso, d, details[iso]))}"></span>`);
+    cells.push(`<span class="l${lvl}${iso === today ? ' today' : ''}" aria-label="${esc(label)}" tabindex="-1" data-detail="day:${iso}" data-tip="${esc(dayTip(iso, d, details[iso]))}"></span>`);
   }
   const active = Object.keys(map).filter((k) => k >= toISO(start) && k <= today).length;
   return `<div class="heatmap">${cells.join('')}</div>
@@ -1238,7 +1268,7 @@ function weekBars(pid) {
   const weeks = weekList().map((w) => ({ ...w, min: weekMinutes(w.i, pid) }));
   const max = Math.max(60, ...weeks.map((w) => w.min));
   return `<div class="bars">${weeks.map((w) => `
-    <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-tip="${esc(`<b>${w.current ? 'Diese Woche' : `Woche ab ${w.label}`}</b><br>${fmtDuration(w.min)}`)}">
+    <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-detail="week:${w.i}:${pid}" data-tip="${esc(`<b>${w.current ? 'Diese Woche' : `Woche ab ${w.label}`}</b><br>${fmtDuration(w.min)}`)}">
       <span style="height:${(w.min / max) * 85}%;background:${esc(p?.color || 'var(--primary)')}"></span><small>${w.current ? 'jetzt' : w.label.slice(0, 3)}</small>
     </div>`).join('')}</div>`;
 }
@@ -1246,12 +1276,13 @@ function weekBars(pid) {
 /** Stunden pro Woche über alle Projekte – gestapelt, jedes Projekt in seiner Farbe. */
 function stackedWeekBars() {
   const weeks = weekList();
-  const projects = data.projects
+  const all = data.projects
     .map((p) => ({ p, per: weeks.map((w) => weekMinutes(w.i, p.id)) }))
     .map((x) => ({ ...x, total: sum(x.per, (m) => m) }))
     .filter((x) => x.total > 0)
     .sort((a, b) => b.total - a.total); // feste Stapel-Reihenfolge: größtes Projekt unten
-  if (!projects.length) return '<div class="empty">In den letzten 12 Wochen wurde noch keine Zeit erfasst.</div>';
+  if (!all.length) return '<div class="empty">In den letzten 12 Wochen wurde noch keine Zeit erfasst.</div>';
+  const projects = all.filter((x) => !hiddenSeries.has(x.p.id));
   const totals = weeks.map((_, wi) => sum(projects, (x) => x.per[wi]));
   const max = Math.max(60, ...totals);
   const scaleH = Math.ceil(max / 60);
@@ -1264,7 +1295,7 @@ function stackedWeekBars() {
     <div class="stack-chart" role="img" aria-label="Stunden pro Woche nach Projekt, letzte 12 Wochen">
       <div class="stack-scale small muted"><span>${scaleH} Std</span><span>0</span></div>
       <div class="bars stacked">${weeks.map((w, wi) => `
-        <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-tip="${esc(totals[wi] ? tip(w, wi) : `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>keine Zeit erfasst`)}">
+        <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-detail="week:${w.i}" data-tip="${esc(totals[wi] ? tip(w, wi) : `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>keine Zeit erfasst`)}">
           <div class="stack" style="height:calc((100% - 22px) * ${(totals[wi] / (scaleH * 60)).toFixed(4)})">
             ${projects.filter((x) => x.per[wi]).map((x) => `<span style="flex-grow:${x.per[wi]};background:${esc(x.p.color)}"></span>`).join('')}
           </div>
@@ -1272,8 +1303,9 @@ function stackedWeekBars() {
         </div>`).join('')}
       </div>
     </div>
-    <ul class="chart-legend">${projects.map((x) => `
-      <li><span class="dot-color" style="background:${esc(x.p.color)}"></span><span class="name">${esc(x.p.name)}</span><span class="val">${fmtHours(x.total)}</span></li>`).join('')}
+    <ul class="chart-legend">${all.map((x) => `
+      <li><button type="button" class="legend-btn ${hiddenSeries.has(x.p.id) ? 'off' : ''}" data-action="toggleSeries" data-id="${x.p.id}" aria-pressed="${!hiddenSeries.has(x.p.id)}" title="${hiddenSeries.has(x.p.id) ? 'Einblenden' : 'Ausblenden'}">
+        <span class="dot-color" style="background:${esc(x.p.color)}"></span><span class="name">${esc(x.p.name)}</span><span class="val">${fmtHours(x.total)}</span></button></li>`).join('')}
     </ul>
     <details class="chart-table">
       <summary class="small muted">Als Tabelle anzeigen</summary>
@@ -1292,7 +1324,8 @@ document.body.appendChild(chartTip);
 let tipTarget = null;
 function showTip(el) {
   tipTarget = el;
-  chartTip.innerHTML = el.dataset.tip;
+  chartTip.innerHTML = el.dataset.tip + (el.dataset.detail
+    ? `<span class="tip-sub tip-hint">${lastPointer === 'mouse' ? 'Klicken für Details' : 'Nochmal tippen für Details'}</span>` : '');
   chartTip.hidden = false;
   // Freien Raum zwischen Kopfleiste und (mobiler) Navigation bestimmen, Fenster auf der größeren Seite öffnen
   // Kopfleiste oben (sticky) begrenzt den Platz nach oben; als Seitenleiste links (Computer) nicht
@@ -1326,13 +1359,19 @@ document.addEventListener('focusout', (e) => { if (lastPointer !== 'touch' && e.
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-tip]');
   if (el) {
-    if (lastPointer === 'mouse') showTip(el);
-    else if (el === tipTarget && !chartTip.hidden) hideTip();
+    if (lastPointer === 'mouse') { if (el.dataset.detail) openDetail(el.dataset.detail); else showTip(el); }
+    else if (el === tipTarget && !chartTip.hidden) { if (el.dataset.detail) openDetail(el.dataset.detail); else hideTip(); }
     else showTip(el);
   } else if (!e.target.closest('.chart-tip')) hideTip();
 });
 window.addEventListener('scroll', hideTip, { passive: true });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideTip();
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.closest?.('[data-detail]') && !e.target.closest('.wgrid.editing')) {
+    e.preventDefault();
+    openDetail(e.target.closest('[data-detail]').dataset.detail);
+  }
+});
 
 /* ---------------------------- Listeneinträge ----------------------------- */
 
@@ -1434,7 +1473,7 @@ function renderProjects() {
 
 function projectCard(p, s) {
   return `<a class="project-card" href="#/projekt/${p.id}" style="--pc:${esc(p.color)}">
-        <div class="row"><h3>${esc(p.name)}</h3><span class="badge ${p.status}">${statusLabel(p.status)}</span></div>
+        <div class="row"><h3>${esc(p.name)}</h3><span class="row-end"><span class="badge ${p.status}">${statusLabel(p.status)}</span>${qaButton(p)}</span></div>
         ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ''}
         <div>
           <div class="row small muted" style="margin-bottom:4px"><span>Fortschritt</span><span>${s.progress}%</span></div>
@@ -2188,6 +2227,25 @@ const projectOptions = () => data.projects
 const actions = {
   newProject() { projectForm(); },
   customizeDashboard() { startEdit('dashboard'); },
+  quickMenu({ id }) {
+    const p = getProject(id);
+    const btn = document.querySelector(`.qa-btn[data-id="${CSS.escape(id)}"]:hover`) || [...document.querySelectorAll(`.qa-btn[data-id="${CSS.escape(id)}"]`)].find((b) => b === document.activeElement) || document.querySelector(`.qa-btn[data-id="${CSS.escape(id)}"]`);
+    if (p) openPopover(lastQaButton || btn, projectMenuHTML(p));
+  },
+  goProject({ id }) { location.hash = `#/projekt/${id}`; },
+  setProjectStatus({ id, status }) {
+    const p = getProject(id);
+    const wasDone = p.status === 'abgeschlossen';
+    p.status = status;
+    commit();
+    if (!wasDone && status === 'abgeschlossen') celebrateProject(p);
+    else toast(`Status: ${statusLabel(status)}`);
+  },
+  toggleSeries({ id }) {
+    if (hiddenSeries.has(id)) hiddenSeries.delete(id); else hiddenSeries.add(id);
+    render();
+  },
+  openPalette() { openPalette(); },
   customizeProject({ id }) { startEdit('project', id); },
   resetProjectLayout({ id }) {
     delete getProject(id).layout;
@@ -2690,6 +2748,7 @@ function tickPomodoro() {
     if (t.phase === 'work') {
       t.focusMs += t.phaseEnd - t.phaseStart;
       t.count += 1;
+      data.counters.pomodoros = (data.counters.pomodoros || 0) + 1;
       startBreak(t, t.phaseEnd, true);
       signalMsg = t.phase === 'long'
         ? [`🍅 ${t.count} Pomodoros geschafft!`, `Zeit für eine lange Pause (${pomoCfg().long} Min).`]
@@ -2700,6 +2759,7 @@ function tickPomodoro() {
     }
   }
   if (signalMsg) {
+    checkAchievements();
     save();
     renderTimer(true);
     pomoSignal(...signalMsg);
@@ -2893,13 +2953,456 @@ function demoData() {
   return d;
 }
 
+/* ========================================================================
+   Interaktive Übersicht: Sparklines, „Heute“, Erfolge, Schnellaktionen,
+   Detailansichten, Befehlspalette, Wischgesten
+   ======================================================================== */
+
+/* ---------------------------- Sparklines --------------------------------- */
+
+/** Kleine Verlaufslinie (Inline-SVG) – Text bleibt in normaler Schriftfarbe, die Linie in der Akzentfarbe. */
+function sparkline(values, label) {
+  const w = 96, h = 26, pad = 3;
+  const max = Math.max(...values, 1), n = values.length;
+  const pts = values.map((v, i) => [pad + (i * (w - 2 * pad)) / Math.max(1, n - 1), h - pad - (v / max) * (h - 2 * pad)]);
+  const [lx, ly] = pts[pts.length - 1];
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(label)}">
+    <polyline points="${pts.map((p) => p.map((x) => x.toFixed(1)).join(',')).join(' ')}" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="3" fill="var(--primary)" stroke="var(--surface)" stroke-width="1.5"/>
+  </svg>`;
+}
+const monthKey = (offset) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + offset); return toISO(d).slice(0, 7); };
+const lastWeeksMinutes = (n, pid) => Array.from({ length: n }, (_, i) => weekMinutes(i - n + 1, pid));
+const lastMonths = (n, fn) => Array.from({ length: n }, (_, i) => fn(monthKey(i - n + 1)));
+
+/* ---------------------------- Heute -------------------------------------- */
+
+function renderToday(c) {
+  const today = c.today;
+  const hour = new Date().getHours();
+  const greet = hour < 11 ? 'Guten Morgen' : hour < 18 ? 'Hallo' : 'Guten Abend';
+  const dayLabel = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  const todayMin = minutesInRange(today, toISO(addDays(new Date(), 1)));
+  const doneToday = data.tasks.filter((t) => t.done && t.doneAt === today).length;
+  const min = Number(data.settings.reminderMinutes) || 25;
+
+  const items = [];
+  // 1) Fällige und überfällige Aufgaben
+  sortTasks(c.openTasks.filter((t) => t.dueDate && t.dueDate <= today)).slice(0, 2).forEach((t) => {
+    const p = getProject(t.projectId);
+    items.push(`<li>
+      <span class="today-ico">${t.dueDate < today ? '⚠️' : '⏰'}</span>
+      <div class="grow"><div class="title">${esc(t.title)}</div>
+        <div class="meta"><span><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</span>
+        <span class="${t.dueDate < today ? 'badge overdue' : ''}">${t.dueDate < today ? `überfällig seit ${fmtRelative(t.dueDate).replace('vor ', '')}` : 'heute fällig'}</span></div></div>
+      <div class="btn-row"><button class="btn small" data-action="toggleTask" data-id="${t.id}">✓ Erledigt</button>
+        <button class="btn small primary" data-action="startPomodoro" data-id="${p.id}">🍅 Start</button></div>
+    </li>`);
+  });
+  // 2) Das am längsten ruhende Projekt
+  const sleeping = c.stale.find((x) => x.s.health === 'kritisch') || c.stale[0];
+  if (sleeping && items.length < 3) {
+    items.push(`<li>
+      <span class="today-ico">😴</span>
+      <div class="grow"><div class="title">${esc(sleeping.p.name)} ruht seit ${sleeping.s.idle} Tagen</div>
+        <div class="meta">${sleeping.s.next ? `Kleinster Schritt: ${esc(sleeping.s.next.title)}` : 'Lege einen kleinen nächsten Schritt fest'}</div></div>
+      <div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${sleeping.p.id}">🍅 ${min} Min</button></div>
+    </li>`);
+  }
+  // 3) Rest zum Wochenziel – Vorschlag: aktives Projekt mit dem größten Rückstand
+  if (c.goalMin && c.thisWeek < c.goalMin && items.length < 3) {
+    const rest = c.goalMin - c.thisWeek;
+    const daysLeft = 7 - ((new Date().getDay() + 6) % 7);
+    const behind = c.active.map((p) => ({ p, gap: projectWeeklyMin(p) - weekMinutes(0, p.id) })).sort((a, b) => b.gap - a.gap)[0];
+    items.push(`<li>
+      <span class="today-ico">🎯</span>
+      <div class="grow"><div class="title">Noch ${fmtHours(rest)} bis zum Wochenziel</div>
+        <div class="meta">ca. ${fmtDuration(Math.ceil(rest / daysLeft))} pro Tag bis Sonntag${behind && behind.gap > 0 ? ` · größter Rückstand: ${esc(behind.p.name)}` : ''}</div></div>
+      ${behind ? `<div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${behind.p.id}">🍅 Start</button></div>` : ''}
+    </li>`);
+  }
+  // 4) Meilenstein in den nächsten 7 Tagen
+  const soon = data.milestones.filter((m) => !m.done && m.dueDate && m.dueDate >= today && m.dueDate <= toISO(addDays(new Date(), 7)) && getProject(m.projectId))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+  if (soon && items.length < 3) {
+    items.push(`<li>
+      <span class="today-ico">🏁</span>
+      <div class="grow"><div class="title">${esc(soon.title)}</div>
+        <div class="meta">Meilenstein ${fmtRelative(soon.dueDate)} · ${esc(getProject(soon.projectId).name)}</div></div>
+      <div class="btn-row"><a class="btn small" href="#/projekt/${soon.projectId}/meilensteine">Ansehen</a></div>
+    </li>`);
+  }
+  if (!items.length) {
+    const nxt = c.active.map((p) => c.stats.get(p.id).next).filter(Boolean)[0];
+    items.push(`<li><span class="today-ico">✨</span><div class="grow"><div class="title">Alles im grünen Bereich</div>
+      <div class="meta">${nxt ? `Wie wäre es mit: ${esc(nxt.title)}` : 'Lege für deine Projekte einen nächsten Schritt fest.'}</div></div>
+      ${nxt ? `<div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${nxt.projectId}">🍅 Start</button></div>` : ''}</li>`);
+  }
+  return `<section class="card today">
+    <div class="card-head"><h2>☀️ ${greet}! <span class="muted today-date">${esc(dayLabel)}</span></h2></div>
+    <div class="today-sum small muted">Heute: <b>${fmtDuration(todayMin)}</b> erfasst · <b>${doneToday}</b> ${doneToday === 1 ? 'Aufgabe' : 'Aufgaben'} erledigt${c.streak ? ` · 🔥 ${c.streak} ${c.streak === 1 ? 'Tag' : 'Tage'} in Folge` : ''}</div>
+    <ul class="list today-list">${items.join('')}</ul>
+  </section>`;
+}
+
+/* ---------------------------- Erfolge ------------------------------------ */
+
+function maxStreak() {
+  const days = Object.keys(dayMap()).sort();
+  let best = 0, cur = 0, prev = null;
+  for (const d of days) {
+    cur = prev && daysBetween(prev, d) === 1 ? cur + 1 : 1;
+    best = Math.max(best, cur);
+    prev = d;
+  }
+  return best;
+}
+function hasRevivedProject() {
+  return data.projects.some((p) => {
+    const ds = [...new Set(activities(p.id).map((a) => a.date).filter(Boolean))].sort();
+    return ds.some((d, i) => i > 0 && daysBetween(ds[i - 1], d) >= 14);
+  });
+}
+function weekGoalEverHit() {
+  const g = weeklyGoal().minutes;
+  if (!g) return false;
+  for (let i = -51; i <= 0; i++) if (weekMinutes(i) >= g) return true;
+  return false;
+}
+
+const ACHIEVEMENTS = [
+  { id: 'first_project', icon: '🚀', name: 'Startschuss', desc: 'Erstes Projekt angelegt', goal: 1, val: (x) => x.projects },
+  { id: 'first_hour', icon: '⏱', name: 'Erste Stunde', desc: '1 Stunde Zeit erfasst', goal: 1, val: (x) => x.hours },
+  { id: 'hours_10', icon: '🔟', name: 'Zehner', desc: '10 Stunden erfasst', goal: 10, val: (x) => x.hours },
+  { id: 'hours_50', icon: '💪', name: 'Ausdauer', desc: '50 Stunden erfasst', goal: 50, val: (x) => x.hours },
+  { id: 'hours_100', icon: '🏆', name: 'Hundert', desc: '100 Stunden erfasst', goal: 100, val: (x) => x.hours },
+  { id: 'streak_3', icon: '🔥', name: 'Warmgelaufen', desc: '3 Tage in Folge aktiv', goal: 3, val: (x) => x.streak },
+  { id: 'streak_7', icon: '📅', name: 'Eine Woche dran', desc: '7 Tage in Folge aktiv', goal: 7, val: (x) => x.streak },
+  { id: 'streak_30', icon: '🌋', name: 'Unaufhaltsam', desc: '30 Tage in Folge aktiv', goal: 30, val: (x) => x.streak },
+  { id: 'pomo_1', icon: '🍅', name: 'Erster Pomodoro', desc: 'Einen Pomodoro abgeschlossen', goal: 1, val: (x) => x.pomodoros },
+  { id: 'pomo_10', icon: '🧺', name: 'Tomatenernte', desc: '10 Pomodoros abgeschlossen', goal: 10, val: (x) => x.pomodoros },
+  { id: 'pomo_50', icon: '🚜', name: 'Tomatenfarm', desc: '50 Pomodoros abgeschlossen', goal: 50, val: (x) => x.pomodoros },
+  { id: 'tasks_10', icon: '✅', name: 'Macher', desc: '10 Aufgaben erledigt', goal: 10, val: (x) => x.tasks },
+  { id: 'tasks_50', icon: '⚡', name: 'Abarbeiter', desc: '50 Aufgaben erledigt', goal: 50, val: (x) => x.tasks },
+  { id: 'milestone_1', icon: '🏁', name: 'Etappensieg', desc: 'Ersten Meilenstein erreicht', goal: 1, val: (x) => x.milestones },
+  { id: 'milestone_5', icon: '🗺', name: 'Wegbereiter', desc: '5 Meilensteine erreicht', goal: 5, val: (x) => x.milestones },
+  { id: 'project_done', icon: '🎉', name: 'Geschafft', desc: 'Ein Projekt abgeschlossen', goal: 1, val: (x) => x.projectsDone },
+  { id: 'revived', icon: '🌱', name: 'Wiederbelebt', desc: 'Ein Projekt nach 14+ Tagen Pause weitergeführt', goal: 1, val: (x) => x.revived },
+  { id: 'week_goal', icon: '🎯', name: 'Wochenziel', desc: 'Ein Wochenziel erreicht', goal: 1, val: (x) => x.weekGoal },
+];
+
+function achievementStats() {
+  return {
+    projects: data.projects.length,
+    hours: sum(data.timeEntries, (e) => e.minutes) / 60,
+    streak: maxStreak(),
+    pomodoros: data.counters?.pomodoros || 0,
+    tasks: data.tasks.filter((t) => t.done).length,
+    milestones: data.milestones.filter((m) => m.done).length,
+    projectsDone: data.projects.filter((p) => p.status === 'abgeschlossen').length,
+    revived: hasRevivedProject() ? 1 : 0,
+    weekGoal: weekGoalEverHit() ? 1 : 0,
+  };
+}
+
+/** Neu erreichte Erfolge speichern und feiern. Beim allerersten Mal werden bestehende Erfolge still übernommen. */
+function checkAchievements() {
+  const x = achievementStats();
+  const earned = ACHIEVEMENTS.filter((a) => a.val(x) >= a.goal).map((a) => a.id);
+  if (!data.achievements) {
+    data.achievements = Object.fromEntries(earned.map((id) => [id, todayISO()]));
+    return [];
+  }
+  const fresh = earned.filter((id) => !data.achievements[id]);
+  fresh.forEach((id) => (data.achievements[id] = todayISO()));
+  if (fresh.length) {
+    const first = ACHIEVEMENTS.find((a) => a.id === fresh[0]);
+    setTimeout(() => {
+      toast(`🏅 Erfolg freigeschaltet: ${first.icon} ${first.name}${fresh.length > 1 ? ` (+${fresh.length - 1} weitere)` : ''}`);
+      confetti();
+    }, 300);
+  }
+  return fresh;
+}
+
+function renderAchievements() {
+  const x = achievementStats();
+  const got = data.achievements || {};
+  const n = ACHIEVEMENTS.filter((a) => got[a.id]).length;
+  const badges = ACHIEVEMENTS.map((a) => {
+    const done = !!got[a.id];
+    const v = Math.min(a.goal, a.val(x));
+    const tip = `<b>${a.icon} ${esc(a.name)}</b><span class="tip-sub">${esc(a.desc)}</span>${done ? `<span class="tip-sub">✔ erreicht am ${fmtDate(got[a.id])}</span>` : `<span class="tip-sub">Fortschritt: ${Math.floor(v * 10) / 10} / ${a.goal}</span>`}`;
+    return `<div class="badge-tile ${done ? 'earned' : 'locked'}" tabindex="0" data-tip="${esc(tip)}">
+      <span class="badge-icon">${a.icon}</span><span class="badge-name">${esc(a.name)}</span>
+      ${done ? '' : `<span class="badge-prog"><span style="width:${(v / a.goal) * 100}%"></span></span>`}
+    </div>`;
+  }).join('');
+  return `<section class="card">
+    <div class="card-head"><h2>🏅 Erfolge</h2><span class="small muted">${n} von ${ACHIEVEMENTS.length}</span></div>
+    <div class="badge-grid">${badges}</div>
+  </section>`;
+}
+
+/* ---------------------------- Popover-Menüs (Schnellaktionen) ------------ */
+
+const popover = document.createElement('div');
+popover.className = 'popover';
+popover.hidden = true;
+popover.setAttribute('role', 'menu');
+document.body.appendChild(popover);
+let popoverAnchor = null;
+
+function openPopover(anchor, html) {
+  hideTip();
+  popover.innerHTML = html;
+  popover.hidden = false;
+  popoverAnchor = anchor;
+  if (matchMedia('(max-width: 640px)').matches) { popover.style.left = popover.style.top = ''; }
+  else {
+    const r = anchor.getBoundingClientRect(), pr = popover.getBoundingClientRect();
+    const left = Math.min(window.innerWidth - pr.width - 8, Math.max(8, r.right - pr.width));
+    const top = r.bottom + 6 + pr.height < window.innerHeight ? r.bottom + 6 : Math.max(8, r.top - pr.height - 6);
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+  }
+  popover.querySelector('button')?.focus({ preventScroll: true });
+}
+function closePopover() {
+  if (popover.hidden) return;
+  popover.hidden = true;
+  popoverAnchor = null;
+}
+document.addEventListener('click', (e) => {
+  if (popover.hidden || suppressClick) return;
+  if (popover.contains(e.target)) { if (e.target.closest('[data-action]')) setTimeout(closePopover); return; }
+  if (popoverAnchor && popoverAnchor.contains(e.target)) return;
+  closePopover();
+}, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePopover(); });
+window.addEventListener('resize', closePopover);
+
+function projectMenuHTML(p) {
+  return `<div class="pop-title"><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</div>
+    <button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 Pomodoro starten</button>
+    <button class="pop-item" data-action="startTimer" data-id="${p.id}">▶ Stoppuhr starten</button>
+    <button class="pop-item" data-action="addTime" data-id="${p.id}">⏱ Zeit erfassen</button>
+    <button class="pop-item" data-action="addTask" data-id="${p.id}">✅ Aufgabe anlegen</button>
+    <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 Notiz</button>
+    <button class="pop-item" data-action="goProject" data-id="${p.id}">📁 Projekt öffnen</button>
+    <div class="pop-sep"></div>
+    <div class="pop-label">Status</div>
+    <div class="pop-chips">${STATUS.map((st) => `<button class="chip ${p.status === st.value ? 'active' : ''}" data-action="setProjectStatus" data-id="${p.id}" data-status="${st.value}">${st.label}</button>`).join('')}</div>`;
+}
+const qaButton = (p) => `<button class="btn ghost icon qa-btn" data-action="quickMenu" data-id="${p.id}" aria-label="Aktionen für ${esc(p.name)}" title="Aktionen">⋯</button>`;
+
+function taskMenuHTML(t) {
+  const p = getProject(t.projectId);
+  return `<div class="pop-title">${esc(t.title)}</div>
+    <button class="pop-item" data-action="toggleTask" data-id="${t.id}">${t.done ? '↺ Wieder öffnen' : '✓ Erledigt'}</button>
+    <button class="pop-item" data-action="editTask" data-id="${t.id}">✎ Bearbeiten</button>
+    ${t.done ? '' : `<button class="pop-item" data-action="addSubtask" data-id="${t.id}">＋ Unterpunkt</button>`}
+    ${p ? `<button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 Pomodoro für ${esc(p.name)}</button>` : ''}
+    <div class="pop-sep"></div>
+    <button class="pop-item danger" data-action="deleteTask" data-id="${t.id}">🗑 Löschen</button>`;
+}
+
+/* ---------------------------- Detailansichten (Diagramme anklicken) ------- */
+
+/** Ausgeblendete Projekte im Wochendiagramm (per Klick auf die Legende, nur für diese Sitzung) */
+const hiddenSeries = new Set();
+
+function openDetail(spec) {
+  hideTip();
+  const [kind, a, pid] = spec.split(':');
+  let title, body;
+  const entryRow = (e) => {
+    const p = getProject(e.projectId);
+    return `<li><span class="dot-color" style="background:${esc(p?.color || 'var(--muted)')}"></span>
+      <div class="grow"><div class="title">${esc(e.title || autoTimeTitle(e.date))}</div>
+        <div class="meta"><span class="amount">⏱ ${fmtDuration(e.minutes)}</span><span>${esc(p?.name || '–')}</span>${kind === 'week' ? `<span>${esc(autoTimeTitle(e.date))}</span>` : ''}</div>
+        ${e.description ? `<div class="entry-desc">${esc(e.description)}</div>` : ''}</div>
+      <button class="btn ghost icon" data-action="editTime" data-id="${e.id}" title="Bearbeiten" aria-label="Zeiteintrag bearbeiten">✎</button></li>`;
+  };
+  if (kind === 'day') {
+    const items = dayDetails(a)[a] || [];
+    const entries = data.timeEntries.filter((e) => e.date === a);
+    const other = items.filter((it) => it.icon !== '⏱');
+    title = parseISO(a).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    body = `<p class="small muted" style="margin:0">${fmtDuration(sum(entries, (e) => e.minutes))} erfasst · ${items.length} ${items.length === 1 ? 'Aktivität' : 'Aktivitäten'}</p>
+      ${entries.length ? `<h3>⏱ Zeiteinträge</h3><ul class="list">${entries.map(entryRow).join('')}</ul>` : ''}
+      ${other.length ? `<h3>Weitere Aktivitäten</h3><ul class="list">${other.map((it) => `<li><span class="dot-color" style="background:${esc(it.p.color)}"></span><div class="grow"><div class="title">${it.icon} ${esc(it.text)}</div><div class="meta">${esc(it.p.name)}</div></div></li>`).join('')}</ul>` : ''}
+      ${items.length ? '' : '<div class="empty">An diesem Tag gab es keine Aktivität.</div>'}`;
+  } else {
+    const start = addDays(startOfWeek(new Date()), Number(a) * 7);
+    const from = toISO(start), to = toISO(addDays(start, 7));
+    const entries = data.timeEntries.filter((e) => e.date >= from && e.date < to && (!pid || e.projectId === pid))
+      .sort((x, y) => y.date.localeCompare(x.date));
+    const p = pid ? getProject(pid) : null;
+    title = `Woche ${fmtDate(from)} – ${fmtDate(toISO(addDays(start, 6)))}${p ? ` · ${p.name}` : ''}`;
+    const byProject = {};
+    entries.forEach((e) => (byProject[e.projectId] = (byProject[e.projectId] || 0) + e.minutes));
+    body = `<p class="small muted" style="margin:0">${fmtDuration(sum(entries, (e) => e.minutes))} in ${entries.length} ${entries.length === 1 ? 'Eintrag' : 'Einträgen'}</p>
+      ${!pid && Object.keys(byProject).length > 1 ? `<div class="detail-split">${Object.entries(byProject).sort((x, y) => y[1] - x[1]).map(([id, m]) => `<span><span class="dot-color" style="background:${esc(getProject(id)?.color || 'var(--muted)')}"></span> ${esc(getProject(id)?.name || '–')} <b>${fmtDuration(m)}</b></span>`).join('')}</div>` : ''}
+      ${entries.length ? `<ul class="list">${entries.map(entryRow).join('')}</ul>` : '<div class="empty">In dieser Woche wurde keine Zeit erfasst.</div>'}`;
+  }
+  const dlg = $('#modal');
+  dlg.classList.remove('wide');
+  dlg.innerHTML = `<div class="form detail-view"><h2>${esc(title)}</h2>${body}
+    <div class="form-actions"><button type="button" class="btn primary" data-close>Schließen</button></div></div>`;
+  dlg.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
+  lockScroll();
+  dlg.showModal();
+}
+
+/* ---------------------------- Befehlspalette (⌘K / Strg+K) ---------------- */
+
+function paletteCommands() {
+  const cmds = [];
+  const add = (icon, label, run, hint = '') => cmds.push({ icon, label, run, hint, key: `${label} ${hint}`.toLocaleLowerCase('de') });
+  add('🏠', 'Übersicht', () => { location.hash = '#/'; }, 'Navigation');
+  add('📁', 'Projekte', () => { location.hash = '#/projekte'; }, 'Navigation');
+  add('⚙️', 'Einstellungen', () => { location.hash = '#/einstellungen'; }, 'Navigation');
+  add('➕', 'Neues Projekt', () => actions.newProject());
+  add('⏱', 'Zeit erfassen', () => actions.addTime({}));
+  if (data.timer) add('■', data.timer.mode === 'pomodoro' ? 'Pomodoro beenden' : 'Timer stoppen', () => actions.stopTimer());
+  add('💾', 'Sicherung exportieren', () => actions.exportData(), 'Backup');
+  add('⬆', 'Sicherung importieren', () => actions.importData(), 'Backup');
+  add('🧩', 'Übersicht anpassen', () => actions.customizeDashboard(), 'Layout');
+  THEMES.forEach(([v, l]) => add(l.split(' ')[0], `Darstellung: ${l.replace(/^\S+\s/, '')}`, () => { data.settings.theme = v; commit(); }, 'Theme Hell Dunkel'));
+  add('↔', 'Seitenleiste ein-/ausklappen', () => actions.toggleSidebar(), 'Navigation');
+  const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
+  [...data.projects].sort((a, b) => order[a.status] - order[b.status]).forEach((p) => {
+    add('📁', `Öffnen: ${p.name}`, () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
+    if (p.status !== 'abgeschlossen') {
+      add('🍅', `Pomodoro: ${p.name}`, () => actions.startPomodoro({ id: p.id }), 'Timer');
+      add('⏱', `Zeit erfassen: ${p.name}`, () => actions.addTime({ id: p.id }));
+      add('✅', `Aufgabe anlegen: ${p.name}`, () => actions.addTask({ id: p.id }));
+      add('📝', `Notiz: ${p.name}`, () => actions.addNote({ id: p.id }));
+    }
+  });
+  sortTasks(data.tasks.filter((t) => !t.done)).forEach((t) => {
+    add('☐', `Erledigen: ${t.title}`, () => actions.toggleTask({ id: t.id }), getProject(t.projectId)?.name || '');
+  });
+  return cmds;
+}
+
+let paletteState = null;
+function openPalette() {
+  if ($('#modal').open) return;
+  closePopover(); hideTip();
+  paletteState = { cmds: paletteCommands(), list: [], active: 0 };
+  const dlg = $('#modal');
+  dlg.classList.remove('wide');
+  dlg.innerHTML = `<div class="palette">
+    <input type="text" class="palette-input" placeholder="Befehl oder Projekt suchen …" aria-label="Befehl suchen" autocomplete="off" spellcheck="false">
+    <ul class="palette-list" role="listbox"></ul>
+    <div class="palette-foot small muted">↑ ↓ auswählen · Enter ausführen · Esc schließen</div>
+  </div>`;
+  const input = dlg.querySelector('.palette-input');
+  input.addEventListener('input', () => { paletteState.active = 0; renderPalette(input.value); });
+  input.addEventListener('keydown', (e) => {
+    const n = paletteState.list.length;
+    if (e.key === 'ArrowDown') { e.preventDefault(); paletteState.active = (paletteState.active + 1) % Math.max(1, n); renderPalette(input.value, true); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); paletteState.active = (paletteState.active - 1 + n) % Math.max(1, n); renderPalette(input.value, true); }
+    if (e.key === 'Enter') { e.preventDefault(); runPalette(paletteState.active); }
+  });
+  dlg.querySelector('.palette-list').addEventListener('click', (e) => {
+    const li = e.target.closest('[data-i]');
+    if (li) runPalette(Number(li.dataset.i));
+  });
+  dlg.addEventListener('close', () => { paletteState = null; }, { once: true });
+  lockScroll();
+  dlg.showModal();
+  renderPalette('');
+  input.focus();
+}
+function renderPalette(q, keepList = false) {
+  if (!keepList) {
+    const words = q.toLocaleLowerCase('de').split(/\s+/).filter(Boolean);
+    paletteState.list = paletteState.cmds.filter((c) => words.every((w) => c.key.includes(w))).slice(0, 50);
+  }
+  const ul = $('#modal .palette-list');
+  ul.innerHTML = paletteState.list.length ? paletteState.list.map((c, i) => `<li data-i="${i}" role="option" class="${i === paletteState.active ? 'active' : ''}" aria-selected="${i === paletteState.active}">
+      <span class="pal-ico">${c.icon}</span><span class="pal-label">${esc(c.label)}</span>${c.hint ? `<span class="pal-hint">${esc(c.hint)}</span>` : ''}</li>`).join('')
+    : '<li class="pal-empty">Nichts gefunden</li>';
+  ul.querySelector('.active')?.scrollIntoView({ block: 'nearest' });
+}
+function runPalette(i) {
+  const cmd = paletteState?.list[i];
+  if (!cmd) return;
+  $('#modal').close();
+  unlockScroll();
+  setTimeout(() => cmd.run(), 0);
+}
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    if (paletteState) { $('#modal').close(); unlockScroll(); } else openPalette();
+  }
+});
+
+/* ---------------------------- Wischgesten (Touch) ------------------------- */
+/* Aufgabe nach rechts wischen = erledigt, nach links = Optionen */
+
+let swipe = null;
+let suppressClick = false;
+document.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch') return;
+  const li = e.target.closest('li.task');
+  if (!li || e.target.closest('button, a, input, textarea') || li.closest('.wgrid.editing')) return;
+  swipe = { li, x0: e.clientX, y0: e.clientY, dx: 0, dir: null, id: e.pointerId };
+});
+document.addEventListener('pointermove', (e) => {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const dx = e.clientX - swipe.x0, dy = e.clientY - swipe.y0;
+  if (!swipe.dir) {
+    if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
+    if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      swipe.dir = 'h';
+      const li = swipe.li, ul = li.parentElement;
+      ul.style.position = 'relative';
+      swipe.bg = document.createElement('div');
+      swipe.bg.className = 'swipe-bg';
+      Object.assign(swipe.bg.style, { top: `${li.offsetTop}px`, height: `${li.offsetHeight}px` });
+      ul.insertBefore(swipe.bg, li);
+      li.classList.add('swiping');
+    } else return;
+  }
+  swipe.dx = Math.max(-140, Math.min(140, dx));
+  swipe.li.style.transform = `translateX(${swipe.dx}px)`;
+  const done = swipe.li.classList.contains('done');
+  swipe.bg.className = `swipe-bg ${swipe.dx > 0 ? 'right' : 'left'} ${Math.abs(swipe.dx) > 80 ? 'armed' : ''}`;
+  swipe.bg.innerHTML = swipe.dx > 0 ? `<span>${done ? '↺ Wieder öffnen' : '✓ Erledigt'}</span>` : '<span>⋯ Optionen</span>';
+});
+function endSwipe() {
+  if (!swipe) return;
+  const { li, dx, dir, bg } = swipe;
+  swipe = null;
+  if (dir !== 'h') return;
+  suppressClick = true;
+  setTimeout(() => (suppressClick = false), 350);
+  li.style.transition = 'transform .2s ease';
+  li.style.transform = '';
+  setTimeout(() => { li.style.transition = ''; li.classList.remove('swiping'); bg?.remove(); }, 220);
+  const id = li.querySelector('[data-action="toggleTask"]')?.dataset.id;
+  if (!id) return;
+  if (dx > 80) { navigator.vibrate?.(15); setTimeout(() => actions.toggleTask({ id }), 180); }
+  else if (dx < -80) { const t = data.tasks.find((x) => x.id === id); if (t) openPopover(li, taskMenuHTML(t)); }
+}
+document.addEventListener('pointerup', endSwipe);
+document.addEventListener('pointercancel', endSwipe);
+document.addEventListener('click', (e) => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
+
 /* ------------------------------------------------------------------------
    Event-Handling & Start
    ------------------------------------------------------------------------ */
 
+let lastQaButton = null;
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
+  if (el.dataset.action === 'quickMenu') lastQaButton = el;
   const fn = actions[el.dataset.action];
   if (!fn) return;
   e.preventDefault();
@@ -3075,6 +3578,14 @@ async function checkForUpdate(force = false) {
 checkForUpdate(true);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
 setInterval(() => checkForUpdate(), 30 * 60 * 1000);
+
+// Tastenkürzel passend zum Betriebssystem anzeigen
+{
+  const kbd = document.querySelector('.cmd-btn kbd');
+  const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  if (kbd) kbd.textContent = mac ? '⌘K' : 'Strg K';
+  document.querySelector('.cmd-btn')?.setAttribute('title', `Befehlspalette (${mac ? '⌘K' : 'Strg+K'})`);
+}
 
 function updateSideToggle() {
   const btn = document.getElementById('side-toggle');
