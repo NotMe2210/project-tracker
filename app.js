@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.16-4';
+const APP_VERSION = '2026.11.16-5';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 
@@ -556,6 +556,8 @@ function projectStats(p) {
   const idle = last ? daysBetween(last, todayISO()) : 0;
   return {
     minutes, invested, progress, last, idle,
+    // Fortschritt ist nur messbar mit Aufgaben oder Meilensteinen (oder wenn das Projekt abgeschlossen ist)
+    hasProgress: p.status === 'abgeschlossen' || ms.length > 0 || tasks.length > 0,
     tasksOpen: tasks.length - tasksDone, tasksDone, tasksTotal: tasks.length,
     msDone, msTotal: ms.length,
     health: healthOf(p, idle),
@@ -1125,7 +1127,7 @@ function renderWidget(id, c, cfg) {
           return `<tr>
             <td class="name-cell"><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}">${esc(p.name)}</a>${qaButton(p)}</td>
             <td><span class="badge ${p.status}">${statusLabel(p.status)}</span></td>
-            <td>${progressBar(s.progress)} <span class="small muted">${s.progress}%</span></td>
+            <td>${s.hasProgress ? `${progressBar(s.progress)} <span class="small muted">${s.progress}%</span>` : '<span class="small muted" title="Keine Aufgaben oder Meilensteine">–</span>'}</td>
             <td class="num">${fmtHours(s.minutes)}</td>
             <td class="num">${fmtHours(weekMinutes(0, p.id))}</td>
             <td class="num">${fmtEUR(s.invested)}</td>
@@ -1463,22 +1465,55 @@ function renderProjects() {
       <div><h1>Projekte</h1><p>${data.projects.length} Projekte insgesamt</p></div>
       <button class="btn primary" data-action="newProject">+ Neues Projekt</button>
     </div>
-    <div class="chips">
-      ${[{ value: 'alle', label: 'Alle' }, ...STATUS].map((s) =>
-        `<button class="chip ${projectFilter === s.value ? 'active' : ''}" data-action="filterProjects" data-id="${s.value}">${s.label} (${counts[s.value]})</button>`).join('')}
+    <div class="toolbar-row">
+      <div class="chips">
+        ${[{ value: 'alle', label: 'Alle' }, ...STATUS].map((s) =>
+          `<button class="chip ${projectFilter === s.value ? 'active' : ''}" data-action="filterProjects" data-id="${s.value}">${s.label} (${counts[s.value]})</button>`).join('')}
+      </div>
+      <div class="segmented view-toggle" role="group" aria-label="Ansicht">
+        <button type="button" class="seg-btn ${projectView === 'grid' ? 'active' : ''}" data-action="setProjectView" data-id="grid" aria-pressed="${projectView === 'grid'}" title="Kacheln">▦ <span>Kacheln</span></button>
+        <button type="button" class="seg-btn ${projectView === 'list' ? 'active' : ''}" data-action="setProjectView" data-id="list" aria-pressed="${projectView === 'list'}" title="Liste">☰ <span>Liste</span></button>
+      </div>
     </div>
-    ${list.length ? `<div class="project-grid">${list.map(({ p, s }) => projectCard(p, s)).join('')}</div>`
+    ${list.length ? (projectView === 'list'
+      ? `<div class="project-rows">${list.map(({ p, s }) => projectRow(p, s)).join('')}</div>`
+      : `<div class="project-grid">${list.map(({ p, s }) => projectCard(p, s)).join('')}</div>`)
       : `<div class="card empty">Keine Projekte in dieser Ansicht.<br><br><button class="btn primary" data-action="newProject">+ Neues Projekt</button></div>`}`;
+}
+
+let projectView = (() => { try { return localStorage.getItem('projekttracker.ui.projectView') || 'grid'; } catch { return 'grid'; } })();
+
+/** Projekt als Zeile (Listenansicht) */
+function projectRow(p, s) {
+  const wk = weekMinutes(0, p.id), goal = p.status === 'aktiv' ? projectWeeklyMin(p) : 0;
+  return `<a class="project-row" href="#/projekt/${p.id}" style="--pc:${esc(p.color)}">
+    <div class="pr-main">
+      <div class="pr-title"><h3>${esc(p.name)}</h3><span class="badge ${p.status}">${statusLabel(p.status)}</span>${p.category ? `<span class="badge">${esc(p.category)}</span>` : ''}</div>
+      ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ''}
+      ${s.next && p.status !== 'abgeschlossen' ? `<div class="small">👉 ${esc(s.next.title)}</div>` : ''}
+    </div>
+    <div class="pr-progress">
+      ${s.hasProgress ? `<div class="row small muted"><span>Fortschritt</span><span>${s.progress}%</span></div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}` : ''}
+      ${goal ? `<div class="row small muted"><span>Diese Woche</span><span>${fmtHours(wk)} / ${fmtStd(goal / 60)}</span></div>${progressBar((wk / goal) * 100, wk >= goal ? 'good' : '')}` : ''}
+    </div>
+    <div class="pr-figures">
+      <span title="Zeit gesamt">⏱ <b>${fmtHours(s.minutes)}</b></span>
+      <span title="Investiert">💶 <b>${fmtEUR(s.invested)}</b></span>
+      <span title="Aufgaben erledigt">✅ <b>${s.tasksDone}/${s.tasksTotal}</b></span>
+      <span title="Meilensteine erreicht">🏁 <b>${s.msDone}/${s.msTotal}</b></span>
+    </div>
+    <div class="pr-end">${healthBadge(s)}${qaButton(p)}</div>
+  </a>`;
 }
 
 function projectCard(p, s) {
   return `<a class="project-card" href="#/projekt/${p.id}" style="--pc:${esc(p.color)}">
         <div class="row"><h3>${esc(p.name)}</h3><span class="row-end"><span class="badge ${p.status}">${statusLabel(p.status)}</span>${qaButton(p)}</span></div>
         ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ''}
-        <div>
+        ${s.hasProgress ? `<div>
           <div class="row small muted" style="margin-bottom:4px"><span>Fortschritt</span><span>${s.progress}%</span></div>
           ${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
-        </div>
+        </div>` : ''}
         ${p.status === 'aktiv' && projectWeeklyMin(p) ? `<div>
           <div class="row small muted" style="margin-bottom:4px"><span>Diese Woche</span><span>${fmtHours(weekMinutes(0, p.id))} / ${fmtStd(projectWeeklyMin(p) / 60)}</span></div>
           ${progressBar((weekMinutes(0, p.id) / projectWeeklyMin(p)) * 100, weekMinutes(0, p.id) >= projectWeeklyMin(p) ? 'good' : '')}
@@ -1574,8 +1609,9 @@ function renderProjectWidget(id, p, s, cfg) {
     case 'stats': {
       const wk = weekMinutes(0, p.id), wGoal = projectWeeklyMin(p);
       const tiles = {
-        progress: `<div class="stat"><div class="label">Fortschritt</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
-          <div class="sub">${s.msTotal ? `${s.msDone}/${s.msTotal} Meilensteine` : `${s.tasksDone}/${s.tasksTotal} Aufgaben`}</div></div>`,
+        progress: s.hasProgress ? `<div class="stat"><div class="label">Fortschritt</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
+          <div class="sub">${s.msTotal ? `${s.msDone}/${s.msTotal} Meilensteine` : `${s.tasksDone}/${s.tasksTotal} Aufgaben`}</div></div>`
+          : `<div class="stat"><div class="label">Fortschritt</div><div class="value muted">–</div><div class="sub">Lege Aufgaben oder Meilensteine an, um den Fortschritt zu sehen.</div></div>`,
         total: `<div class="stat"><div class="label">Zeit gesamt</div><div class="value">${fmtHours(s.minutes)}</div>
           ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">von ${hourGoal} Std geplant</div>` : '<div class="sub">keine Gesamtzeit geplant</div>'}</div>`,
         week: `<div class="stat"><div class="label">Diese Woche</div><div class="value">${fmtHours(wk)}</div>
@@ -2268,13 +2304,14 @@ const actions = {
   },
   applyUpdate({ id }) {
     // Mit neuem Query-Parameter laden, damit auch eine zwischengespeicherte index.html umgangen wird
-    location.replace(`${location.pathname}?v=${encodeURIComponent(id || Date.now())}${location.hash}`);
+    const v = String(id || Date.now()).replace(/-\d{10,}$/, '');
+    location.replace(`${location.pathname}?v=${encodeURIComponent(v)}&r=${Date.now()}${location.hash}`);
   },
   async checkUpdateNow() {
     const v = await checkForUpdate(true);
     if (location.protocol === 'file:') toast('Lokal geöffnet – Updates gibt es nur in der Online-Version.');
     else if (v === null) toast('Update-Prüfung nicht möglich (offline?).', 'error');
-    else if (v === APP_VERSION) toast('Du hast die neueste Version ✔');
+    else if (v === APP_VERSION) toast(`Du hast die neueste Version (${APP_VERSION}) ✔ – frisch veröffentlichte Änderungen brauchen 1–2 Minuten, bis sie hier ankommen.`);
   },
   askNotify() {
     if (!('Notification' in window)) return;
@@ -2301,6 +2338,11 @@ const actions = {
   },
 
   filterProjects({ id }) { projectFilter = id; render(); },
+  setProjectView({ id }) {
+    projectView = id === 'list' ? 'list' : 'grid';
+    try { localStorage.setItem('projekttracker.ui.projectView', projectView); } catch { /* ignorieren */ }
+    render();
+  },
 
   /* Aufgaben */
   addTask({ id }) { taskForm({ projectId: id }); },
@@ -3560,24 +3602,34 @@ document.addEventListener('visibilitychange', () => {
 // Update-Prüfung: version.json am Cache vorbei abfragen; bei neuer Version Hinweisleiste anzeigen.
 let lastUpdateCheck = 0;
 async function checkForUpdate(force = false) {
-  if (location.protocol === 'file:' || (!force && Date.now() - lastUpdateCheck < 60000)) return null;
+  if (location.protocol === 'file:' || (!force && Date.now() - lastUpdateCheck < 20000)) return null;
   lastUpdateCheck = Date.now();
   try {
     const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
     if (!res.ok) return null;
     const { version } = await res.json();
+    const bar = $('#update-bar');
     if (version && version !== APP_VERSION) {
-      const bar = $('#update-bar');
-      bar.innerHTML = `<div class="container"><span>🆕 <b>Neue Version verfügbar.</b> Deine Daten bleiben dabei erhalten.</span>
-        <span class="btn-row"><button class="btn primary small" data-action="applyUpdate" data-id="${esc(version)}">Jetzt aktualisieren</button></span></div>`;
+      // Wurde diese Version schon geladen, kam aber noch die alte an? Dann ist die Bereitstellung noch nicht überall durch.
+      const tried = new URLSearchParams(location.search).get('v') === version;
+      bar.innerHTML = tried
+        ? `<div class="container"><span>⏳ <b>Die neue Version ${esc(version)} wird gerade noch bereitgestellt.</b> Das dauert meist 1–2 Minuten.</span>
+            <span class="btn-row"><button class="btn primary small" data-action="applyUpdate" data-id="${esc(version)}-${Date.now()}">Erneut versuchen</button></span></div>`
+        : `<div class="container"><span>🆕 <b>Neue Version verfügbar.</b> Deine Daten bleiben dabei erhalten.</span>
+            <span class="btn-row"><button class="btn primary small" data-action="applyUpdate" data-id="${esc(version)}">Jetzt aktualisieren</button></span></div>`;
       bar.hidden = false;
+    } else if (version === APP_VERSION) {
+      bar.hidden = true;
     }
     return version;
   } catch { return null; }
 }
 checkForUpdate(true);
+// Prüfen beim Zurückkehren (Tab, Fenster, Zurück-Navigation) und alle 2 Minuten, solange der Tracker sichtbar ist
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
-setInterval(() => checkForUpdate(), 30 * 60 * 1000);
+window.addEventListener('focus', () => checkForUpdate());
+window.addEventListener('pageshow', (e) => { if (e.persisted) checkForUpdate(true); });
+setInterval(() => { if (document.visibilityState === 'visible') checkForUpdate(); }, 2 * 60 * 1000);
 
 // Tastenkürzel passend zum Betriebssystem anzeigen
 {
