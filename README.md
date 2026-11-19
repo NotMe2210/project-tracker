@@ -19,6 +19,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 
 **Erfassen**
 - ⏱ **Zeit**: per Stoppuhr (läuft im Hintergrund weiter, auch nach einem Neuladen) oder manuell (`1:30`, `1,5`, `45 min`)
+  - **Pausieren** mit ⏸ neben „Stopp“. Solange der Timer pausiert ist, liegt ein Hinweis über dem ganzen Fenster, mit „Fortsetzen“ oder „Beenden & Zeit speichern“. So vergisst du das Weiterlaufenlassen nicht. Die Pausenzeit wird nicht mitgezählt.
   - 🍅 **Pomodoro-Timer**: 25 Min Fokus, 5 Min Pause, lange Pause nach jedem 4. Pomodoro (alles einstellbar). Mit Pausieren, Überspringen, Ton und Mitteilung. Beim Beenden wird die reine Fokuszeit als Zeiteintrag gespeichert.
   - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
 - 💶 **Investitionen** mit frei wählbarer Kategorie (Vorschläge oder eigene), Budgetvergleich und Aufteilung nach Kategorien

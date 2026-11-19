@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.19-3';
+const APP_VERSION = '2026.11.19-4';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2530,8 +2530,23 @@ const actions = {
       return timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.start)), title,
         description: t.count ? trp(t.count, '{n} Pomodoro à {m} Min', '{n} Pomodoros à {m} Min', { m: pomoCfg().work }) : '' }, { fromTimer: true });
     }
-    const minutes = Math.max(1, Math.round((Date.now() - t.start) / 60000));
-    timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.start)) }, { fromTimer: true });
+    const minutes = Math.max(1, Math.round(stopwatchMs(t) / 60000));
+    timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.startedAt || t.start)) }, { fromTimer: true });
+  },
+  /** Pausieren bzw. Fortsetzen – Stoppuhr und Pomodoro */
+  pauseTimer() {
+    const t = data.timer;
+    if (!t) return;
+    if (t.mode === 'pomodoro') return actions.pomoPause();
+    if (t.pausedAt) {
+      t.start += Date.now() - t.pausedAt; // Pausenzeit herausrechnen
+      t.pausedAt = null;
+      toast(tr('▶ Timer läuft weiter'));
+    } else {
+      t.startedAt ||= t.start; // ursprünglicher Start (für das Datum des Zeiteintrags)
+      t.pausedAt = Date.now();
+    }
+    save(); renderTimer(true);
   },
   startPomodoro({ id }) {
     if (data.timer && !confirm(tr('Es läuft bereits ein Timer. Diesen verwerfen und einen Pomodoro starten?'))) return;
@@ -2549,6 +2564,7 @@ const actions = {
     if (t.pausedAt) {
       const delta = Date.now() - t.pausedAt;
       t.phaseStart += delta; t.phaseEnd += delta; t.pausedAt = null;
+      toast(tr('▶ Pomodoro läuft weiter'));
     } else t.pausedAt = Date.now();
     save(); renderTimer(true);
   },
@@ -2798,6 +2814,7 @@ function timeForm(e, { fromTimer = false } = {}) {
       if (isNew) toast(tr('⏱️ {d} gespeichert. {cheer}', { d: fmtDuration(v.minutes), cheer: tr(pick(CHEERS)) }));
     },
   });
+  renderPauseOverlay(); // Pausen-Hinweis ausblenden, solange der Dialog offen ist
   // Platzhalter des Titels folgt dem gewählten Datum
   const dateInput = $('#f_date'), titleInput = $('#f_title');
   dateInput.addEventListener('input', () => { titleInput.placeholder = autoTimeTitle(dateInput.value); });
@@ -2951,7 +2968,7 @@ const fmtClock = (secs) => {
 function renderTimer(force = false) {
   const el = $('#timer-indicator');
   const t = data.timer;
-  if (!t || !getProject(t.projectId)) { el.hidden = true; el.dataset.key = ''; return; }
+  if (!t || !getProject(t.projectId)) { el.hidden = true; el.dataset.key = ''; renderPauseOverlay(); return; }
   const name = getProject(t.projectId).name;
   const pomo = t.mode === 'pomodoro';
   const key = [t.projectId, t.mode, t.phase, !!t.pausedAt].join('|');
@@ -2959,7 +2976,10 @@ function renderTimer(force = false) {
   if (force || el.hidden || el.dataset.key !== key) {
     el.className = 'timer-indicator' + (pomo ? ` pomo pomo-${t.phase}${t.pausedAt ? ' paused' : ''}` : '');
     if (!pomo) {
-      el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small name">${esc(name)}</span><button class="btn small" data-action="stopTimer">■ ${tr('Stopp')}</button>`;
+      el.className += t.pausedAt ? ' paused' : '';
+      el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small name">${esc(name)}</span>
+        <button class="btn small" data-action="pauseTimer" title="${t.pausedAt ? tr('Fortsetzen') : tr('Pausieren')}">${t.pausedAt ? tr('▶ Weiter') : tr('⏸ Pause')}</button>
+        <button class="btn small" data-action="stopTimer">■ ${tr('Stopp')}</button>`;
     } else {
       const label = { work: tr('🍅 Fokus #{n}', { n: t.count + 1 }), short: tr('☕ Pause'), long: tr('🌴 Lange Pause'), ready: tr('✅ Pause vorbei') }[t.phase];
       const next = { work: ['⏭', tr('Fokus beenden & Pause')], short: ['⏭', tr('Pause überspringen')], long: ['⏭', tr('Pause überspringen')], ready: [tr('▶ Weiter'), tr('Nächsten Pomodoro starten')] }[t.phase];
@@ -2975,8 +2995,8 @@ function renderTimer(force = false) {
 
   let text, title;
   if (!pomo) {
-    text = fmtClock((Date.now() - t.start) / 1000);
-    title = `⏱️ ${text} · ${name}`;
+    text = fmtClock(stopwatchMs(t) / 1000);
+    title = `${t.pausedAt ? '⏸' : '⏱️'} ${text} · ${name}`;
   } else if (t.phase === 'ready') {
     text = `${t.count} 🍅`;
     title = Math.floor(Date.now() / 1000) % 2 ? tr('✅ Pause vorbei!') : `🍅 ${name}`;
@@ -2990,7 +3010,60 @@ function renderTimer(force = false) {
   }
   el.querySelector('.t').textContent = text;
   document.title = title;
+  renderPauseOverlay();
 }
+
+/** Laufzeit der Stoppuhr ohne Pausen */
+const stopwatchMs = (t) => Math.max(0, (t.pausedAt || Date.now()) - t.start);
+
+/* Vollflächiger Hinweis, solange ein Timer pausiert ist – damit das Fortsetzen nicht vergessen wird */
+const pauseOverlay = document.createElement('div');
+pauseOverlay.className = 'pause-overlay';
+pauseOverlay.hidden = true;
+pauseOverlay.setAttribute('role', 'alertdialog');
+pauseOverlay.setAttribute('aria-modal', 'true');
+pauseOverlay.setAttribute('aria-labelledby', 'po-title');
+document.body.appendChild(pauseOverlay);
+
+function renderPauseOverlay() {
+  const t = data.timer;
+  const p = t && getProject(t.projectId);
+  const show = !!(p && t.pausedAt && !isLocked() && !$('#modal').open);
+  if (!show) {
+    if (!pauseOverlay.hidden) { pauseOverlay.hidden = true; pauseOverlay.dataset.key = ''; document.documentElement.classList.remove('paused-open'); }
+    return;
+  }
+  const pomo = t.mode === 'pomodoro';
+  const key = [t.projectId, t.mode, t.phase, t.pausedAt, LANG].join('|');
+  if (pauseOverlay.dataset.key !== key) {
+    const what = !pomo ? tr('Erfasste Zeit')
+      : t.phase === 'work' ? tr('Verbleibender Fokus') : tr('Verbleibende Pause');
+    pauseOverlay.innerHTML = `<div class="po-card">
+      <div class="po-icon" aria-hidden="true">⏸</div>
+      <h2 id="po-title">${pomo ? tr('Pomodoro pausiert') : tr('Timer pausiert')}</h2>
+      <div class="po-project"><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</div>
+      <div class="po-time-label small muted">${what}</div>
+      <div class="po-time"></div>
+      <p class="po-text muted">${tr('Die Zeit läuft gerade nicht weiter. Setze den Timer fort, sobald du weiterarbeitest – oder beende ihn, um die Zeit zu speichern.')}</p>
+      <div class="po-actions">
+        <button type="button" class="btn primary" data-action="pauseTimer">${tr('▶ Fortsetzen')}</button>
+        <button type="button" class="btn" data-action="stopTimer">${tr('■ Beenden & Zeit speichern')}</button>
+      </div>
+      <div class="po-since small muted"></div>
+    </div>`;
+    pauseOverlay.dataset.key = key;
+    pauseOverlay.hidden = false;
+    document.documentElement.classList.add('paused-open');
+    closePopover?.();
+    if (!matchMedia('(hover: none)').matches) pauseOverlay.querySelector('[data-action="pauseTimer"]').focus();
+  }
+  pauseOverlay.querySelector('.po-time').textContent = pomo ? fmtClock((t.phaseEnd - t.pausedAt) / 1000) : fmtClock(stopwatchMs(t) / 1000);
+  const since = Math.floor((Date.now() - t.pausedAt) / 60000);
+  pauseOverlay.querySelector('.po-since').textContent = since < 1 ? tr('gerade pausiert')
+    : trp(since, 'seit {n} Minute pausiert', 'seit {n} Minuten pausiert');
+}
+// Pausen-Hinweis wieder zeigen, sobald ein Dialog (z. B. „Zeit speichern“) geschlossen wird
+$('#modal').addEventListener('close', () => setTimeout(() => { if (data.timer) renderTimer(true); }, 0));
 setInterval(() => {
   tickPomodoro();
   if (data.timer) renderTimer();
@@ -4047,6 +4120,7 @@ function askFirstMerge(remote) {
 /* Anmeldeseite */
 function renderLockScreen() {
   document.body.classList.add('locked');
+  renderPauseOverlay();
   const info = server.info || {};
   const problem = info.dbError ? tr('Die Datenbank ist nicht erreichbar. Prüfe die Einstellungen in config.php.')
     : info.configured === false ? tr('Auf dem Server ist noch kein Passwort festgelegt. Lege die Datei config.php an (Vorlage: config.sample.php).') : '';
