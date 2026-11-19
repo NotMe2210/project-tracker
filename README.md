@@ -39,7 +39,8 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - ⋯ **Schnellaktionen** pro Projekt (Pomodoro, Stoppuhr, Zeit, Aufgabe, Notiz, Status) in Tabelle, Kacheln und „Braucht Aufmerksamkeit“
 - **Klickbare Diagramme:** Tag bzw. Woche anklicken öffnet die Einträge (mit Bearbeiten). Projekte in der Legende ein- und ausblenden.
 - 📈 **Verlaufslinien** in den Kennzahlen (Wochen bzw. Monate)
-- 🏅 **Erfolge:** 18 Abzeichen (Stunden, Serien, Pomodoros, Aufgaben, Meilensteine …) mit Fortschritt. Neue Erfolge werden gefeiert.
+- 🏅 **Erfolge:** 30 Abzeichen (Stunden, Serien, aktive Tage, Pomodoros, Aufgaben, Unterpunkte, Meilensteine, Notizen …) mit Fortschritt, sortiert von erreicht über Fortschritt bis offen. Neue Erfolge werden gefeiert.
+- 🤫 **10 geheime Erfolge:** Name und Bedingung bleiben verborgen (🔒 ???), bis du sie zufällig erreichst. Dann werden sie mit einer eigenen Meldung enthüllt und golden hervorgehoben.
 - 🔎 **Befehlspalette** am Computer mit ⌘K bzw. Strg+K: Seiten, Projekte, Pomodoro, Zeit, Aufgaben, Darstellung …
 - 👆 **Wischgesten** auf dem iPhone: Aufgabe nach rechts wischen = erledigt, nach links = Optionen
 - **Anpassbare Übersicht und Projektansicht** direkt auf der Seite (⚙️ Anpassen bzw. ✏️ Ansicht anpassen): Bereiche per **Drag-and-drop** am ⠿-Griff verschieben (Maus, Finger oder Pfeiltasten) mit sofortiger Vorschau, Breite ◧ Halb / ▭ Voll, ausblenden ✕, wieder einblenden, Kennzahlen-Kacheln wählen. Die Projektansicht gilt wahlweise **für alle Projekte** oder **nur für ein Projekt**. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche (gestapelt nach Projekt), letzte Aktivitäten, Projektkacheln, offene Aufgaben, Investitionen nach Kategorie.
