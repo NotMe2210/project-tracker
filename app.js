@@ -5,9 +5,12 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.16-9';
+const APP_VERSION = '2026.11.19-4';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
+const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
+const SYNC_BASE_KEY = 'projekttracker.server.base'; // letzter gemeinsamer Stand mit dem Server
+const API_URL = 'api.php';
 
 const DEFAULT_DATA = {
   version: 1,
@@ -28,6 +31,7 @@ const DEFAULT_DATA = {
     pomoEvery: 4, // lange Pause nach jedem n-ten Pomodoro
     pomoSound: true,
     pomoNotify: true,
+    language: 'auto', // 'auto' = Gerätesprache, sonst Sprachcode (de, en …)
   },
   projects: [],
   timeEntries: [],
@@ -41,15 +45,15 @@ const DEFAULT_DATA = {
 };
 
 const STATUS = [
-  { value: 'idee', label: 'Idee' },
-  { value: 'aktiv', label: 'Aktiv' },
-  { value: 'pausiert', label: 'Pausiert' },
-  { value: 'abgeschlossen', label: 'Abgeschlossen' },
+  { value: 'idee', get label() { return tr('Idee'); } },
+  { value: 'aktiv', get label() { return tr('Aktiv'); } },
+  { value: 'pausiert', get label() { return tr('Pausiert'); } },
+  { value: 'abgeschlossen', get label() { return tr('Abgeschlossen'); } },
 ];
 const PRIORITIES = [
-  { value: 'hoch', label: 'Hoch' },
-  { value: 'mittel', label: 'Mittel' },
-  { value: 'niedrig', label: 'Niedrig' },
+  { value: 'hoch', get label() { return tr('Hoch'); } },
+  { value: 'mittel', get label() { return tr('Mittel'); } },
+  { value: 'niedrig', get label() { return tr('Niedrig'); } },
 ];
 const PRIO_ORDER = { hoch: 0, mittel: 1, niedrig: 2 };
 // Vorschläge für Investitions-Kategorien – eigene Kategorien sind jederzeit möglich
@@ -67,14 +71,14 @@ function investmentCategories() {
     count.set(key, cur);
   }
   const used = [...count.values()].sort((a, b) => b.n - a.n || a.name.localeCompare(b.name, 'de')).map((x) => x.name);
-  const rest = INVEST_CATEGORIES.filter((c) => !count.has(c.toLocaleLowerCase('de')));
+  const rest = INVEST_CATEGORIES.map((c) => tr(c)).filter((c) => !count.has(c.toLocaleLowerCase('de')));
   return [...used, ...rest];
 }
 
 /** Eingabe vereinheitlichen: vorhandene Schreibweise übernehmen, leer = „Sonstiges“. */
 function normalizeCategory(input) {
   const c = String(input || '').replace(/\s+/g, ' ').trim();
-  if (!c) return 'Sonstiges';
+  if (!c) return tr('Sonstiges');
   return investmentCategories().find((x) => x.toLocaleLowerCase('de') === c.toLocaleLowerCase('de')) || c;
 }
 // Standardfarben für neue Projekte – feste Reihenfolge, geprüft auf Unterscheidbarkeit (auch bei Farbsehschwäche)
@@ -92,19 +96,31 @@ const QUOTES = [
 ];
 // Standard-Erinnerungen für eingeschlafene Projekte – in den Einstellungen anpassbar.
 // Platzhalter: {projekt} {tage} {warum} {schritt} {ziel} {stunden}
-const DEFAULT_REMINDERS = [
+const DEFAULT_REMINDERS_DE = [
   '„{projekt}“ ruht seit {tage} Tagen.',
   '„{projekt}“ vermisst dich – {tage} Tage ist es schon her.',
   '{tage} Tage Pause bei „{projekt}“. Zeit für einen kleinen Schritt?',
   'Weißt du noch, warum du „{projekt}“ angefangen hast?',
 ];
-const PLACEHOLDERS = [
-  ['{projekt}', 'Name des Projekts'],
-  ['{tage}', 'Tage ohne Aktivität'],
-  ['{warum}', 'dein „Warum“'],
-  ['{schritt}', 'nächste offene Aufgabe'],
-  ['{ziel}', 'Ziel des Projekts'],
-  ['{stunden}', 'bisher investierte Zeit'],
+const DEFAULT_REMINDERS_EN = [
+  '“{project}” has been resting for {days} days.',
+  '“{project}” misses you – it has been {days} days already.',
+  '{days} days off from “{project}”. Time for a small step?',
+  'Do you remember why you started “{project}”?',
+];
+/** Standardtexte in der aktuellen Sprache */
+const defaultReminders = () => (LANG === 'de' ? DEFAULT_REMINDERS_DE : DEFAULT_REMINDERS_EN);
+// Platzhalter: deutsche und englische Namen funktionieren in jeder Sprache
+const PLACEHOLDER_KEYS = [
+  ['projekt', 'project'], ['tage', 'days'], ['warum', 'why'], ['schritt', 'step'], ['ziel', 'goal'], ['stunden', 'hours'],
+];
+const placeholders = () => [
+  [LANG === 'de' ? '{projekt}' : '{project}', tr('Name des Projekts')],
+  [LANG === 'de' ? '{tage}' : '{days}', tr('Tage ohne Aktivität')],
+  [LANG === 'de' ? '{warum}' : '{why}', tr('dein „Warum“')],
+  [LANG === 'de' ? '{schritt}' : '{step}', tr('nächste offene Aufgabe')],
+  [LANG === 'de' ? '{ziel}' : '{goal}', tr('Ziel des Projekts')],
+  [LANG === 'de' ? '{stunden}' : '{hours}', tr('bisher investierte Zeit')],
 ];
 
 const ACCENTS = [
@@ -113,78 +129,83 @@ const ACCENTS = [
   ['#db2777', 'Pink'], ['#7c3aed', 'Violett'], ['#475569', 'Schiefer'],
 ];
 // Anleitungen für den Gerätewechsel. Schritte sind statisches HTML (keine Nutzereingaben).
-const SAFARI_IOS = '<i>Einstellungen › Apps › Safari › Downloads</i>';
-const SAFARI_MAC = '<i>Safari › Einstellungen › Allgemein › Speicherort für geladene Dateien</i>';
-const EDGE_DL = '<i>Edge › Einstellungen › Downloads › Speicherort</i>';
-const SYNC_SERVICES = [
-  { id: 'icloud', name: 'iCloud Drive', cloud: true, folder: 'iCloud Drive › Downloads', steps: {
-    ios: [`${SAFARI_IOS} › „iCloud Drive“ wählen (ist meist schon so eingestellt).`,
-      'Import: im Dateidialog <i>Durchsuchen › iCloud Drive › Downloads</i> öffnen.'],
-    mac: [`${SAFARI_MAC} › „Andere …“ › <i>iCloud Drive › Downloads</i> wählen.`,
-      'Falls iCloud Drive fehlt: <i>Systemeinstellungen › [dein Name] › iCloud › iCloud Drive</i> aktivieren.'],
-    win: ['„iCloud für Windows“ aus dem Microsoft Store installieren, anmelden und iCloud Drive aktivieren.',
-      `${EDGE_DL} › <code>iCloud Drive\\Downloads</code> wählen.`],
-    android: ['Für Android gibt es keine iCloud-Drive-App. Nutze <i>icloud.com › Drive</i> im Browser: Sicherung dort hochladen bzw. herunterladen.',
-      'Wenn du regelmäßig Android nutzt, ist einer der anderen Dienste bequemer.'],
+const SAFARI_IOS = () => tr('<i>Einstellungen › Apps › Safari › Downloads</i>');
+const SAFARI_MAC = () => tr('<i>Safari › Einstellungen › Allgemein › Speicherort für geladene Dateien</i>');
+const EDGE_DL = () => tr('<i>Edge › Einstellungen › Downloads › Speicherort</i>');
+const syncServices = () => [
+  { id: 'icloud', name: 'iCloud Drive', cloud: true, folder: tr('iCloud Drive › Downloads'), steps: {
+    ios: [tr('{ios} › „iCloud Drive“ wählen (ist meist schon so eingestellt).', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() }),
+      tr('Import: im Dateidialog <i>Durchsuchen › iCloud Drive › Downloads</i> öffnen.')],
+    mac: [tr('{mac} › „Andere …“ › <i>iCloud Drive › Downloads</i> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() }),
+      tr('Falls iCloud Drive fehlt: <i>Systemeinstellungen › [dein Name] › iCloud › iCloud Drive</i> aktivieren.')],
+    win: [tr('„iCloud für Windows“ aus dem Microsoft Store installieren, anmelden und iCloud Drive aktivieren.'),
+      tr('{edge} › <code>iCloud Drive\\\\Downloads</code> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() })],
+    android: [tr('Für Android gibt es keine iCloud-Drive-App. Nutze <i>icloud.com › Drive</i> im Browser: Sicherung dort hochladen bzw. herunterladen.'),
+      tr('Wenn du regelmäßig Android nutzt, ist einer der anderen Dienste bequemer.')],
   } },
-  { id: 'onedrive', name: 'OneDrive', cloud: true, folder: 'OneDrive › Projekttracker', steps: {
-    ios: ['OneDrive-App aus dem App Store installieren und anmelden.',
-      'In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „OneDrive“ einschalten.',
-      `${SAFARI_IOS} › „Andere …“ › <i>OneDrive › Projekttracker</i> wählen.`],
-    mac: ['OneDrive-App aus dem App Store installieren und anmelden.',
-      `${SAFARI_MAC} › „Andere …“ › <i>OneDrive › Projekttracker</i> wählen.`],
-    win: ['OneDrive ist in Windows enthalten – mit deinem Microsoft-Konto anmelden.',
-      `${EDGE_DL} › <code>OneDrive\\Projekttracker</code> wählen.`],
-    android: ['OneDrive-App installieren und anmelden.',
-      'Nach dem Export: Download öffnen › <i>Teilen › OneDrive</i> › Ordner „Projekttracker“.',
-      'Import: im Dateidialog über das Menü ☰ „OneDrive“ wählen.'],
+  { id: 'onedrive', name: 'OneDrive', cloud: true, folder: tr('OneDrive › Projekttracker'), steps: {
+    ios: [tr('OneDrive-App aus dem App Store installieren und anmelden.'),
+      tr('In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „OneDrive“ einschalten.'),
+      tr('{ios} › „Andere …“ › <i>OneDrive › Projekttracker</i> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() })],
+    mac: [tr('OneDrive-App aus dem App Store installieren und anmelden.'),
+      tr('{mac} › „Andere …“ › <i>OneDrive › Projekttracker</i> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() })],
+    win: [tr('OneDrive ist in Windows enthalten – mit deinem Microsoft-Konto anmelden.'),
+      tr('{edge} › <code>OneDrive\\\\Projekttracker</code> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() })],
+    android: [tr('OneDrive-App installieren und anmelden.'),
+      tr('Nach dem Export: Download öffnen › <i>Teilen › OneDrive</i> › Ordner „Projekttracker“.'),
+      tr('Import: im Dateidialog über das Menü ☰ „OneDrive“ wählen.')],
   } },
-  { id: 'gdrive', name: 'Google Drive', cloud: true, folder: 'Google Drive › Meine Ablage › Projekttracker', steps: {
-    ios: ['Google-Drive-App aus dem App Store installieren und anmelden.',
-      'In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „Drive“ einschalten.',
-      `${SAFARI_IOS} › „Andere …“ › <i>Drive › Meine Ablage › Projekttracker</i> wählen.`],
-    mac: ['„Google Drive für Desktop“ installieren und anmelden.',
-      `${SAFARI_MAC} › „Andere …“ › <i>Google Drive › Meine Ablage › Projekttracker</i> wählen.`],
-    win: ['„Google Drive für Desktop“ installieren – danach gibt es das Laufwerk „Google Drive (G:)“.',
-      `${EDGE_DL} › <code>G:\\Meine Ablage\\Projekttracker</code> wählen.`],
-    android: ['Google Drive ist meist vorinstalliert.',
-      'Nach dem Export: Download öffnen › <i>Teilen › Drive</i> › Ordner „Projekttracker“.',
-      'Import: im Dateidialog über das Menü ☰ „Drive“ wählen.'],
+  { id: 'gdrive', name: 'Google Drive', cloud: true, folder: tr('Google Drive › Meine Ablage › Projekttracker'), steps: {
+    ios: [tr('Google-Drive-App aus dem App Store installieren und anmelden.'),
+      tr('In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „Drive“ einschalten.'),
+      tr('{ios} › „Andere …“ › <i>Drive › Meine Ablage › Projekttracker</i> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() })],
+    mac: [tr('„Google Drive für Desktop“ installieren und anmelden.'),
+      tr('{mac} › „Andere …“ › <i>Google Drive › Meine Ablage › Projekttracker</i> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() })],
+    win: [tr('„Google Drive für Desktop“ installieren – danach gibt es das Laufwerk „Google Drive (G:)“.'),
+      tr('{edge} › <code>G:\\\\Meine Ablage\\\\Projekttracker</code> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() })],
+    android: [tr('Google Drive ist meist vorinstalliert.'),
+      tr('Nach dem Export: Download öffnen › <i>Teilen › Drive</i> › Ordner „Projekttracker“.'),
+      tr('Import: im Dateidialog über das Menü ☰ „Drive“ wählen.')],
   } },
-  { id: 'dropbox', name: 'Dropbox', cloud: true, folder: 'Dropbox › Projekttracker', steps: {
-    ios: ['Dropbox-App aus dem App Store installieren und anmelden.',
-      'In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „Dropbox“ einschalten.',
-      `${SAFARI_IOS} › „Andere …“ › <i>Dropbox › Projekttracker</i> wählen.`],
-    mac: ['Dropbox-App für macOS installieren und anmelden.',
-      `${SAFARI_MAC} › „Andere …“ › <i>Dropbox › Projekttracker</i> wählen.`],
-    win: ['Dropbox-App für Windows installieren und anmelden.',
-      `${EDGE_DL} › <code>Dropbox\\Projekttracker</code> wählen.`],
-    android: ['Dropbox-App installieren und anmelden.',
-      'Nach dem Export: Download öffnen › <i>Teilen › Dropbox</i> › Ordner „Projekttracker“.',
-      'Import: im Dateidialog über das Menü ☰ „Dropbox“ wählen.'],
+  { id: 'dropbox', name: 'Dropbox', cloud: true, folder: tr('Dropbox › Projekttracker'), steps: {
+    ios: [tr('Dropbox-App aus dem App Store installieren und anmelden.'),
+      tr('In der Dateien-App unter <i>Durchsuchen › ⋯ › Bearbeiten</i> „Dropbox“ einschalten.'),
+      tr('{ios} › „Andere …“ › <i>Dropbox › Projekttracker</i> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() })],
+    mac: [tr('Dropbox-App für macOS installieren und anmelden.'),
+      tr('{mac} › „Andere …“ › <i>Dropbox › Projekttracker</i> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() })],
+    win: [tr('Dropbox-App für Windows installieren und anmelden.'),
+      tr('{edge} › <code>Dropbox\\\\Projekttracker</code> wählen.', { ios: SAFARI_IOS(), mac: SAFARI_MAC(), edge: EDGE_DL() })],
+    android: [tr('Dropbox-App installieren und anmelden.'),
+      tr('Nach dem Export: Download öffnen › <i>Teilen › Dropbox</i> › Ordner „Projekttracker“.'),
+      tr('Import: im Dateidialog über das Menü ☰ „Dropbox“ wählen.')],
   } },
-  { id: 'none', name: 'Ohne Cloud', cloud: false, folder: 'Download-Ordner', steps: {
-    ios: ['Die Sicherung landet in der Dateien-App unter <i>Downloads</i>.',
-      'Zum Mac: Datei in der Dateien-App lange drücken › <i>Teilen › AirDrop</i>.'],
-    mac: ['Die Sicherung landet im Ordner „Downloads“.',
-      'Zu iPhone/iPad per AirDrop (Rechtsklick › Teilen › AirDrop), zum PC per USB-Stick oder E-Mail an dich selbst.'],
-    win: ['Die Sicherung landet im Ordner „Downloads“.',
-      'Weitergeben per USB-Stick, E-Mail an dich selbst oder „Freigabe in der Nähe“ (andere Windows-Geräte).'],
-    android: ['Die Sicherung landet im Ordner „Download“.',
-      'Weitergeben per „Quick Share“, USB-Kabel oder E-Mail an dich selbst.'],
+  { id: 'none', name: tr('Ohne Cloud'), cloud: false, folder: tr('Download-Ordner'), steps: {
+    ios: [tr('Die Sicherung landet in der Dateien-App unter <i>Downloads</i>.'),
+      tr('Zum Mac: Datei in der Dateien-App lange drücken › <i>Teilen › AirDrop</i>.')],
+    mac: [tr('Die Sicherung landet im Ordner „Downloads“.'),
+      tr('Zu iPhone/iPad per AirDrop (Rechtsklick › Teilen › AirDrop), zum PC per USB-Stick oder E-Mail an dich selbst.')],
+    win: [tr('Die Sicherung landet im Ordner „Downloads“.'),
+      tr('Weitergeben per USB-Stick, E-Mail an dich selbst oder „Freigabe in der Nähe“ (andere Windows-Geräte).')],
+    android: [tr('Die Sicherung landet im Ordner „Download“.'),
+      tr('Weitergeben per „Quick Share“, USB-Kabel oder E-Mail an dich selbst.')],
   } },
 ];
 const SYNC_DEVICES = [
-  ['ios', '📱 iPhone & iPad (Safari)'], ['mac', '💻 Mac (Safari)'], ['win', '🖥 Windows-PC (Edge)'], ['android', '🤖 Android (Chrome)'],
+  ['ios', '📱 iPhone & iPad (Safari)'], ['mac', '💻 Mac (Safari)'], ['win', '🖥️ Windows-PC (Edge)'], ['android', '🤖 Android (Chrome)'],
 ];
-const syncService = () => SYNC_SERVICES.find((x) => x.id === data.settings.syncService) || SYNC_SERVICES[0];
+const syncService = () => { const all = syncServices(); return all.find((x) => x.id === data.settings.syncService) || all[0]; };
 
 const THEMES = [['light', '☀️ Hell'], ['dark', '🌙 Dunkel'], ['system', '📱 Wie Gerät']];
 
 const CHEERS = ['Stark! 💪', 'Erledigt! ✅', 'Weiter so! 🚀', 'Super gemacht! 🎉', 'Ein Schritt näher am Ziel! 🏁', 'Läuft bei dir! 🔥'];
 
+setLang((() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').settings?.language; } catch { return null; } })());
 let data = load();
 let meta = loadMeta();
+let syncState = loadSyncState();
+let pushTimer = null;
+// Laufzeit-Zustand der Server-Verbindung (nicht gespeichert)
+const server = { checked: false, authed: false, status: 'idle', error: '', busy: false, info: null, asking: false, lastFocusSync: 0 };
 let projectFilter = 'aktiv';
 let syncHintDismissed = false;
 
@@ -235,8 +256,9 @@ function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     meta.lastChange = Date.now();
     saveMeta();
+    if (isServerMode()) { syncState.dirty = true; saveSyncState(); if (server.authed) schedulePush(); }
   } catch (e) {
-    toast('Speichern fehlgeschlagen: ' + e.message, 'error');
+    toast(tr('Speichern fehlgeschlagen: {msg}', { msg: e.message }), 'error');
   }
 }
 
@@ -250,16 +272,17 @@ function saveMeta() {
   try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch { /* ignorieren */ }
 }
 
-const hasUnsavedChanges = () => data.projects.length > 0 && meta.lastChange > meta.lastExport;
+// Im Server-Modus wird automatisch gespeichert – dann gibt es keine Export-Erinnerungen.
+const hasUnsavedChanges = () => !isServerMode() && data.projects.length > 0 && meta.lastChange > meta.lastExport;
 
 function fmtDateTime(ts) {
-  if (!ts) return 'noch nie';
+  if (!ts) return tr('noch nie');
   const d = new Date(ts);
-  const time = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const time = d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
   const day = toISO(d);
-  if (day === todayISO()) return `heute, ${time} Uhr`;
-  if (day === toISO(addDays(new Date(), -1))) return `gestern, ${time} Uhr`;
-  return `${d.toLocaleDateString('de-DE')}, ${time} Uhr`;
+  if (day === todayISO()) return tr('heute, {time} Uhr', { time });
+  if (day === toISO(addDays(new Date(), -1))) return tr('gestern, {time} Uhr', { time });
+  return tr('{date}, {time} Uhr', { date: d.toLocaleDateString(LOCALE), time });
 }
 
 function commit() {
@@ -364,7 +387,7 @@ function startOfWeek(d) {
 
 function fmtDate(iso) {
   if (!iso) return '';
-  return parseISO(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return parseISO(iso).toLocaleDateString(LOCALE, { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 /** Automatischer Titel für Zeiteinträge ohne Titel, z. B. „Montag, 16.11.2026“. */
@@ -373,32 +396,36 @@ function autoTimeTitle(iso) {
   if (!iso) return '';
   const d = new Date(iso + 'T00:00:00');
   if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/^(\p{L}+)\s*,?\s*/u, '$1, ');
+  return d.toLocaleDateString(LOCALE, { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/^(\p{L}+)\s*,?\s*/u, '$1, ');
 }
+/** Titel eines Zeiteintrags – automatische Titel (Wochentag, Datum) in der aktuellen Sprache */
+const entryTitle = (e) => (e.autoTitle || !e.title ? autoTimeTitle(e.date) : e.title);
 
 function fmtRelative(iso) {
   if (!iso) return '–';
   const d = daysBetween(iso, todayISO());
-  if (d === 0) return 'heute';
-  if (d === 1) return 'gestern';
-  if (d === -1) return 'morgen';
-  if (d < 0) return `in ${-d} Tagen`;
-  return `vor ${d} Tagen`;
+  if (d === 0) return tr('heute');
+  if (d === 1) return tr('gestern');
+  if (d === -1) return tr('morgen');
+  if (d < 0) return tr('in {n} Tagen', { n: -d });
+  return tr('vor {n} Tagen', { n: d });
 }
 
-const eur = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
-const fmtEUR = (n) => eur.format(n || 0);
+const eurFormats = {};
+const fmtEUR = (n) => (eurFormats[LOCALE] ||= new Intl.NumberFormat(LOCALE, { style: 'currency', currency: 'EUR' })).format(n || 0);
+const fmtNum = (n, digits = 1) => Number(n || 0).toLocaleString(LOCALE, { maximumFractionDigits: digits });
+const DEC = () => (LANG === 'de' ? ',' : '.'); // Dezimaltrennzeichen für Eingabefelder
 
 function fmtHours(min) {
   const h = (min || 0) / 60;
-  return h.toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' Std';
+  return tr('{n} Std', { n: fmtNum(h) });
 }
 
 function fmtDuration(min) {
   min = Math.round(min || 0);
   const h = Math.floor(min / 60), m = min % 60;
-  if (!h) return `${m} Min`;
-  return m ? `${h} Std ${m} Min` : `${h} Std`;
+  if (!h) return tr('{m} Min', { m });
+  return m ? tr('{h} Std {m} Min', { h, m }) : tr('{n} Std', { n: h });
 }
 
 function parseDuration(s) {
@@ -407,15 +434,18 @@ function parseDuration(s) {
   let m;
   if ((m = s.match(/^(\d+):(\d{1,2})$/))) return +m[1] * 60 + +m[2];
   if ((m = s.match(/^(\d+)\s*h\s*(\d+)\s*(m|min)?$/))) return +m[1] * 60 + +m[2];
-  if ((m = s.match(/^(\d+(?:\.\d+)?)\s*(m|min|minuten)$/))) return Math.round(+m[1]);
-  if ((m = s.match(/^(\d+(?:\.\d+)?)\s*(h|std|stunden)?$/))) return Math.round(+m[1] * 60);
+  if ((m = s.match(/^(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|minuten)$/))) return Math.round(+m[1]);
+  if ((m = s.match(/^(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|std|stunde|stunden)?$/))) return Math.round(+m[1] * 60);
   return null;
 }
 
 function parseAmount(s) {
   if (s === null || s === undefined || s === '') return null;
   let t = String(s).trim().replace(/[€\s]/g, '');
-  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  // Dezimaltrennzeichen: bei „1.234,50“ bzw. „1,234.50“ das letzte Zeichen; nur Komma: Dezimalkomma (außer 1,234 im Englischen)
+  const lastComma = t.lastIndexOf(','), lastDot = t.lastIndexOf('.');
+  if (lastComma >= 0 && lastDot >= 0) t = lastComma > lastDot ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+  else if (lastComma >= 0) t = LANG !== 'de' && /^\d{1,3}(,\d{3})+$/.test(t) ? t.replace(/,/g, '') : t.replace(',', '.');
   const n = Number(t);
   return Number.isFinite(n) ? n : NaN;
 }
@@ -499,17 +529,19 @@ function reminderTemplates(p) {
   const own = splitLines(p.reminderText);
   if (own.length) return own;
   const general = data.settings.reminderTexts;
-  return Array.isArray(general) && general.length ? general : DEFAULT_REMINDERS;
+  return Array.isArray(general) && general.length ? general : defaultReminders();
 }
 
 function fillReminder(tpl, p, s) {
-  const values = {
+  const base = {
     projekt: p.name, tage: s.idle, warum: p.why || '', schritt: s.next?.title || '',
     ziel: p.goal || '', stunden: fmtHours(s.minutes),
   };
+  const values = { ...base };
+  PLACEHOLDER_KEYS.forEach(([de, en]) => { values[en] = base[de]; });
   return tpl
     .replace(/\{(\w+)\}/g, (m, k) => (k.toLowerCase() in values ? String(values[k.toLowerCase()]) : m))
-    .replace(/„\s*“/g, '')
+    .replace(/„\s*“|“\s*”|"\s*"/g, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -527,18 +559,18 @@ function staleBanner(p, s, { withOpen = true } = {}) {
   const set = data.settings;
   const { tpl, text } = reminderFor(p, s);
   const min = Number(set.reminderMinutes) || 25;
-  const showWhy = set.reminderShowWhy !== false && p.why && !/\{warum\}/i.test(tpl);
-  const showNext = set.reminderShowNext !== false && !/\{schritt\}/i.test(tpl);
+  const showWhy = set.reminderShowWhy !== false && p.why && !/\{(warum|why)\}/i.test(tpl);
+  const showNext = set.reminderShowNext !== false && !/\{(schritt|step)\}/i.test(tpl);
   return `<div class="banner warn">
       <div class="emoji">😴</div>
       <div class="text">
         <strong>${esc(text)}</strong>
-        ${showWhy ? `<div class="why">Dein Warum: „${esc(p.why)}“</div>` : ''}
-        ${showNext ? `<div>${s.next ? `Kleinster nächster Schritt: <b>${esc(s.next.title)}</b>` : 'Lege einen kleinen, konkreten nächsten Schritt fest.'}</div>` : ''}
+        ${showWhy ? `<div class="why">${tr('Dein Warum: „{why}“', { why: esc(p.why) })}</div>` : ''}
+        ${showNext ? `<div>${s.next ? tr('Kleinster nächster Schritt: <b>{step}</b>', { step: esc(s.next.title) }) : tr('Lege einen kleinen, konkreten nächsten Schritt fest.')}</div>` : ''}
       </div>
       <div class="btn-row">
-        <button class="btn primary" data-action="startTimer" data-id="${p.id}">▶ Nur ${min} Minuten</button>
-        ${withOpen ? `<a class="btn" href="#/projekt/${p.id}">Öffnen</a>` : ''}
+        <button class="btn primary" data-action="startTimer" data-id="${p.id}">${tr('▶ Nur {n} Minuten', { n: min })}</button>
+        ${withOpen ? `<a class="btn" href="#/projekt/${p.id}">${tr('Öffnen')}</a>` : ''}
       </div>
     </div>`;
 }
@@ -586,7 +618,7 @@ function weeklyGoal() {
   if (projects.length) return { minutes: sum(projects, projectWeeklyMin), source: 'projects', projects };
   return { minutes: Math.max(0, Number(data.settings.weeklyHoursGoal) || 0) * 60, source: 'general', projects: [] };
 }
-const fmtStd = (h) => `${String(Math.round(h * 100) / 100).replace('.', ',')} Std`;
+const fmtStd = (h) => tr('{n} Std', { n: fmtNum(h, 2) });
 
 function calcStreak() {
   const map = dayMap();
@@ -609,9 +641,12 @@ function parseRoute() {
 }
 
 function render() {
+  applyLanguage();
   applyTheme();
   if (editState && !editMatchesRoute()) editState = null;
   if (typeof hideTip === 'function') hideTip();
+  if (isLocked()) { renderLockScreen(); return; }
+  document.body.classList.remove('locked');
   const r = parseRoute();
   const app = $('#app');
   let html;
@@ -633,25 +668,55 @@ function render() {
 function renderBackupBar() {
   const bar = $('#backup-bar');
   const btn = $('#backup-btn');
+  if (isServerMode()) { renderSyncBar(bar, btn); return; }
+  btn.dataset.action = 'exportData';
+  btn.innerHTML = `💾 <span>${tr('Sichern')}</span>`;
+  btn.classList.remove('sync-warn', 'sync-busy');
   const dirty = hasUnsavedChanges();
   btn.classList.toggle('dirty', dirty);
-  btn.title = dirty ? `Ungesicherte Änderungen – letzte Sicherung: ${fmtDateTime(meta.lastExport)}` : `Alles gesichert (${fmtDateTime(meta.lastExport)})`;
+  btn.title = dirty ? tr('Ungesicherte Änderungen – letzte Sicherung: {when}', { when: fmtDateTime(meta.lastExport) }) : tr('Alles gesichert ({when})', { when: fmtDateTime(meta.lastExport) });
 
   if (showSyncHint && !syncHintDismissed) {
     bar.className = 'backup-bar info';
     bar.innerHTML = `<div class="container">
-      <span>🔄 Du hast den Tracker auf diesem Gerät zuletzt <b>${esc(fmtDateTime(previousOpen))}</b> geöffnet.
-      Hast du seitdem auf einem anderen Gerät gearbeitet?<span class="long"> Dann importiere zuerst die neueste Sicherung${syncService().cloud ? ` aus ${esc(syncService().name)}` : ''}.</span></span>
+      <span>🔄 ${tr('Du hast den Tracker auf diesem Gerät zuletzt <b>{when}</b> geöffnet.', { when: esc(fmtDateTime(previousOpen)) })}
+      ${tr('Hast du seitdem auf einem anderen Gerät gearbeitet?')}<span class="long"> ${syncService().cloud ? tr('Dann importiere zuerst die neueste Sicherung aus {svc}.', { svc: esc(syncService().name) }) : tr('Dann importiere zuerst die neueste Sicherung.')}</span></span>
       <span class="btn-row">
-        <button class="btn primary small" data-action="importData">⬆ Sicherung importieren</button>
-        <button class="btn small" data-action="dismissSyncHint">Nein, weiter</button>
+        <button class="btn primary small" data-action="importData">⬆ ${tr('Sicherung importieren')}</button>
+        <button class="btn small" data-action="dismissSyncHint">${tr('Nein, weiter')}</button>
       </span></div>`;
     bar.hidden = false;
   } else if (dirty) {
     bar.className = 'backup-bar warn';
     bar.innerHTML = `<div class="container">
-      <span>💾 <b>Ungesicherte Änderungen.</b> Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))}.<span class="long"> Exportiere vor dem Schließen, damit deine anderen Geräte aktuell bleiben.</span></span>
-      <span class="btn-row"><button class="btn primary small" data-action="exportData">⬇ Jetzt sichern</button></span></div>`;
+      <span>💾 ${tr('<b>Ungesicherte Änderungen.</b> Letzte Sicherung: {when}.', { when: esc(fmtDateTime(meta.lastExport)) })}<span class="long"> ${tr('Exportiere vor dem Schließen, damit deine anderen Geräte aktuell bleiben.')}</span></span>
+      <span class="btn-row"><button class="btn primary small" data-action="exportData">⬇ ${tr('Jetzt sichern')}</button></span></div>`;
+    bar.hidden = false;
+  } else {
+    bar.hidden = true;
+    bar.innerHTML = '';
+  }
+}
+
+/* Server-Modus: Knopf zeigt den Speicherstatus, Leiste erscheint nur bei Problemen. */
+function renderSyncBar(bar, btn) {
+  const st = server.status;
+  const pending = syncState.dirty || st === 'saving' || st === 'pending';
+  const problem = st === 'offline' || st === 'error';
+  btn.dataset.action = 'syncNow';
+  btn.classList.remove('dirty');
+  btn.classList.toggle('sync-busy', pending && !problem);
+  btn.classList.toggle('sync-warn', problem);
+  btn.innerHTML = problem ? (st === 'offline' ? `📴 <span>${tr('Offline')}</span>` : `⚠️ <span>${tr('Fehler')}</span>`)
+    : pending ? `☁️ <span>${tr('Speichert…')}</span>` : `☁️ <span>${tr('Gespeichert')}</span>`;
+  btn.title = problem ? tr('Keine Verbindung zum Server – tippen, um es erneut zu versuchen')
+    : pending ? tr('Änderungen werden auf dem Server gespeichert') : tr('Alles auf dem Server gespeichert ({when})', { when: fmtDateTime(syncState.lastSync) });
+  if (problem && syncState.dirty) {
+    bar.className = 'backup-bar warn';
+    bar.innerHTML = `<div class="container">
+      <span>${st === 'offline' ? `📴 <b>${tr('Keine Verbindung zum Server.')}</b>` : `⚠️ <b>${tr('Speichern auf dem Server fehlgeschlagen.')}</b>${server.error ? ` ${esc(server.error)}` : ''}`}
+      <span class="long"> ${tr('Deine Änderungen sind auf diesem Gerät sicher und werden übertragen, sobald der Server wieder erreichbar ist.')}</span></span>
+      <span class="btn-row"><button class="btn primary small" data-action="syncNow">🔄 ${tr('Erneut versuchen')}</button></span></div>`;
     bar.hidden = false;
   } else {
     bar.hidden = true;
@@ -665,67 +730,67 @@ function progressBar(pct, cls = '') {
 }
 
 function healthBadge(s) {
-  if (!s.health) return `<span class="health">zuletzt ${fmtRelative(s.last)}</span>`;
-  const label = s.health === 'kritisch' ? `ruht seit ${s.idle} Tagen` : `aktiv ${fmtRelative(s.last)}`;
+  if (!s.health) return `<span class="health">${tr('zuletzt {when}', { when: fmtRelative(s.last) })}</span>`;
+  const label = s.health === 'kritisch' ? tr('ruht seit {n} Tagen', { n: s.idle }) : tr('aktiv {when}', { when: fmtRelative(s.last) });
   return `<span class="health ${s.health}">${label}</span>`;
 }
 
 function dueBadge(iso) {
   if (!iso) return '';
-  return `<span class="${isOverdue(iso) ? 'badge overdue' : ''}">📅 ${fmtDate(iso)}${isOverdue(iso) ? ' · überfällig' : ''}</span>`;
+  return `<span class="${isOverdue(iso) ? 'badge overdue' : ''}">📅 ${fmtDate(iso)}${isOverdue(iso) ? ` · ${tr('überfällig')}` : ''}</span>`;
 }
 
 /* ---------------------------- Dashboard ---------------------------------- */
 
 // Bausteine der Übersicht. wide = volle Breite; visible = Standard-Sichtbarkeit.
 const WIDGETS = [
-  { id: 'banner', label: 'Motivation & Erinnerung', icon: '💡', wide: true, visible: true },
-  { id: 'today', label: 'Heute', icon: '☀️', wide: true, visible: true },
-  { id: 'stats', label: 'Kennzahlen', icon: '📊', wide: true, visible: true },
-  { id: 'attention', label: 'Braucht Aufmerksamkeit', icon: '⚠️', wide: false, visible: true },
-  { id: 'milestones', label: 'Anstehende Meilensteine', icon: '🏁', wide: false, visible: true },
-  { id: 'nextSteps', label: 'Nächste Schritte', icon: '👉', wide: false, visible: true },
-  { id: 'activity', label: 'Aktivität (12 Wochen)', icon: '📈', wide: false, visible: true },
-  { id: 'projects', label: 'Alle Projekte (Tabelle)', icon: '📋', wide: true, visible: true },
-  { id: 'achievements', label: 'Erfolge', icon: '🏅', wide: true, visible: true },
-  { id: 'dueTasks', label: 'Fällige Aufgaben (7 Tage)', icon: '⏰', wide: false, visible: false },
-  { id: 'weekProjects', label: 'Zeit diese Woche je Projekt', icon: '⏱', wide: false, visible: false },
-  { id: 'weekChart', label: 'Stunden pro Woche (alle Projekte)', icon: '📊', wide: false, visible: false },
-  { id: 'recent', label: 'Letzte Aktivitäten', icon: '🕘', wide: false, visible: false },
-  { id: 'projectCards', label: 'Projektkacheln', icon: '🗂', wide: true, visible: false },
+  { id: 'banner', get label() { return tr('Motivation & Erinnerung'); }, icon: '💡', wide: true, visible: true },
+  { id: 'today', get label() { return tr('Heute'); }, icon: '☀️', wide: true, visible: true },
+  { id: 'stats', get label() { return tr('Kennzahlen'); }, icon: '📊', wide: true, visible: true },
+  { id: 'attention', get label() { return tr('Braucht Aufmerksamkeit'); }, icon: '⚠️', wide: false, visible: true },
+  { id: 'milestones', get label() { return tr('Anstehende Meilensteine'); }, icon: '🏁', wide: false, visible: true },
+  { id: 'nextSteps', get label() { return tr('Nächste Schritte'); }, icon: '👉', wide: false, visible: true },
+  { id: 'activity', get label() { return tr('Aktivität (12 Wochen)'); }, icon: '📈', wide: false, visible: true },
+  { id: 'projects', get label() { return tr('Alle Projekte (Tabelle)'); }, icon: '📋', wide: true, visible: true },
+  { id: 'achievements', get label() { return tr('Erfolge'); }, icon: '🏅', wide: true, visible: true },
+  { id: 'dueTasks', get label() { return tr('Fällige Aufgaben (7 Tage)'); }, icon: '⏰', wide: false, visible: false },
+  { id: 'weekProjects', get label() { return tr('Zeit diese Woche je Projekt'); }, icon: '⏱️', wide: false, visible: false },
+  { id: 'weekChart', get label() { return tr('Stunden pro Woche (alle Projekte)'); }, icon: '📊', wide: false, visible: false },
+  { id: 'recent', get label() { return tr('Letzte Aktivitäten'); }, icon: '🕘', wide: false, visible: false },
+  { id: 'projectCards', get label() { return tr('Projektkacheln'); }, icon: '🗂️', wide: true, visible: false },
 ];
 
 const STAT_TILES = [
-  { id: 'week', label: 'Diese Woche', visible: true },
-  { id: 'streak', label: 'Streak', visible: true },
-  { id: 'active', label: 'Aktive Projekte', visible: true },
-  { id: 'openTasks', label: 'Offene Aufgaben', visible: true },
-  { id: 'invested', label: 'Investiert', visible: true },
-  { id: 'month', label: 'Zeit diesen Monat', visible: false },
-  { id: 'total', label: 'Zeit gesamt', visible: false },
-  { id: 'milestonesDone', label: 'Erreichte Meilensteine', visible: false },
+  { id: 'week', get label() { return tr('Diese Woche'); }, visible: true },
+  { id: 'streak', get label() { return tr('Streak'); }, visible: true },
+  { id: 'active', get label() { return tr('Aktive Projekte'); }, visible: true },
+  { id: 'openTasks', get label() { return tr('Offene Aufgaben'); }, visible: true },
+  { id: 'invested', get label() { return tr('Investiert'); }, visible: true },
+  { id: 'month', get label() { return tr('Zeit diesen Monat'); }, visible: false },
+  { id: 'total', get label() { return tr('Zeit gesamt'); }, visible: false },
+  { id: 'milestonesDone', get label() { return tr('Erreichte Meilensteine'); }, visible: false },
 ];
 
 // Bausteine der Projektansicht (Reiter „Übersicht“ eines Projekts)
 const PROJECT_WIDGETS = [
-  { id: 'why', label: 'Warum & Ziel', icon: '💭', wide: true, visible: true },
-  { id: 'stats', label: 'Kennzahlen', icon: '📊', wide: true, visible: true },
-  { id: 'next', label: 'Nächster Schritt', icon: '👉', wide: false, visible: true },
-  { id: 'hours', label: 'Stunden pro Woche', icon: '⏱', wide: false, visible: true },
-  { id: 'milestones', label: 'Nächste Meilensteine', icon: '🏁', wide: false, visible: true },
-  { id: 'recent', label: 'Letzte Aktivitäten', icon: '🕘', wide: false, visible: true },
-  { id: 'description', label: 'Beschreibung', icon: '📝', wide: true, visible: true },
-  { id: 'tasks', label: 'Offene Aufgaben', icon: '✅', wide: false, visible: false },
-  { id: 'invest', label: 'Investitionen nach Kategorie', icon: '💶', wide: false, visible: false },
+  { id: 'why', get label() { return tr('Warum & Ziel'); }, icon: '💭', wide: true, visible: true },
+  { id: 'stats', get label() { return tr('Kennzahlen'); }, icon: '📊', wide: true, visible: true },
+  { id: 'next', get label() { return tr('Nächster Schritt'); }, icon: '👉', wide: false, visible: true },
+  { id: 'hours', get label() { return tr('Stunden pro Woche'); }, icon: '⏱️', wide: false, visible: true },
+  { id: 'milestones', get label() { return tr('Nächste Meilensteine'); }, icon: '🏁', wide: false, visible: true },
+  { id: 'recent', get label() { return tr('Letzte Aktivitäten'); }, icon: '🕘', wide: false, visible: true },
+  { id: 'description', get label() { return tr('Beschreibung'); }, icon: '📝', wide: true, visible: true },
+  { id: 'tasks', get label() { return tr('Offene Aufgaben'); }, icon: '✅', wide: false, visible: false },
+  { id: 'invest', get label() { return tr('Investitionen nach Kategorie'); }, icon: '💶', wide: false, visible: false },
 ];
 const PROJECT_STATS = [
-  { id: 'progress', label: 'Fortschritt', visible: true },
-  { id: 'total', label: 'Zeit gesamt', visible: true },
-  { id: 'week', label: 'Diese Woche', visible: true },
-  { id: 'invested', label: 'Investiert', visible: true },
-  { id: 'openTasks', label: 'Offene Aufgaben', visible: true },
-  { id: 'target', label: 'Zieltermin', visible: true },
-  { id: 'lastActive', label: 'Zuletzt aktiv', visible: false },
+  { id: 'progress', get label() { return tr('Fortschritt'); }, visible: true },
+  { id: 'total', get label() { return tr('Zeit gesamt'); }, visible: true },
+  { id: 'week', get label() { return tr('Diese Woche'); }, visible: true },
+  { id: 'invested', get label() { return tr('Investiert'); }, visible: true },
+  { id: 'openTasks', get label() { return tr('Offene Aufgaben'); }, visible: true },
+  { id: 'target', get label() { return tr('Zieltermin'); }, visible: true },
+  { id: 'lastActive', get label() { return tr('Zuletzt aktiv'); }, visible: false },
 ];
 
 /** Gespeicherte Anordnung mit den bekannten Bausteinen abgleichen (neue Bausteine werden hinten angehängt). */
@@ -791,7 +856,7 @@ function renderLayoutGrid(cfg, defs, renderFn, { edit = false, statDefs = [] } =
     let html = renderFn(w.id);
     if (!html && edit) {
       const m = meta(w.id);
-      html = `<section class="card w-empty"><h2>${m.icon} ${esc(m.label)}</h2><div class="empty">Zurzeit ohne Inhalt – erscheint, sobald es etwas anzuzeigen gibt.</div></section>`;
+      html = `<section class="card w-empty"><h2>${m.icon} ${esc(m.label)}</h2><div class="empty">${tr('Zurzeit ohne Inhalt – erscheint, sobald es etwas anzuzeigen gibt.')}</div></section>`;
     }
     if (html) rendered.push({ ...w, html });
   }
@@ -799,18 +864,18 @@ function renderLayoutGrid(cfg, defs, renderFn, { edit = false, statDefs = [] } =
   const items = rendered.map((w) => {
     const m = meta(w.id);
     const tools = edit ? `<div class="w-tools">
-        <button type="button" class="w-handle" data-drag aria-label="${esc(m.label)} verschieben" title="Ziehen zum Verschieben (oder Pfeiltasten)">⠿</button>
+        <button type="button" class="w-handle" data-drag aria-label="${tr('{name} verschieben', { name: esc(m.label) })}" title="${tr('Ziehen zum Verschieben (oder Pfeiltasten)')}">⠿</button>
         <span class="w-label">${m.icon} ${esc(m.label)}</span>
-        ${w.id === 'stats' ? `<button type="button" class="btn small ${editState?.tilesOpen ? 'active' : ''}" data-edit="tiles">Kacheln</button>` : ''}
-        <button type="button" class="btn small" data-edit="wide" data-wid="${w.id}" title="Breite umschalten">${w.wide ? '▭ Voll' : '◧ Halb'}</button>
-        <button type="button" class="btn small icon" data-edit="hide" data-wid="${w.id}" title="Ausblenden" aria-label="${esc(m.label)} ausblenden">✕</button>
+        ${w.id === 'stats' ? `<button type="button" class="btn small ${editState?.tilesOpen ? 'active' : ''}" data-edit="tiles">${tr('Kacheln')}</button>` : ''}
+        <button type="button" class="btn small" data-edit="wide" data-wid="${w.id}" title="${tr('Breite umschalten')}">${w.wide ? tr('▭ Voll') : tr('◧ Halb')}</button>
+        <button type="button" class="btn small icon" data-edit="hide" data-wid="${w.id}" title="${tr('Ausblenden')}" aria-label="${tr('{name} ausblenden', { name: esc(m.label) })}">✕</button>
       </div>
       ${w.id === 'stats' && editState?.tilesOpen ? `<div class="w-tiles">${statDefs.map((t) => `<button type="button" class="chip ${cfg.stats.includes(t.id) ? 'active' : ''}" data-edit="stat" data-stat="${t.id}">${esc(t.label)}</button>`).join('')}</div>` : ''}` : '';
     return `<div class="w-item ${spans.get(w.id)}" data-wid="${w.id}" data-wide="${w.wide ? 1 : 0}">${tools}${w.html}</div>`;
   });
   const hidden = cfg.widgets.filter((w) => !w.visible);
   const tray = edit ? `<div class="w-tray">
-      <span class="small muted">${hidden.length ? 'Ausgeblendet – zum Einblenden antippen:' : 'Alle Bereiche sind eingeblendet.'}</span>
+      <span class="small muted">${hidden.length ? tr('Ausgeblendet – zum Einblenden antippen:') : tr('Alle Bereiche sind eingeblendet.')}</span>
       ${hidden.map((w) => `<button type="button" class="chip" data-edit="show" data-wid="${w.id}">+ ${meta(w.id).icon} ${esc(meta(w.id).label)}</button>`).join('')}
     </div>` : '';
   return `<div class="wgrid ${edit ? 'editing' : ''}">${items.join('')}</div>${tray}`;
@@ -821,20 +886,20 @@ function editBar() {
   const p = editState.kind === 'project' ? getProject(editState.pid) : null;
   const others = editState.kind === 'project' ? data.projects.filter((x) => x.layout && x.id !== editState.pid).length : 0;
   return `<div class="edit-bar">
-    <div class="edit-bar-text"><b>✏️ ${editState.kind === 'project' ? 'Projektansicht' : 'Übersicht'} anpassen</b>
-      <span class="small muted">Bereiche am ⠿-Griff ziehen · Breite ◧/▭ · ✕ ausblenden. Die Vorschau zeigt sofort das neue Layout.</span></div>
+    <div class="edit-bar-text"><b>✏️ ${editState.kind === 'project' ? tr('Projektansicht anpassen') : tr('Übersicht anpassen')}</b>
+      <span class="small muted">${tr('Bereiche am ⠿-Griff ziehen · Breite ◧/▭ · ✕ ausblenden. Die Vorschau zeigt sofort das neue Layout.')}</span></div>
     ${p ? `<div class="edit-scope">
-        <div class="segmented" role="radiogroup" aria-label="Gilt für">
-          <label><input type="radio" name="editScope" value="all" data-edit-scope ${editState.scope === 'all' ? 'checked' : ''}>Für alle Projekte</label>
-          <label><input type="radio" name="editScope" value="project" data-edit-scope ${editState.scope === 'project' ? 'checked' : ''}>Nur für „${esc(p.name)}“</label>
+        <div class="segmented" role="radiogroup" aria-label="${tr('Gilt für')}">
+          <label><input type="radio" name="editScope" value="all" data-edit-scope ${editState.scope === 'all' ? 'checked' : ''}>${tr('Für alle Projekte')}</label>
+          <label><input type="radio" name="editScope" value="project" data-edit-scope ${editState.scope === 'project' ? 'checked' : ''}>${tr('Nur für „{name}“', { name: esc(p.name) })}</label>
         </div>
         ${editState.scope === 'all' && others ? `<label class="check-row small"><input type="checkbox" data-edit-replace ${editState.replaceOthers ? 'checked' : ''}>
-          Auch die eigenen Anordnungen von ${others} ${others === 1 ? 'anderem Projekt' : 'anderen Projekten'} ersetzen</label>` : ''}
+          ${trp(others, 'Auch die eigene Anordnung von {n} anderem Projekt ersetzen', 'Auch die eigenen Anordnungen von {n} anderen Projekten ersetzen')}</label>` : ''}
       </div>` : ''}
     <div class="btn-row edit-actions">
-      <button type="button" class="btn small" data-edit="reset">Standard</button>
-      <button type="button" class="btn small" data-edit="cancel">Abbrechen</button>
-      <button type="button" class="btn primary small" data-edit="save">Fertig</button>
+      <button type="button" class="btn small" data-edit="reset">${tr('Standard')}</button>
+      <button type="button" class="btn small" data-edit="cancel">${tr('Abbrechen')}</button>
+      <button type="button" class="btn primary small" data-edit="save">${tr('Fertig')}</button>
     </div>
   </div>`;
 }
@@ -872,8 +937,8 @@ function saveEdit() {
   }
   editState = null;
   commit();
-  toast(st.kind === 'dashboard' ? 'Übersicht gespeichert ✔'
-    : st.scope === 'project' ? 'Anordnung für dieses Projekt gespeichert ✔' : 'Anordnung für alle Projekte gespeichert ✔');
+  toast(st.kind === 'dashboard' ? tr('Übersicht gespeichert ✔')
+    : st.scope === 'project' ? tr('Anordnung für dieses Projekt gespeichert ✔') : tr('Anordnung für alle Projekte gespeichert ✔'));
 }
 
 /** Reihenfolge aus dem DOM (nach Drag-and-drop) in den Entwurf übernehmen. */
@@ -991,12 +1056,11 @@ function renderDashboard() {
   if (!data.projects.length) {
     return `<div class="card welcome">
       <div class="big">🚀</div>
-      <h1>Willkommen bei deinem Projekttracker</h1>
-      <p>Erfasse Zeit, Investitionen, Meilensteine und Aufgaben deiner Projekte. Der Tracker zeigt dir, welche Projekte
-      Aufmerksamkeit brauchen, damit nichts einschläft.</p>
+      <h1>${tr('Willkommen bei deinem Projekttracker')}</h1>
+      <p>${tr('Erfasse Zeit, Investitionen, Meilensteine und Aufgaben deiner Projekte. Der Tracker zeigt dir, welche Projekte Aufmerksamkeit brauchen, damit nichts einschläft.')}</p>
       <div class="btn-row">
-        <button class="btn primary" data-action="newProject">Erstes Projekt anlegen</button>
-        <button class="btn" data-action="loadDemo">Beispieldaten ansehen</button>
+        <button class="btn primary" data-action="newProject">${tr('Erstes Projekt anlegen')}</button>
+        <button class="btn" data-action="loadDemo">${tr('Beispieldaten ansehen')}</button>
       </div>
     </div>`;
   }
@@ -1008,11 +1072,11 @@ function renderDashboard() {
 
   return `
     ${editing ? editBar() : `<div class="dash-head">
-      <h1>Übersicht</h1>
-      <button class="btn small" data-action="customizeDashboard">⚙️ Anpassen</button>
+      <h1>${tr('Übersicht')}</h1>
+      <button class="btn small" data-action="customizeDashboard">⚙️ ${tr('Anpassen')}</button>
     </div>`}
     ${renderLayoutGrid(cfg, WIDGETS, (id) => renderWidget(id, ctx, cfg), { edit: editing, statDefs: STAT_TILES })}
-    ${anyVisible || editing ? '' : `<div class="card empty">Alle Bereiche sind ausgeblendet.<br><br><button class="btn primary" data-action="customizeDashboard">Übersicht anpassen</button></div>`}`;
+    ${anyVisible || editing ? '' : `<div class="card empty">${tr('Alle Bereiche sind ausgeblendet.')}<br><br><button class="btn primary" data-action="customizeDashboard">${tr('Übersicht anpassen')}</button></div>`}`;
 }
 
 function dashboardContext() {
@@ -1053,47 +1117,47 @@ function renderWidget(id, c, cfg) {
       return renderAchievements();
 
     case 'attention':
-      return card('⚠️ Braucht Aufmerksamkeit', c.stale.length ? `<ul class="list">${c.stale.map(({ p, s }) => `
+      return card(tr('⚠️ Braucht Aufmerksamkeit'), c.stale.length ? `<ul class="list">${c.stale.map(({ p, s }) => `
         <li>
           <span class="dot-color" style="background:${esc(p.color)}"></span>
           <div class="grow">
             <div class="title"><a href="#/projekt/${p.id}">${esc(p.name)}</a></div>
             <div class="small why">${esc(reminderFor(p, s).text)}</div>
-            <div class="meta">${healthBadge(s)}${s.next ? `<span>Nächster Schritt: ${esc(s.next.title)}</span>` : ''}</div>
+            <div class="meta">${healthBadge(s)}${s.next ? `<span>${tr('Nächster Schritt: {step}', { step: esc(s.next.title) })}</span>` : ''}</div>
           </div>
-          <button class="btn small" data-action="startPomodoro" data-id="${p.id}">🍅 ${Number(data.settings.reminderMinutes) || 25} Min</button>
+          <button class="btn small" data-action="startPomodoro" data-id="${p.id}">🍅 ${tr('{m} Min', { m: Number(data.settings.reminderMinutes) || 25 })}</button>
           ${qaButton(p)}
         </li>`).join('')}</ul>`
-        : '<div class="empty">Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉</div>');
+        : `<div class="empty">${tr('Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉')}</div>`);
 
     case 'nextSteps': {
       const list = c.active.map((p) => c.stats.get(p.id).next).filter(Boolean)
         .sort((a, b) => (PRIO_ORDER[a.priority] ?? 1) - (PRIO_ORDER[b.priority] ?? 1));
-      return card('👉 Nächste Schritte', list.length ? `<ul class="list">${list.map((t) => taskItem(t, { showProject: true })).join('')}</ul>`
-        : '<div class="empty">Keine offenen Aufgaben in aktiven Projekten.<br>Lege für jedes Projekt einen konkreten nächsten Schritt fest.</div>');
+      return card(tr('👉 Nächste Schritte'), list.length ? `<ul class="list">${list.map((t) => taskItem(t, { showProject: true })).join('')}</ul>`
+        : `<div class="empty">${tr('Keine offenen Aufgaben in aktiven Projekten.<br>Lege für jedes Projekt einen konkreten nächsten Schritt fest.')}</div>`);
     }
 
     case 'dueTasks': {
       const limit = toISO(addDays(new Date(), 7));
       const list = sortTasks(c.openTasks.filter((t) => t.dueDate && t.dueDate <= limit))
         .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-      return card('⏰ Fällige Aufgaben', list.length ? `<ul class="list">${list.map((t) => taskItem(t, { showProject: true })).join('')}</ul>`
-        : '<div class="empty">In den nächsten 7 Tagen ist nichts fällig.</div>');
+      return card(tr('⏰ Fällige Aufgaben'), list.length ? `<ul class="list">${list.map((t) => taskItem(t, { showProject: true })).join('')}</ul>`
+        : `<div class="empty">${tr('In den nächsten 7 Tagen ist nichts fällig.')}</div>`);
     }
 
     case 'milestones': {
       const list = data.milestones
         .filter((m) => !m.done && m.dueDate && getProject(m.projectId) && getProject(m.projectId).status !== 'abgeschlossen')
         .sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 6);
-      return card('🏁 Anstehende Meilensteine', list.length ? `<ul class="list">${list.map((m) => milestoneItem(m, { showProject: true })).join('')}</ul>`
-        : '<div class="empty">Keine terminierten Meilensteine.</div>');
+      return card(tr('🏁 Anstehende Meilensteine'), list.length ? `<ul class="list">${list.map((m) => milestoneItem(m, { showProject: true })).join('')}</ul>`
+        : `<div class="empty">${tr('Keine terminierten Meilensteine.')}</div>`);
     }
 
     case 'activity':
-      return card('📈 Aktivität (12 Wochen)', heatmap(dayMap()));
+      return card(tr('📈 Aktivität (12 Wochen)'), heatmap(dayMap()));
 
     case 'weekChart':
-      return card('📊 Stunden pro Woche', stackedWeekBars());
+      return card(tr('📊 Stunden pro Woche'), stackedWeekBars());
 
     case 'weekProjects': {
       // Projekte mit Zeit diese Woche oder mit eigenem Wochenziel (aktiv)
@@ -1102,34 +1166,34 @@ function renderWidget(id, c, cfg) {
         .filter((x) => x.min > 0 || x.goal > 0)
         .sort((a, b) => (b.goal ? b.min / b.goal : 0) - (a.goal ? a.min / a.goal : 0) || b.min - a.min);
       const max = Math.max(1, ...rows.map((r) => r.min));
-      return card('⏱ Zeit diese Woche', rows.length ? `<ul class="list">${rows.map(({ p, min, goal }) => `
+      return card(tr('⏱️ Zeit diese Woche'), rows.length ? `<ul class="list">${rows.map(({ p, min, goal }) => `
         <li><div class="grow">
           <div class="row-between"><a href="#/projekt/${p.id}">${esc(p.name)}</a>
             <span class="amount">${fmtDuration(min)}${goal ? ` <span class="muted small">/ ${fmtStd(goal / 60)}</span>` : ''}</span></div>
           <div class="progress ${goal && min >= goal ? 'good' : ''}" style="margin-top:6px"><span style="width:${Math.min(100, (min / (goal || max)) * 100)}%;${goal && min >= goal ? '' : `background:${esc(p.color)}`}"></span></div>
-        </div></li>`).join('')}</ul>` : '<div class="empty">Diese Woche noch keine Zeit erfasst.</div>');
+        </div></li>`).join('')}</ul>` : `<div class="empty">${tr('Diese Woche noch keine Zeit erfasst.')}</div>`);
     }
 
     case 'recent': {
       const all = data.projects.flatMap((p) => recentActivity(p.id).map((a) => ({ ...a, p })))
         .sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 8);
-      return card('🕘 Letzte Aktivitäten', all.length ? `<ul class="list">${all.map((a) => `
+      return card(tr('🕘 Letzte Aktivitäten'), all.length ? `<ul class="list">${all.map((a) => `
         <li><div class="grow"><div class="title">${a.icon} ${esc(a.text)}</div>
         <div class="meta"><span><span class="dot-color" style="background:${esc(a.p.color)}"></span> ${esc(a.p.name)}</span><span>${fmtDate(a.date)}</span></div></div></li>`).join('')}</ul>`
-        : '<div class="empty">Noch keine Aktivitäten.</div>');
+        : `<div class="empty">${tr('Noch keine Aktivitäten.')}</div>`);
     }
 
     case 'projects': {
       const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
       const sorted = [...data.projects].sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
-      return card('📋 Alle Projekte', `<div class="table-wrap"><table>
-        <thead><tr><th>Projekt</th><th>Status</th><th>Fortschritt</th><th class="num">Zeit</th><th class="num">Diese Woche</th><th class="num">Investiert</th><th class="num">Offene Aufg.</th><th>Zuletzt aktiv</th></tr></thead>
+      return card(tr('📋 Alle Projekte'), `<div class="table-wrap"><table>
+        <thead><tr><th>${tr('Projekt')}</th><th>${tr('Status')}</th><th>${tr('Fortschritt')}</th><th class="num">${tr('Zeit')}</th><th class="num">${tr('Diese Woche')}</th><th class="num">${tr('Investiert')}</th><th class="num">${tr('Offene Aufg.')}</th><th>${tr('Zuletzt aktiv')}</th></tr></thead>
         <tbody>${sorted.map((p) => {
           const s = c.stats.get(p.id);
           return `<tr>
             <td class="name-cell"><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}">${esc(p.name)}</a>${qaButton(p)}</td>
             <td><span class="badge ${p.status}">${statusLabel(p.status)}</span></td>
-            <td>${s.hasProgress ? `${progressBar(s.progress)} <span class="small muted">${s.progress}%</span>` : '<span class="small muted" title="Keine Aufgaben oder Meilensteine">–</span>'}</td>
+            <td>${s.hasProgress ? `${progressBar(s.progress)} <span class="small muted">${s.progress}%</span>` : `<span class="small muted" title="${tr('Keine Aufgaben oder Meilensteine')}">–</span>`}</td>
             <td class="num">${fmtHours(s.minutes)}</td>
             <td class="num">${fmtHours(weekMinutes(0, p.id))}</td>
             <td class="num">${fmtEUR(s.invested)}</td>
@@ -1137,13 +1201,13 @@ function renderWidget(id, c, cfg) {
             <td>${healthBadge(s)}</td>
           </tr>`;
         }).join('')}</tbody>
-      </table></div>`, '<button class="btn small" data-action="newProject">+ Projekt</button>');
+      </table></div>`, `<button class="btn small" data-action="newProject">${tr('+ Projekt')}</button>`);
     }
 
     case 'projectCards': {
       const list = data.projects.filter((p) => p.status === 'aktiv' || p.status === 'pausiert');
-      return card('🗂 Projekte', list.length ? `<div class="project-grid">${list.map((p) => projectCard(p, c.stats.get(p.id))).join('')}</div>`
-        : '<div class="empty">Keine aktiven oder pausierten Projekte.</div>', '<button class="btn small" data-action="newProject">+ Projekt</button>');
+      return card(tr('🗂️ Projekte'), list.length ? `<div class="project-grid">${list.map((p) => projectCard(p, c.stats.get(p.id))).join('')}</div>`
+        : `<div class="empty">${tr('Keine aktiven oder pausierten Projekte.')}</div>`, `<button class="btn small" data-action="newProject">${tr('+ Projekt')}</button>`);
     }
   }
   return '';
@@ -1155,34 +1219,34 @@ function statTile(id, c) {
   switch (id) {
     case 'week': {
       const diff = c.thisWeek - c.lastWeek;
-      const src = c.goal.source === 'projects' ? ` (${c.goal.projects.length} ${c.goal.projects.length === 1 ? 'Projekt' : 'Projekte'})` : '';
-      return tile('Diese Woche', fmtHours(c.thisWeek),
-        `${c.goalMin ? `Ziel: ${fmtHours(c.goalMin)}${src} · ` : ''}${diff >= 0 ? '▲' : '▼'} ${fmtHours(Math.abs(diff))} ggü. Vorwoche`,
+      const src = c.goal.source === 'projects' ? ` (${trp(c.goal.projects.length, '{n} Projekt', '{n} Projekte')})` : '';
+      return tile(tr('Diese Woche'), fmtHours(c.thisWeek),
+        `${c.goalMin ? `${tr('Ziel: {goal}', { goal: fmtHours(c.goalMin) })}${src} · ` : ''}${diff >= 0 ? '▲' : '▼'} ${tr('{h} ggü. Vorwoche', { h: fmtHours(Math.abs(diff)) })}`,
         (c.goalMin ? progressBar((c.thisWeek / c.goalMin) * 100, c.thisWeek >= c.goalMin ? 'good' : '') : '')
-        + sparkline(lastWeeksMinutes(8), 'Stunden der letzten 8 Wochen'));
+        + sparkline(lastWeeksMinutes(8), tr('Stunden der letzten 8 Wochen')));
     }
     case 'streak':
-      return tile('Streak', `${c.streak ? '🔥 ' : ''}${c.streak} ${c.streak === 1 ? 'Tag' : 'Tage'}`,
-        dayMap()[c.today] ? 'Heute schon aktiv ✔' : c.streak ? 'Heute noch nichts – halte die Serie!' : 'Starte heute eine neue Serie');
+      return tile(tr('Streak'), `${c.streak ? '🔥 ' : ''}${trp(c.streak, '{n} Tag', '{n} Tage')}`,
+        dayMap()[c.today] ? tr('Heute schon aktiv ✔') : c.streak ? tr('Heute noch nichts – halte die Serie!') : tr('Starte heute eine neue Serie'));
     case 'active':
-      return tile('Aktive Projekte', c.active.length, c.stale.length ? `${c.stale.length} brauchen Aufmerksamkeit` : 'Alle in Bewegung 👍');
+      return tile(tr('Aktive Projekte'), c.active.length, c.stale.length ? trp(c.stale.length, '{n} braucht Aufmerksamkeit', '{n} brauchen Aufmerksamkeit') : tr('Alle in Bewegung 👍'));
     case 'openTasks':
-      return tile('Offene Aufgaben', c.openTasks.length, c.overdue.length ? `<span style="color:var(--bad)">${c.overdue.length} überfällig</span>` : 'nichts überfällig');
+      return tile(tr('Offene Aufgaben'), c.openTasks.length, c.overdue.length ? `<span style="color:var(--bad)">${tr('{n} überfällig', { n: c.overdue.length })}</span>` : tr('nichts überfällig'));
     case 'invested':
-      return tile('Investiert', fmtEUR(sum(data.investments, (i) => i.amount)),
-        `${fmtEUR(sum(data.investments.filter((i) => i.date.startsWith(monthPrefix)), (i) => i.amount))} in diesem Monat`,
-        sparkline(lastMonths(6, (m) => sum(data.investments.filter((i) => i.date.startsWith(m)), (i) => i.amount)), 'Investitionen der letzten 6 Monate'));
+      return tile(tr('Investiert'), fmtEUR(sum(data.investments, (i) => i.amount)),
+        tr('{amount} in diesem Monat', { amount: fmtEUR(sum(data.investments.filter((i) => i.date.startsWith(monthPrefix)), (i) => i.amount)) }),
+        sparkline(lastMonths(6, (m) => sum(data.investments.filter((i) => i.date.startsWith(m)), (i) => i.amount)), tr('Investitionen der letzten 6 Monate')));
     case 'month': {
       const min = sum(data.timeEntries.filter((e) => e.date.startsWith(monthPrefix)), (e) => e.minutes);
-      return tile('Zeit diesen Monat', fmtHours(min), new Date().toLocaleDateString('de-DE', { month: 'long', year: 'numeric' }),
-        sparkline(lastMonths(6, (m) => sum(data.timeEntries.filter((e) => e.date.startsWith(m)), (e) => e.minutes)), 'Stunden der letzten 6 Monate'));
+      return tile(tr('Zeit diesen Monat'), fmtHours(min), new Date().toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' }),
+        sparkline(lastMonths(6, (m) => sum(data.timeEntries.filter((e) => e.date.startsWith(m)), (e) => e.minutes)), tr('Stunden der letzten 6 Monate')));
     }
     case 'total':
-      return tile('Zeit gesamt', fmtHours(sum(data.timeEntries, (e) => e.minutes)), `${data.timeEntries.length} Einträge`,
-        sparkline(lastWeeksMinutes(8), 'Stunden der letzten 8 Wochen'));
+      return tile(tr('Zeit gesamt'), fmtHours(sum(data.timeEntries, (e) => e.minutes)), trp(data.timeEntries.length, '{n} Eintrag', '{n} Einträge'),
+        sparkline(lastWeeksMinutes(8), tr('Stunden der letzten 8 Wochen')));
     case 'milestonesDone': {
       const done = data.milestones.filter((m) => m.done).length;
-      return tile('Meilensteine', `${done} / ${data.milestones.length}`, 'erreicht');
+      return tile(tr('Meilensteine'), `${done} / ${data.milestones.length}`, tr('erreicht'));
     }
   }
   return '';
@@ -1192,21 +1256,21 @@ function renderBanner({ stale, streak, thisWeek, goalMin, active }) {
   const critical = stale.find((x) => x.s.health === 'kritisch');
   if (critical) return staleBanner(critical.p, critical.s);
   if (goalMin && thisWeek >= goalMin) {
-    return `<div class="banner good"><div class="emoji">🏆</div><div class="text"><strong>Wochenziel erreicht!</strong>${fmtHours(thisWeek)} investiert – richtig stark. Alles darüber ist Bonus.</div></div>`;
+    return `<div class="banner good"><div class="emoji">🏆</div><div class="text"><strong>${tr('Wochenziel erreicht!')}</strong>${tr('{h} investiert – richtig stark. Alles darüber ist Bonus.', { h: fmtHours(thisWeek) })}</div></div>`;
   }
   if (streak >= 2) {
-    return `<div class="banner good"><div class="emoji">🔥</div><div class="text"><strong>${streak} Tage in Folge!</strong>Bleib dran – schon 15 Minuten heute halten die Serie am Leben.</div></div>`;
+    return `<div class="banner good"><div class="emoji">🔥</div><div class="text"><strong>${tr('{n} Tage in Folge!', { n: streak })}</strong>${tr('Bleib dran – schon 15 Minuten heute halten die Serie am Leben.')}</div></div>`;
   }
   if (goalMin && active.length) {
     const rest = goalMin - thisWeek;
     const daysLeft = 7 - ((new Date().getDay() + 6) % 7);
-    return `<div class="banner"><div class="emoji">🎯</div><div class="text"><strong>Noch ${fmtHours(rest)} bis zu deinem Wochenziel.</strong>Das sind ca. ${fmtDuration(Math.ceil(rest / daysLeft))} pro Tag bis Sonntag. ${esc(pick(QUOTES))}</div></div>`;
+    return `<div class="banner"><div class="emoji">🎯</div><div class="text"><strong>${tr('Noch {h} bis zu deinem Wochenziel.', { h: fmtHours(rest) })}</strong>${tr('Das sind ca. {d} pro Tag bis Sonntag.', { d: fmtDuration(Math.ceil(rest / daysLeft)) })} ${esc(tr(pick(QUOTES)))}</div></div>`;
   }
-  return `<div class="banner"><div class="emoji">💡</div><div class="text"><strong>${esc(pick(QUOTES))}</strong></div></div>`;
+  return `<div class="banner"><div class="emoji">💡</div><div class="text"><strong>${esc(tr(pick(QUOTES)))}</strong></div></div>`;
 }
 
 /* Animation im Motivationsbereich: warmes Glühen (Intensität nach Serie) und/oder pulsierender Wochenziel-Balken */
-const BANNER_FX = [['both', '✨🟢 Glühen & Balken'], ['flames', '✨ Glühen'], ['bar', '🟢 Balken'], ['off', 'Aus']];
+const BANNER_FX = [['both', '✨🟢 Glühen & Balken'], ['flames', '✨ Glühen'], ['bar', '🟢 Balken'], ['off', 'Aus']]; // Beschriftungen per tr()
 
 /** Stufe des warmen Glühens nach Serie: ruhig, deutlich, kräftig */
 const glowLevel = (streak) => (streak >= 7 ? 'high' : streak >= 2 ? 'mid' : 'low');
@@ -1220,8 +1284,8 @@ function decorateBanner(html, c) {
   if ((mode === 'both' || mode === 'bar') && c.goalMin) {
     const pct = Math.round((c.thisWeek / c.goalMin) * 100);
     bar = `<div class="banner-progress">
-      <div class="bp-label"><span>${pct >= 100 ? '🏆 Wochenziel erreicht' : '🎯 Wochenziel'}</span><span><b>${fmtHours(c.thisWeek)}</b> von ${fmtHours(c.goalMin)} (${pct} %)</span></div>
-      <div class="pulse-bar ${pct >= 100 ? 'full' : ''}" role="progressbar" aria-valuenow="${Math.min(100, pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="Wochenziel"><span style="width:${Math.max(3, Math.min(100, pct))}%"></span></div>
+      <div class="bp-label"><span>${pct >= 100 ? tr('🏆 Wochenziel erreicht') : tr('🎯 Wochenziel')}</span><span>${tr('<b>{done}</b> von {goal} ({pct} %)', { done: fmtHours(c.thisWeek), goal: fmtHours(c.goalMin), pct })}</span></div>
+      <div class="pulse-bar ${pct >= 100 ? 'full' : ''}" role="progressbar" aria-valuenow="${Math.min(100, pct)}" aria-valuemin="0" aria-valuemax="100" aria-label="${tr('Wochenziel')}"><span style="width:${Math.max(3, Math.min(100, pct))}%"></span></div>
     </div>`;
   }
   return html
@@ -1235,8 +1299,8 @@ function dayDetails(fromISO) {
   const out = {};
   const add = (date, item) => { if (date && date >= fromISO) (out[date] ||= []).push(item); };
   const proj = (id) => getProject(id) || { name: '–', color: 'var(--muted)' };
-  data.timeEntries.forEach((e) => add(e.date, { p: proj(e.projectId), icon: '⏱', text: `${fmtDuration(e.minutes)} – ${e.title || autoTimeTitle(e.date)}`, order: 0 }));
-  data.milestones.filter((m) => m.done).forEach((m) => add(m.doneAt, { p: proj(m.projectId), icon: '🏁', text: `Meilenstein erreicht: ${m.title}`, order: 1 }));
+  data.timeEntries.forEach((e) => add(e.date, { p: proj(e.projectId), icon: '⏱️', text: `${fmtDuration(e.minutes)} – ${entryTitle(e)}`, order: 0 }));
+  data.milestones.filter((m) => m.done).forEach((m) => add(m.doneAt, { p: proj(m.projectId), icon: '🏁', text: tr('Meilenstein erreicht: {title}', { title: m.title }), order: 1 }));
   data.tasks.forEach((t) => {
     if (t.done) add(t.doneAt, { p: proj(t.projectId), icon: '✅', text: t.title, order: 2 });
     (t.subtasks || []).filter((st) => st.done).forEach((st) => add(st.doneAt, { p: proj(t.projectId), icon: '☑', text: `${st.title} (${t.title})`, order: 3 }));
@@ -1248,16 +1312,16 @@ function dayDetails(fromISO) {
 }
 
 function dayTip(iso, d, items) {
-  const day = parseISO(iso).toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
-  const head = `<b>${esc(day)}</b>${d && d.minutes ? `<span class="tip-sub">${fmtDuration(d.minutes)} erfasst</span>` : ''}`;
-  if (!items?.length) return `${head}<span class="tip-sub">Keine Aktivität</span>`;
+  const day = parseISO(iso).toLocaleDateString(LOCALE, { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const head = `<b>${esc(day)}</b>${d && d.minutes ? `<span class="tip-sub">${tr('{d} erfasst', { d: fmtDuration(d.minutes) })}</span>` : ''}`;
+  if (!items?.length) return `${head}<span class="tip-sub">${tr('Keine Aktivität')}</span>`;
   const max = matchMedia('(max-width: 640px)').matches ? 5 : 8;
   const short = (t) => (t.length > 70 ? t.slice(0, 68) + '…' : t);
   return head + items.slice(0, max).map((it) => `<span class="tip-row tip-activity">
       <span class="dot-color" style="background:${esc(it.p.color)}"></span>
       <span><span class="tip-icon">${it.icon}</span> ${esc(short(it.text))}<span class="tip-proj">${esc(it.p.name)}</span></span>
     </span>`).join('')
-    + (items.length > max ? `<span class="tip-sub">… und ${items.length - max} weitere</span>` : '');
+    + (items.length > max ? `<span class="tip-sub">${tr('… und {n} weitere', { n: items.length - max })}</span>` : '');
 }
 
 function heatmap(map) {
@@ -1271,21 +1335,21 @@ function heatmap(map) {
     const d = map[iso];
     let lvl = 0;
     if (d) lvl = d.minutes >= 120 ? 4 : d.minutes >= 60 ? 3 : d.minutes >= 30 ? 2 : 1;
-    const label = `${fmtDate(iso)}: ${d ? `${fmtDuration(d.minutes)}, ${d.count} Aktivität(en)` : 'keine Aktivität'}`;
+    const label = `${fmtDate(iso)}: ${d ? `${fmtDuration(d.minutes)}, ${trp(d.count, '{n} Aktivität', '{n} Aktivitäten')}` : tr('keine Aktivität')}`;
     cells.push(`<span class="l${lvl}${iso === today ? ' today' : ''}" aria-label="${esc(label)}" tabindex="-1" data-detail="day:${iso}" data-tip="${esc(dayTip(iso, d, details[iso]))}"></span>`);
   }
   const active = Object.keys(map).filter((k) => k >= toISO(start) && k <= today).length;
   return `<div class="heatmap">${cells.join('')}</div>
-    <div class="legend">weniger <span style="background:var(--heat-0)"></span><span style="background:var(--heat-1)"></span><span style="background:var(--heat-2)"></span><span style="background:var(--heat-3)"></span><span style="background:var(--heat-4)"></span> mehr
-    <span style="flex:1"></span>${active} aktive Tage</div>
-    <div class="small muted heat-hint">Tipp: ${matchMedia('(hover: none)').matches ? 'Tippe' : 'Fahre'} auf einen Tag, um seine Aktivitäten zu sehen.</div>`;
+    <div class="legend">${tr('weniger')} <span style="background:var(--heat-0)"></span><span style="background:var(--heat-1)"></span><span style="background:var(--heat-2)"></span><span style="background:var(--heat-3)"></span><span style="background:var(--heat-4)"></span> ${tr('mehr')}
+    <span style="flex:1"></span>${tr('{n} aktive Tage', { n: active })}</div>
+    <div class="small muted heat-hint">${matchMedia('(hover: none)').matches ? tr('Tipp: Tippe auf einen Tag, um seine Aktivitäten zu sehen.') : tr('Tipp: Fahre auf einen Tag, um seine Aktivitäten zu sehen.')}</div>`;
 }
 
 function weekList() {
   const weeks = [];
   for (let i = -11; i <= 0; i++) {
     const start = addDays(startOfWeek(new Date()), i * 7);
-    weeks.push({ i, start, label: `${pad(start.getDate())}.${pad(start.getMonth() + 1)}.`, current: i === 0,
+    weeks.push({ i, start, label: start.toLocaleDateString(LOCALE, { day: '2-digit', month: '2-digit' }), short: LANG === 'de' ? `${pad(start.getDate())}.` : String(start.getDate()), current: i === 0,
       range: `${fmtDate(toISO(start))} – ${fmtDate(toISO(addDays(start, 6)))}` });
   }
   return weeks;
@@ -1297,8 +1361,8 @@ function weekBars(pid) {
   const weeks = weekList().map((w) => ({ ...w, min: weekMinutes(w.i, pid) }));
   const max = Math.max(60, ...weeks.map((w) => w.min));
   return `<div class="bars">${weeks.map((w) => `
-    <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-detail="week:${w.i}:${pid}" data-tip="${esc(`<b>${w.current ? 'Diese Woche' : `Woche ab ${w.label}`}</b><br>${fmtDuration(w.min)}`)}">
-      <span style="height:${(w.min / max) * 85}%;background:${esc(p?.color || 'var(--primary)')}"></span><small>${w.current ? 'jetzt' : w.label.slice(0, 3)}</small>
+    <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-detail="week:${w.i}:${pid}" data-tip="${esc(`<b>${w.current ? tr('Diese Woche') : tr('Woche ab {d}', { d: w.label })}</b><br>${fmtDuration(w.min)}`)}">
+      <span style="height:${(w.min / max) * 85}%;background:${esc(p?.color || 'var(--primary)')}"></span><small>${w.current ? tr('jetzt') : w.short}</small>
     </div>`).join('')}</div>`;
 }
 
@@ -1310,37 +1374,38 @@ function stackedWeekBars() {
     .map((x) => ({ ...x, total: sum(x.per, (m) => m) }))
     .filter((x) => x.total > 0)
     .sort((a, b) => b.total - a.total); // feste Stapel-Reihenfolge: größtes Projekt unten
-  if (!all.length) return '<div class="empty">In den letzten 12 Wochen wurde noch keine Zeit erfasst.</div>';
+  if (!all.length) return `<div class="empty">${tr('In den letzten 12 Wochen wurde noch keine Zeit erfasst.')}</div>`;
   const projects = all.filter((x) => !hiddenSeries.has(x.p.id));
   const totals = weeks.map((_, wi) => sum(projects, (x) => x.per[wi]));
   const max = Math.max(60, ...totals);
   const scaleH = Math.ceil(max / 60);
 
-  const tip = (w, wi) => `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>`
+  const weekName = (w) => (w.current ? tr('Diese Woche') : tr('Woche {range}', { range: w.range }));
+  const tip = (w, wi) => `<b>${weekName(w)}</b><br>`
     + projects.filter((x) => x.per[wi]).map((x) => `<span class="tip-row"><span class="dot-color" style="background:${esc(x.p.color)}"></span>${esc(x.p.name)}<b>${fmtDuration(x.per[wi])}</b></span>`).join('')
-    + `<span class="tip-row tip-total">Gesamt<b>${fmtDuration(totals[wi])}</b></span>`;
+    + `<span class="tip-row tip-total">${tr('Gesamt')}<b>${fmtDuration(totals[wi])}</b></span>`;
 
   return `
-    <div class="stack-chart" role="img" aria-label="Stunden pro Woche nach Projekt, letzte 12 Wochen">
-      <div class="stack-scale small muted"><span>${scaleH} Std</span><span>0</span></div>
+    <div class="stack-chart" role="img" aria-label="${tr('Stunden pro Woche nach Projekt, letzte 12 Wochen')}">
+      <div class="stack-scale small muted"><span>${tr('{n} Std', { n: scaleH })}</span><span>0</span></div>
       <div class="bars stacked">${weeks.map((w, wi) => `
-        <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-detail="week:${w.i}" data-tip="${esc(totals[wi] ? tip(w, wi) : `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>keine Zeit erfasst`)}">
-          <div class="stack" style="height:calc((100% - 22px) * ${(totals[wi] / (scaleH * 60)).toFixed(4)})">
+        <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-detail="week:${w.i}" data-tip="${esc(totals[wi] ? tip(w, wi) : `<b>${weekName(w)}</b><br>${tr('keine Zeit erfasst')}`)}">
+          <div class="wstack" style="height:calc((100% - 22px) * ${(totals[wi] / (scaleH * 60)).toFixed(4)})">
             ${projects.filter((x) => x.per[wi]).map((x) => `<span style="flex-grow:${x.per[wi]};background:${esc(x.p.color)}"></span>`).join('')}
           </div>
-          <small>${w.current ? 'jetzt' : w.label.slice(0, 3)}</small>
+          <small>${w.current ? tr('jetzt') : w.short}</small>
         </div>`).join('')}
       </div>
     </div>
     <ul class="chart-legend">${all.map((x) => `
-      <li><button type="button" class="legend-btn ${hiddenSeries.has(x.p.id) ? 'off' : ''}" data-action="toggleSeries" data-id="${x.p.id}" aria-pressed="${!hiddenSeries.has(x.p.id)}" title="${hiddenSeries.has(x.p.id) ? 'Einblenden' : 'Ausblenden'}">
+      <li><button type="button" class="legend-btn ${hiddenSeries.has(x.p.id) ? 'off' : ''}" data-action="toggleSeries" data-id="${x.p.id}" aria-pressed="${!hiddenSeries.has(x.p.id)}" title="${hiddenSeries.has(x.p.id) ? tr('Einblenden') : tr('Ausblenden')}">
         <span class="dot-color" style="background:${esc(x.p.color)}"></span><span class="name">${esc(x.p.name)}</span><span class="val">${fmtHours(x.total)}</span></button></li>`).join('')}
     </ul>
     <details class="chart-table">
-      <summary class="small muted">Als Tabelle anzeigen</summary>
+      <summary class="small muted">${tr('Als Tabelle anzeigen')}</summary>
       <div class="table-wrap"><table>
-        <thead><tr><th>Woche ab</th>${projects.map((x) => `<th class="num">${esc(x.p.name)}</th>`).join('')}<th class="num">Gesamt</th></tr></thead>
-        <tbody>${weeks.map((w, wi) => `<tr><td>${w.current ? 'diese Woche' : w.label}</td>${projects.map((x) => `<td class="num">${x.per[wi] ? fmtHours(x.per[wi]) : '–'}</td>`).join('')}<td class="num"><b>${fmtHours(totals[wi])}</b></td></tr>`).join('')}</tbody>
+        <thead><tr><th>${tr('Woche ab')}</th>${projects.map((x) => `<th class="num">${esc(x.p.name)}</th>`).join('')}<th class="num">${tr('Gesamt')}</th></tr></thead>
+        <tbody>${weeks.map((w, wi) => `<tr><td>${w.current ? tr('diese Woche') : w.label}</td>${projects.map((x) => `<td class="num">${x.per[wi] ? fmtHours(x.per[wi]) : '–'}</td>`).join('')}<td class="num"><b>${fmtHours(totals[wi])}</b></td></tr>`).join('')}</tbody>
       </table></div>
     </details>`;
 }
@@ -1354,7 +1419,7 @@ let tipTarget = null;
 function showTip(el) {
   tipTarget = el;
   chartTip.innerHTML = el.dataset.tip + (el.dataset.detail
-    ? `<span class="tip-sub tip-hint">${lastPointer === 'mouse' ? 'Klicken für Details' : 'Nochmal tippen für Details'}</span>` : '');
+    ? `<span class="tip-sub tip-hint">${lastPointer === 'mouse' ? tr('Klicken für Details') : tr('Nochmal tippen für Details')}</span>` : '');
   chartTip.hidden = false;
   // Freien Raum zwischen Kopfleiste und (mobiler) Navigation bestimmen, Fenster auf der größeren Seite öffnen
   // Kopfleiste oben (sticky) begrenzt den Platz nach oben; als Seitenleiste links (Computer) nicht
@@ -1416,7 +1481,7 @@ function syncTaskDone(t) {
 
 function celebrateTask(t) {
   const left = data.tasks.filter((x) => x.projectId === t.projectId && !x.done).length;
-  toast(`${pick(CHEERS)} ${left ? `Noch ${left} offen.` : 'Alle Aufgaben erledigt!'}`);
+  toast(`${tr(pick(CHEERS))} ${left ? tr('Noch {n} offen.', { n: left }) : tr('Alle Aufgaben erledigt!')}`);
   if (!left) confetti();
 }
 
@@ -1428,27 +1493,27 @@ function taskItem(t, { showProject = false } = {}) {
   const partial = subs.length && !t.done && subsDone > 0;
   return `<li class="${t.done ? 'done' : ''} task">
     <button class="check ${partial ? 'partial' : ''}" data-action="toggleTask" data-id="${t.id}"
-      title="${t.done ? 'Wieder öffnen' : subs.length ? `${subsDone} von ${subs.length} Unterpunkten erledigt` : 'Erledigt'}">${t.done ? '✓' : partial ? '–' : ''}</button>
+      title="${t.done ? tr('Wieder öffnen') : subs.length ? tr('{done} von {n} Unterpunkten erledigt', { done: subsDone, n: subs.length }) : tr('Erledigt')}">${t.done ? '✓' : partial ? '–' : ''}</button>
     <div class="grow">
       <div class="title">${esc(t.title)}</div>
       <div class="meta">
         ${subs.length ? `<span class="badge ${subsDone === subs.length ? 'aktiv' : ''}">☑ ${subsDone}/${subs.length}</span>` : ''}
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/aufgaben">${esc(p.name)}</a></span>` : ''}
         <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
-        ${t.done ? `<span>erledigt ${fmtRelative(t.doneAt)}</span>` : dueBadge(t.dueDate)}
+        ${t.done ? `<span>${tr('erledigt {when}', { when: fmtRelative(t.doneAt) })}</span>` : dueBadge(t.dueDate)}
         ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
         ${t.notes ? `<span>${esc(t.notes)}</span>` : ''}
       </div>
       ${subs.length ? `<ul class="subtasks">${subs.map((st) => `
         <li class="${st.done ? 'done' : ''}">
-          <button class="check small ${st.done ? 'done' : ''}" data-action="toggleSubtask" data-id="${t.id}" data-sub="${st.id}" title="${st.done ? 'Wieder öffnen' : 'Erledigt'}">${st.done ? '✓' : ''}</button>
+          <button class="check small ${st.done ? 'done' : ''}" data-action="toggleSubtask" data-id="${t.id}" data-sub="${st.id}" title="${st.done ? tr('Wieder öffnen') : tr('Erledigt')}">${st.done ? '✓' : ''}</button>
           <span>${esc(st.title)}</span>
         </li>`).join('')}</ul>` : ''}
-      ${t.done || showProject ? '' : `<button class="btn ghost small add-sub" data-action="addSubtask" data-id="${t.id}">+ Unterpunkt</button>`}
+      ${t.done || showProject ? '' : `<button class="btn ghost small add-sub" data-action="addSubtask" data-id="${t.id}">${tr('+ Unterpunkt')}</button>`}
     </div>
     <div class="actions">
-      <button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="Bearbeiten">✎</button>
-      <button class="btn ghost icon danger" data-action="deleteTask" data-id="${t.id}" title="Löschen">🗑</button>
+      <button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button>
+      <button class="btn ghost icon danger" data-action="deleteTask" data-id="${t.id}" title="${tr('Löschen')}">🗑</button>
     </div>
   </li>`;
 }
@@ -1458,20 +1523,20 @@ function milestoneItem(m, { showProject = false } = {}) {
   const tasks = data.tasks.filter((t) => t.milestoneId === m.id);
   const done = tasks.filter((t) => t.done).length;
   return `<li class="${m.done ? 'done' : ''}">
-    <button class="check round" data-action="toggleMilestone" data-id="${m.id}" title="${m.done ? 'Wieder öffnen' : 'Erreicht'}">${m.done ? '✓' : ''}</button>
+    <button class="check round" data-action="toggleMilestone" data-id="${m.id}" title="${m.done ? tr('Wieder öffnen') : tr('Erreicht')}">${m.done ? '✓' : ''}</button>
     <div class="grow">
       <div class="title">${esc(m.title)}</div>
       <div class="meta">
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/meilensteine">${esc(p.name)}</a></span>` : ''}
-        ${m.done ? `<span>erreicht am ${fmtDate(m.doneAt)}</span>` : m.dueDate ? `${dueBadge(m.dueDate)}<span>(${fmtRelative(m.dueDate)})</span>` : ''}
-        ${tasks.length ? `<span>${done}/${tasks.length} Aufgaben</span>` : ''}
+        ${m.done ? `<span>${tr('erreicht am {date}', { date: fmtDate(m.doneAt) })}</span>` : m.dueDate ? `${dueBadge(m.dueDate)}<span>(${fmtRelative(m.dueDate)})</span>` : ''}
+        ${tasks.length ? `<span>${tr('{done}/{n} Aufgaben', { done, n: tasks.length })}</span>` : ''}
       </div>
       ${m.description ? `<div class="small muted">${esc(m.description)}</div>` : ''}
       ${tasks.length && !m.done ? `<div style="margin-top:6px;max-width:240px">${progressBar((done / tasks.length) * 100)}</div>` : ''}
     </div>
     <div class="actions">
-      <button class="btn ghost icon" data-action="editMilestone" data-id="${m.id}" title="Bearbeiten">✎</button>
-      <button class="btn ghost icon danger" data-action="deleteMilestone" data-id="${m.id}" title="Löschen">🗑</button>
+      <button class="btn ghost icon" data-action="editMilestone" data-id="${m.id}" title="${tr('Bearbeiten')}">✎</button>
+      <button class="btn ghost icon danger" data-action="deleteMilestone" data-id="${m.id}" title="${tr('Löschen')}">🗑</button>
     </div>
   </li>`;
 }
@@ -1489,23 +1554,23 @@ function renderProjects() {
 
   return `
     <div class="page-head">
-      <div><h1>Projekte</h1><p>${data.projects.length} Projekte insgesamt</p></div>
-      <button class="btn primary" data-action="newProject">+ Neues Projekt</button>
+      <div><h1>${tr('Projekte')}</h1><p>${trp(data.projects.length, '{n} Projekt insgesamt', '{n} Projekte insgesamt')}</p></div>
+      <button class="btn primary" data-action="newProject">${tr('+ Neues Projekt')}</button>
     </div>
     <div class="toolbar-row">
       <div class="chips">
-        ${[{ value: 'alle', label: 'Alle' }, ...STATUS].map((s) =>
+        ${[{ value: 'alle', label: tr('Alle') }, ...STATUS].map((s) =>
           `<button class="chip ${projectFilter === s.value ? 'active' : ''}" data-action="filterProjects" data-id="${s.value}">${s.label} (${counts[s.value]})</button>`).join('')}
       </div>
-      <div class="segmented view-toggle" role="group" aria-label="Ansicht">
-        <button type="button" class="seg-btn ${projectView === 'grid' ? 'active' : ''}" data-action="setProjectView" data-id="grid" aria-pressed="${projectView === 'grid'}" title="Kacheln">▦ <span>Kacheln</span></button>
-        <button type="button" class="seg-btn ${projectView === 'list' ? 'active' : ''}" data-action="setProjectView" data-id="list" aria-pressed="${projectView === 'list'}" title="Liste">☰ <span>Liste</span></button>
+      <div class="segmented view-toggle" role="group" aria-label="${tr('Ansicht')}">
+        <button type="button" class="seg-btn ${projectView === 'grid' ? 'active' : ''}" data-action="setProjectView" data-id="grid" aria-pressed="${projectView === 'grid'}" title="${tr('Kacheln')}">▦ <span>${tr('Kacheln')}</span></button>
+        <button type="button" class="seg-btn ${projectView === 'list' ? 'active' : ''}" data-action="setProjectView" data-id="list" aria-pressed="${projectView === 'list'}" title="${tr('Liste')}">☰ <span>${tr('Liste')}</span></button>
       </div>
     </div>
     ${list.length ? (projectView === 'list'
       ? `<div class="project-rows">${list.map(({ p, s }) => projectRow(p, s)).join('')}</div>`
       : `<div class="project-grid">${list.map(({ p, s }) => projectCard(p, s)).join('')}</div>`)
-      : `<div class="card empty">Keine Projekte in dieser Ansicht.<br><br><button class="btn primary" data-action="newProject">+ Neues Projekt</button></div>`}`;
+      : `<div class="card empty">${tr('Keine Projekte in dieser Ansicht.')}<br><br><button class="btn primary" data-action="newProject">${tr('+ Neues Projekt')}</button></div>`}`;
 }
 
 let projectView = (() => { try { return localStorage.getItem('projekttracker.ui.projectView') || 'grid'; } catch { return 'grid'; } })();
@@ -1520,14 +1585,14 @@ function projectRow(p, s) {
       ${s.next && p.status !== 'abgeschlossen' ? `<div class="small">👉 ${esc(s.next.title)}</div>` : ''}
     </div>
     <div class="pr-progress">
-      ${s.hasProgress ? `<div class="row small muted"><span>Fortschritt</span><span>${s.progress}%</span></div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}` : ''}
-      ${goal ? `<div class="row small muted"><span>Diese Woche</span><span>${fmtHours(wk)} / ${fmtStd(goal / 60)}</span></div>${progressBar((wk / goal) * 100, wk >= goal ? 'good' : '')}` : ''}
+      ${s.hasProgress ? `<div class="row small muted"><span>${tr('Fortschritt')}</span><span>${s.progress}%</span></div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}` : ''}
+      ${goal ? `<div class="row small muted"><span>${tr('Diese Woche')}</span><span>${fmtHours(wk)} / ${fmtStd(goal / 60)}</span></div>${progressBar((wk / goal) * 100, wk >= goal ? 'good' : '')}` : ''}
     </div>
     <div class="pr-figures">
-      <span title="Zeit gesamt">⏱ <b>${fmtHours(s.minutes)}</b></span>
-      <span title="Investiert">💶 <b>${fmtEUR(s.invested)}</b></span>
-      <span title="Aufgaben erledigt">✅ <b>${s.tasksDone}/${s.tasksTotal}</b></span>
-      <span title="Meilensteine erreicht">🏁 <b>${s.msDone}/${s.msTotal}</b></span>
+      <span title="${tr('Zeit gesamt')}">⏱️ <b>${fmtHours(s.minutes)}</b></span>
+      <span title="${tr('Investiert')}">💶 <b>${fmtEUR(s.invested)}</b></span>
+      <span title="${tr('Aufgaben erledigt')}">✅ <b>${s.tasksDone}/${s.tasksTotal}</b></span>
+      <span title="${tr('Meilensteine erreicht')}">🏁 <b>${s.msDone}/${s.msTotal}</b></span>
     </div>
     <div class="pr-end">${healthBadge(s)}${qaButton(p)}</div>
   </a>`;
@@ -1538,15 +1603,15 @@ function projectCard(p, s) {
         <div class="row"><h3>${esc(p.name)}</h3><span class="row-end"><span class="badge ${p.status}">${statusLabel(p.status)}</span>${qaButton(p)}</span></div>
         ${p.description ? `<p class="desc">${esc(p.description)}</p>` : ''}
         ${s.hasProgress ? `<div>
-          <div class="row small muted" style="margin-bottom:4px"><span>Fortschritt</span><span>${s.progress}%</span></div>
+          <div class="row small muted" style="margin-bottom:4px"><span>${tr('Fortschritt')}</span><span>${s.progress}%</span></div>
           ${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
         </div>` : ''}
         ${p.status === 'aktiv' && projectWeeklyMin(p) ? `<div>
-          <div class="row small muted" style="margin-bottom:4px"><span>Diese Woche</span><span>${fmtHours(weekMinutes(0, p.id))} / ${fmtStd(projectWeeklyMin(p) / 60)}</span></div>
+          <div class="row small muted" style="margin-bottom:4px"><span>${tr('Diese Woche')}</span><span>${fmtHours(weekMinutes(0, p.id))} / ${fmtStd(projectWeeklyMin(p) / 60)}</span></div>
           ${progressBar((weekMinutes(0, p.id) / projectWeeklyMin(p)) * 100, weekMinutes(0, p.id) >= projectWeeklyMin(p) ? 'good' : '')}
         </div>` : ''}
         <div class="figures">
-          <span>⏱ <b>${fmtHours(s.minutes)}</b></span>
+          <span>⏱️ <b>${fmtHours(s.minutes)}</b></span>
           <span>💶 <b>${fmtEUR(s.invested)}</b></span>
           <span>✅ <b>${s.tasksDone}/${s.tasksTotal}</b></span>
           <span>🏁 <b>${s.msDone}/${s.msTotal}</b></span>
@@ -1560,7 +1625,7 @@ function projectCard(p, s) {
 
 function renderProject(id, tab) {
   const p = getProject(id);
-  if (!p) return `<div class="card empty">Projekt nicht gefunden. <a href="#/projekte">Zur Projektliste</a></div>`;
+  if (!p) return `<div class="card empty">${tr('Projekt nicht gefunden.')} <a href="#/projekte">${tr('Zur Projektliste')}</a></div>`;
   const s = projectStats(p);
   const n = {
     aufgaben: s.tasksOpen,
@@ -1570,8 +1635,8 @@ function renderProject(id, tab) {
     logbuch: data.notes.filter((e) => e.projectId === id).length,
   };
   const tabs = [
-    ['uebersicht', 'Übersicht'], ['aufgaben', 'Aufgaben'], ['meilensteine', 'Meilensteine'],
-    ['zeit', 'Zeit'], ['investitionen', 'Investitionen'], ['logbuch', 'Logbuch'],
+    ['uebersicht', tr('Übersicht')], ['aufgaben', tr('Aufgaben')], ['meilensteine', tr('Meilensteine')],
+    ['zeit', tr('Zeit')], ['investitionen', tr('Investitionen')], ['logbuch', tr('Logbuch')],
   ];
   const body = {
     uebersicht: projectOverview, aufgaben: projectTasks, meilensteine: projectMilestones,
@@ -1586,7 +1651,7 @@ function renderProject(id, tab) {
           <h1 style="margin:0">${esc(p.name)}</h1>
         </div>
         <div class="btn-row" style="margin-top:8px">
-          <select class="inline-select" data-change="setStatus" data-id="${p.id}" aria-label="Status">
+          <select class="inline-select" data-change="setStatus" data-id="${p.id}" aria-label="${tr('Status')}">
             ${STATUS.map((st) => `<option value="${st.value}" ${st.value === p.status ? 'selected' : ''}>${st.label}</option>`).join('')}
           </select>
           ${p.category ? `<span class="badge">${esc(p.category)}</span>` : ''}
@@ -1595,12 +1660,12 @@ function renderProject(id, tab) {
       </div>
       <div class="btn-row">
         ${data.timer?.projectId === p.id
-          ? `<button class="btn primary" data-action="stopTimer">■ ${data.timer.mode === 'pomodoro' ? 'Pomodoro beenden' : 'Timer stoppen'}</button>`
-          : `<button class="btn primary" data-action="startPomodoro" data-id="${p.id}" title="${pomoCfg().work} Min Fokus, dann Pause">🍅 Pomodoro</button>
-             <button class="btn" data-action="startTimer" data-id="${p.id}" title="Stoppuhr ohne feste Dauer">▶ Stoppuhr</button>`}
-        <button class="btn" data-action="addTime" data-id="${p.id}">+ Zeit</button>
-        <button class="btn" data-action="editProject" data-id="${p.id}">Bearbeiten</button>
-        <button class="btn danger" data-action="deleteProject" data-id="${p.id}">Löschen</button>
+          ? `<button class="btn primary" data-action="stopTimer">■ ${data.timer.mode === 'pomodoro' ? tr('Pomodoro beenden') : tr('Timer stoppen')}</button>`
+          : `<button class="btn primary" data-action="startPomodoro" data-id="${p.id}" title="${tr('{m} Min Fokus, dann Pause', { m: pomoCfg().work })}">🍅 Pomodoro</button>
+             <button class="btn" data-action="startTimer" data-id="${p.id}" title="${tr('Stoppuhr ohne feste Dauer')}">${tr('▶ Stoppuhr')}</button>`}
+        <button class="btn" data-action="addTime" data-id="${p.id}">${tr('+ Zeit')}</button>
+        <button class="btn" data-action="editProject" data-id="${p.id}">${tr('Bearbeiten')}</button>
+        <button class="btn danger" data-action="deleteProject" data-id="${p.id}">${tr('Löschen')}</button>
       </div>
     </div>
     <nav class="tabs">
@@ -1616,8 +1681,8 @@ function projectOverview(p, s) {
     ${editing ? editBar() : ''}
     ${s.health === 'warn' || s.health === 'kritisch' ? staleBanner(p, s, { withOpen: false }) : ''}
     ${editing ? '' : `<div class="dash-head view-head">
-      <span class="small muted">${p.layout ? '🎯 Eigene Anordnung für dieses Projekt' : ''}</span>
-      <button class="btn small" data-action="customizeProject" data-id="${p.id}">✏️ Ansicht anpassen</button>
+      <span class="small muted">${p.layout ? tr('🎯 Eigene Anordnung für dieses Projekt') : ''}</span>
+      <button class="btn small" data-action="customizeProject" data-id="${p.id}">✏️ ${tr('Ansicht anpassen')}</button>
     </div>`}
     ${renderLayoutGrid(cfg, PROJECT_WIDGETS, (id) => renderProjectWidget(id, p, s, cfg), { edit: editing, statDefs: PROJECT_STATS })}`;
 }
@@ -1628,27 +1693,27 @@ function renderProjectWidget(id, p, s, cfg) {
   switch (id) {
     case 'why':
       return p.why || p.goal ? `<section class="card">
-          ${p.why ? `<h3>💭 Warum ist mir das wichtig?</h3><p class="why" style="font-size:1rem">„${esc(p.why)}“</p>` : ''}
-          ${p.goal ? `<h3>🎯 Ziel / Wann ist es fertig?</h3><p style="margin:0">${esc(p.goal)}</p>` : ''}
+          ${p.why ? `<h3>💭 ${tr('Warum ist mir das wichtig?')}</h3><p class="why" style="font-size:1rem">${tr('„{why}“', { why: esc(p.why) })}</p>` : ''}
+          ${p.goal ? `<h3>🎯 ${tr('Ziel / Wann ist es fertig?')}</h3><p style="margin:0">${esc(p.goal)}</p>` : ''}
         </section>`
-        : `<div class="callout">💡 Tipp: Trage unter <a href="#" data-action="editProject" data-id="${p.id}">Bearbeiten</a> ein, <b>warum</b> dir das Projekt wichtig ist. Das wird dir angezeigt, wenn das Projekt einzuschlafen droht.</div>`;
+        : `<div class="callout">💡 ${tr('Tipp: Trage unter <a href="#" data-action="editProject" data-id="{id}">Bearbeiten</a> ein, <b>warum</b> dir das Projekt wichtig ist. Das wird dir angezeigt, wenn das Projekt einzuschlafen droht.', { id: p.id })}</div>`;
 
     case 'stats': {
       const wk = weekMinutes(0, p.id), wGoal = projectWeeklyMin(p);
       const tiles = {
-        progress: s.hasProgress ? `<div class="stat"><div class="label">Fortschritt</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
-          <div class="sub">${s.msTotal ? `${s.msDone}/${s.msTotal} Meilensteine` : `${s.tasksDone}/${s.tasksTotal} Aufgaben`}</div></div>`
-          : `<div class="stat"><div class="label">Fortschritt</div><div class="value muted">–</div><div class="sub">Lege Aufgaben oder Meilensteine an, um den Fortschritt zu sehen.</div></div>`,
-        total: `<div class="stat"><div class="label">Zeit gesamt</div><div class="value">${fmtHours(s.minutes)}</div>
-          ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">von ${hourGoal} Std geplant</div>` : '<div class="sub">keine Gesamtzeit geplant</div>'}</div>`,
-        week: `<div class="stat"><div class="label">Diese Woche</div><div class="value">${fmtHours(wk)}</div>
-          ${wGoal ? progressBar((wk / wGoal) * 100, wk >= wGoal ? 'good' : '') + `<div class="sub">Wochenziel: ${fmtStd(wGoal / 60)}${p.status === 'aktiv' ? '' : ' (zählt nur bei aktiven Projekten)'}</div>`
-            : '<div class="sub">kein eigenes Wochenziel</div>'}</div>`,
-        invested: `<div class="stat"><div class="label">Investiert</div><div class="value">${fmtEUR(s.invested)}</div>
-          ${budget ? progressBar((s.invested / budget) * 100, s.invested > budget ? 'over' : '') + `<div class="sub">Budget ${fmtEUR(budget)} · ${s.invested > budget ? 'überschritten' : `${fmtEUR(budget - s.invested)} übrig`}</div>` : '<div class="sub">kein Budget festgelegt</div>'}</div>`,
-        openTasks: `<div class="stat"><div class="label">Offene Aufgaben</div><div class="value">${s.tasksOpen}</div><div class="sub">${s.tasksDone} erledigt</div></div>`,
-        target: `<div class="stat"><div class="label">Zieltermin</div><div class="value" style="font-size:1.15rem">${p.targetDate ? fmtDate(p.targetDate) : '–'}</div><div class="sub">${p.targetDate ? fmtRelative(p.targetDate) : 'kein Zieltermin'}</div></div>`,
-        lastActive: `<div class="stat"><div class="label">Zuletzt aktiv</div><div class="value" style="font-size:1.15rem">${fmtRelative(s.last)}</div><div class="sub">${s.last ? fmtDate(s.last) : ''}</div></div>`,
+        progress: s.hasProgress ? `<div class="stat"><div class="label">${tr('Fortschritt')}</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
+          <div class="sub">${s.msTotal ? tr('{done}/{n} Meilensteine', { done: s.msDone, n: s.msTotal }) : tr('{done}/{n} Aufgaben', { done: s.tasksDone, n: s.tasksTotal })}</div></div>`
+          : `<div class="stat"><div class="label">${tr('Fortschritt')}</div><div class="value muted">–</div><div class="sub">${tr('Lege Aufgaben oder Meilensteine an, um den Fortschritt zu sehen.')}</div></div>`,
+        total: `<div class="stat"><div class="label">${tr('Zeit gesamt')}</div><div class="value">${fmtHours(s.minutes)}</div>
+          ${hourGoal ? progressBar((s.minutes / 60 / hourGoal) * 100, s.minutes / 60 > hourGoal ? 'over' : '') + `<div class="sub">${tr('von {h} geplant', { h: fmtStd(hourGoal) })}</div>` : `<div class="sub">${tr('keine Gesamtzeit geplant')}</div>`}</div>`,
+        week: `<div class="stat"><div class="label">${tr('Diese Woche')}</div><div class="value">${fmtHours(wk)}</div>
+          ${wGoal ? progressBar((wk / wGoal) * 100, wk >= wGoal ? 'good' : '') + `<div class="sub">${tr('Wochenziel: {h}', { h: fmtStd(wGoal / 60) })}${p.status === 'aktiv' ? '' : ` ${tr('(zählt nur bei aktiven Projekten)')}`}</div>`
+            : `<div class="sub">${tr('kein eigenes Wochenziel')}</div>`}</div>`,
+        invested: `<div class="stat"><div class="label">${tr('Investiert')}</div><div class="value">${fmtEUR(s.invested)}</div>
+          ${budget ? progressBar((s.invested / budget) * 100, s.invested > budget ? 'over' : '') + `<div class="sub">${tr('Budget {b}', { b: fmtEUR(budget) })} · ${s.invested > budget ? tr('überschritten') : tr('{amount} übrig', { amount: fmtEUR(budget - s.invested) })}</div>` : `<div class="sub">${tr('kein Budget festgelegt')}</div>`}</div>`,
+        openTasks: `<div class="stat"><div class="label">${tr('Offene Aufgaben')}</div><div class="value">${s.tasksOpen}</div><div class="sub">${tr('{n} erledigt', { n: s.tasksDone })}</div></div>`,
+        target: `<div class="stat"><div class="label">${tr('Zieltermin')}</div><div class="value" style="font-size:1.15rem">${p.targetDate ? fmtDate(p.targetDate) : '–'}</div><div class="sub">${p.targetDate ? fmtRelative(p.targetDate) : tr('kein Zieltermin')}</div></div>`,
+        lastActive: `<div class="stat"><div class="label">${tr('Zuletzt aktiv')}</div><div class="value" style="font-size:1.15rem">${fmtRelative(s.last)}</div><div class="sub">${s.last ? fmtDate(s.last) : ''}</div></div>`,
       };
       const shown = cfg.stats.filter((t) => tiles[t] && (t !== 'target' || p.targetDate || editState));
       return shown.length ? `<div class="stats">${shown.map((t) => tiles[t]).join('')}</div>` : '';
@@ -1656,48 +1721,48 @@ function renderProjectWidget(id, p, s, cfg) {
 
     case 'next':
       return `<section class="card">
-        <div class="card-head"><h2>👉 Nächster Schritt</h2><button class="btn small" data-action="addTask" data-id="${p.id}">+ Aufgabe</button></div>
-        ${s.next ? `<ul class="list">${taskItem(s.next)}</ul>` : '<div class="empty">Keine offene Aufgabe. Was ist der kleinste nächste Schritt?</div>'}
+        <div class="card-head"><h2>👉 ${tr('Nächster Schritt')}</h2><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
+        ${s.next ? `<ul class="list">${taskItem(s.next)}</ul>` : `<div class="empty">${tr('Keine offene Aufgabe. Was ist der kleinste nächste Schritt?')}</div>`}
       </section>`;
 
     case 'milestones': {
       const ms = data.milestones.filter((m) => m.projectId === p.id && !m.done)
         .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')).slice(0, 3);
       return `<section class="card">
-        <div class="card-head"><h2>🏁 Nächste Meilensteine</h2><button class="btn small" data-action="addMilestone" data-id="${p.id}">+ Meilenstein</button></div>
-        ${ms.length ? `<ul class="list">${ms.map((m) => milestoneItem(m)).join('')}</ul>` : '<div class="empty">Keine offenen Meilensteine.</div>'}
+        <div class="card-head"><h2>🏁 ${tr('Nächste Meilensteine')}</h2><button class="btn small" data-action="addMilestone" data-id="${p.id}">${tr('+ Meilenstein')}</button></div>
+        ${ms.length ? `<ul class="list">${ms.map((m) => milestoneItem(m)).join('')}</ul>` : `<div class="empty">${tr('Keine offenen Meilensteine.')}</div>`}
       </section>`;
     }
 
     case 'hours':
-      return `<section class="card"><div class="card-head"><h2>⏱ Stunden pro Woche</h2></div>${weekBars(p.id)}</section>`;
+      return `<section class="card"><div class="card-head"><h2>⏱️ ${tr('Stunden pro Woche')}</h2></div>${weekBars(p.id)}</section>`;
 
     case 'recent': {
       const recent = recentActivity(p.id).slice(0, 8);
       return `<section class="card">
-        <div class="card-head"><h2>🕘 Letzte Aktivitäten</h2><button class="btn small" data-action="addNote" data-id="${p.id}">+ Notiz</button></div>
-        ${recent.length ? `<ul class="list">${recent.map((a) => `<li><div class="grow"><div class="title">${a.icon} ${esc(a.text)}</div><div class="meta">${fmtDate(a.date)}</div></div></li>`).join('')}</ul>` : '<div class="empty">Noch keine Aktivitäten.</div>'}
+        <div class="card-head"><h2>🕘 ${tr('Letzte Aktivitäten')}</h2><button class="btn small" data-action="addNote" data-id="${p.id}">${tr('+ Notiz')}</button></div>
+        ${recent.length ? `<ul class="list">${recent.map((a) => `<li><div class="grow"><div class="title">${a.icon} ${esc(a.text)}</div><div class="meta">${fmtDate(a.date)}</div></div></li>`).join('')}</ul>` : `<div class="empty">${tr('Noch keine Aktivitäten.')}</div>`}
       </section>`;
     }
 
     case 'description':
-      return p.description ? `<section class="card"><h2>📝 Beschreibung</h2><p style="white-space:pre-wrap;margin:0">${esc(p.description)}</p></section>` : '';
+      return p.description ? `<section class="card"><h2>📝 ${tr('Beschreibung')}</h2><p style="white-space:pre-wrap;margin:0">${esc(p.description)}</p></section>` : '';
 
     case 'tasks': {
       const open = sortTasks(data.tasks.filter((t) => t.projectId === p.id && !t.done));
       return `<section class="card">
-        <div class="card-head"><h2>✅ Offene Aufgaben (${open.length})</h2><a class="btn small" href="#/projekt/${p.id}/aufgaben">Alle</a></div>
-        ${open.length ? `<ul class="list">${open.slice(0, 5).map((t) => taskItem(t)).join('')}</ul>` : '<div class="empty">Keine offenen Aufgaben. 🎉</div>'}
+        <div class="card-head"><h2>✅ ${tr('Offene Aufgaben')} (${open.length})</h2><a class="btn small" href="#/projekt/${p.id}/aufgaben">${tr('Alle')}</a></div>
+        ${open.length ? `<ul class="list">${open.slice(0, 5).map((x) => taskItem(x)).join('')}</ul>` : `<div class="empty">${tr('Keine offenen Aufgaben. 🎉')}</div>`}
       </section>`;
     }
 
     case 'invest': {
       const items = data.investments.filter((e) => e.projectId === p.id);
       const byCat = {};
-      items.forEach((i) => (byCat[i.category || 'Sonstiges'] = (byCat[i.category || 'Sonstiges'] || 0) + i.amount));
+      items.forEach((i) => (byCat[i.category || tr('Sonstiges')] = (byCat[i.category || tr('Sonstiges')] || 0) + i.amount));
       return `<section class="card">
-        <div class="card-head"><h2>💶 Investitionen · ${fmtEUR(s.invested)}</h2><a class="btn small" href="#/projekt/${p.id}/investitionen">Alle</a></div>
-        ${items.length ? `<dl class="kv">${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${fmtEUR(v)}</dd>`).join('')}</dl>` : '<div class="empty">Noch keine Investitionen.</div>'}
+        <div class="card-head"><h2>💶 ${tr('Investitionen')} · ${fmtEUR(s.invested)}</h2><a class="btn small" href="#/projekt/${p.id}/investitionen">${tr('Alle')}</a></div>
+        ${items.length ? `<dl class="kv">${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${fmtEUR(v)}</dd>`).join('')}</dl>` : `<div class="empty">${tr('Noch keine Investitionen.')}</div>`}
       </section>`;
     }
   }
@@ -1706,10 +1771,10 @@ function renderProjectWidget(id, p, s, cfg) {
 
 function recentActivity(pid) {
   const out = [];
-  data.timeEntries.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '⏱', text: `${fmtDuration(e.minutes)} – ${e.title || autoTimeTitle(e.date)}` }));
+  data.timeEntries.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '⏱️', text: `${fmtDuration(e.minutes)} – ${entryTitle(e)}` }));
   data.investments.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '💶', text: `${fmtEUR(e.amount)} – ${e.description}` }));
   data.tasks.filter((t) => t.projectId === pid && t.done).forEach((t) => out.push({ date: t.doneAt, icon: '✅', text: t.title }));
-  data.milestones.filter((m) => m.projectId === pid && m.done).forEach((m) => out.push({ date: m.doneAt, icon: '🏁', text: `Meilenstein erreicht: ${m.title}` }));
+  data.milestones.filter((m) => m.projectId === pid && m.done).forEach((m) => out.push({ date: m.doneAt, icon: '🏁', text: tr('Meilenstein erreicht: {title}', { title: m.title }) }));
   data.notes.filter((n) => n.projectId === pid).forEach((n) => out.push({ date: n.date, icon: '📝', text: n.text }));
   return out.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 }
@@ -1719,13 +1784,13 @@ function projectTasks(p) {
   const open = sortTasks(tasks.filter((t) => !t.done));
   const done = tasks.filter((t) => t.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
   return `<section class="card">
-    <div class="card-head"><h2>Offene Aufgaben (${open.length})</h2><button class="btn primary small" data-action="addTask" data-id="${p.id}">+ Aufgabe</button></div>
+    <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
     ${open.length ? PRIORITIES.map(({ value, label }) => {
       const group = open.filter((t) => (t.priority || 'mittel') === value);
       return group.length ? `<h3 class="task-group"><span class="badge ${value}">${label}</span> <span class="muted small">${group.length}</span></h3>
         <ul class="list">${group.map((t) => taskItem(t)).join('')}</ul>` : '';
-    }).join('') : '<div class="empty">Keine offenen Aufgaben. 🎉</div>'}
-    ${done.length ? `<details class="done-list"><summary>Erledigt (${done.length})</summary><ul class="list">${done.map((t) => taskItem(t)).join('')}</ul></details>` : ''}
+    }).join('') : `<div class="empty">${tr('Keine offenen Aufgaben. 🎉')}</div>`}
+    ${done.length ? `<details class="done-list"><summary>${tr('Erledigt')} (${done.length})</summary><ul class="list">${done.map((t) => taskItem(t)).join('')}</ul></details>` : ''}
   </section>`;
 }
 
@@ -1733,9 +1798,9 @@ function projectMilestones(p) {
   const ms = data.milestones.filter((m) => m.projectId === p.id)
     .sort((a, b) => Number(a.done) - Number(b.done) || (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
   return `<section class="card">
-    <div class="card-head"><h2>Meilensteine</h2><button class="btn primary small" data-action="addMilestone" data-id="${p.id}">+ Meilenstein</button></div>
+    <div class="card-head"><h2>${tr('Meilensteine')}</h2><button class="btn primary small" data-action="addMilestone" data-id="${p.id}">${tr('+ Meilenstein')}</button></div>
     ${ms.length ? `<ul class="list">${ms.map((m) => milestoneItem(m)).join('')}</ul>`
-      : '<div class="empty">Noch keine Meilensteine. Teile dein Projekt in 3–5 große Etappen auf – das macht Fortschritt sichtbar.</div>'}
+      : `<div class="empty">${tr('Noch keine Meilensteine. Teile dein Projekt in 3–5 große Etappen auf – das macht Fortschritt sichtbar.')}</div>`}
   </section>`;
 }
 
@@ -1743,19 +1808,19 @@ function projectTime(p) {
   const entries = data.timeEntries.filter((e) => e.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date));
   const total = sum(entries, (e) => e.minutes);
   return `<section class="card">
-    <div class="card-head"><h2>Zeiteinträge · ${fmtHours(total)}</h2><button class="btn primary small" data-action="addTime" data-id="${p.id}">+ Zeit</button></div>
+    <div class="card-head"><h2>${tr('Zeiteinträge')} · ${fmtHours(total)}</h2><button class="btn primary small" data-action="addTime" data-id="${p.id}">${tr('+ Zeit')}</button></div>
     ${entries.length ? `<ul class="list">${entries.map((e) => `
       <li>
         <div class="grow">
-          <div class="title">${esc(e.title || autoTimeTitle(e.date))}</div>
-          <div class="meta"><span class="amount">⏱ ${fmtDuration(e.minutes)}</span>${e.autoTitle ? '' : `<span>${esc(autoTimeTitle(e.date))}</span>`}</div>
+          <div class="title">${esc(entryTitle(e))}</div>
+          <div class="meta"><span class="amount">⏱️ ${fmtDuration(e.minutes)}</span>${e.autoTitle ? '' : `<span>${esc(autoTimeTitle(e.date))}</span>`}</div>
           ${e.description ? `<div class="entry-desc">${esc(e.description)}</div>` : ''}
         </div>
         <div class="actions">
-          <button class="btn ghost icon" data-action="editTime" data-id="${e.id}" title="Bearbeiten">✎</button>
-          <button class="btn ghost icon danger" data-action="deleteTime" data-id="${e.id}" title="Löschen">🗑</button>
+          <button class="btn ghost icon" data-action="editTime" data-id="${e.id}" title="${tr('Bearbeiten')}">✎</button>
+          <button class="btn ghost icon danger" data-action="deleteTime" data-id="${e.id}" title="${tr('Löschen')}">🗑</button>
         </div>
-      </li>`).join('')}</ul>` : '<div class="empty">Noch keine Zeit erfasst. Starte den Timer oder trage Zeit manuell ein.</div>'}
+      </li>`).join('')}</ul>` : `<div class="empty">${tr('Noch keine Zeit erfasst. Starte den Timer oder trage Zeit manuell ein.')}</div>`}
   </section>`;
 }
 
@@ -1763,25 +1828,25 @@ function projectInvestments(p) {
   const items = data.investments.filter((e) => e.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date));
   const total = sum(items, (e) => e.amount);
   const byCat = {};
-  items.forEach((i) => (byCat[i.category || 'Sonstiges'] = (byCat[i.category || 'Sonstiges'] || 0) + i.amount));
+  items.forEach((i) => (byCat[i.category || tr('Sonstiges')] = (byCat[i.category || tr('Sonstiges')] || 0) + i.amount));
   const budget = Number(p.budget) || 0;
   return `<div class="grid-2">
     <section class="card">
-      <div class="card-head"><h2>Investitionen · ${fmtEUR(total)}</h2><button class="btn primary small" data-action="addInvestment" data-id="${p.id}">+ Investition</button></div>
+      <div class="card-head"><h2>${tr('Investitionen')} · ${fmtEUR(total)}</h2><button class="btn primary small" data-action="addInvestment" data-id="${p.id}">${tr('+ Investition')}</button></div>
       ${items.length ? `<ul class="list">${items.map((e) => `
         <li>
-          <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || 'Sonstiges')}</span></div></div>
+          <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || tr('Sonstiges'))}</span></div></div>
           <span class="amount">${fmtEUR(e.amount)}</span>
           <div class="actions">
-            <button class="btn ghost icon" data-action="editInvestment" data-id="${e.id}" title="Bearbeiten">✎</button>
-            <button class="btn ghost icon danger" data-action="deleteInvestment" data-id="${e.id}" title="Löschen">🗑</button>
+            <button class="btn ghost icon" data-action="editInvestment" data-id="${e.id}" title="${tr('Bearbeiten')}">✎</button>
+            <button class="btn ghost icon danger" data-action="deleteInvestment" data-id="${e.id}" title="${tr('Löschen')}">🗑</button>
           </div>
-        </li>`).join('')}</ul>` : '<div class="empty">Noch keine Investitionen erfasst.</div>'}
+        </li>`).join('')}</ul>` : `<div class="empty">${tr('Noch keine Investitionen erfasst.')}</div>`}
     </section>
     <section class="card">
-      <h2>Nach Kategorie</h2>
+      <h2>${tr('Nach Kategorie')}</h2>
       ${Object.keys(byCat).length ? `<dl class="kv">${Object.entries(byCat).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${fmtEUR(v)} <span class="muted small">(${Math.round((v / total) * 100)}%)</span></dd>`).join('')}</dl>` : '<div class="empty">–</div>'}
-      ${budget ? `<h3 style="margin-top:16px">Budget</h3>${progressBar((total / budget) * 100, total > budget ? 'over' : '')}<p class="small muted" style="margin-top:6px">${fmtEUR(total)} von ${fmtEUR(budget)}</p>` : ''}
+      ${budget ? `<h3 style="margin-top:16px">${tr('Budget')}</h3>${progressBar((total / budget) * 100, total > budget ? 'over' : '')}<p class="small muted" style="margin-top:6px">${tr('{a} von {b}', { a: fmtEUR(total), b: fmtEUR(budget) })}</p>` : ''}
     </section>
   </div>`;
 }
@@ -1789,16 +1854,16 @@ function projectInvestments(p) {
 function projectNotes(p) {
   const notes = data.notes.filter((n) => n.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''));
   return `<section class="card">
-    <div class="card-head"><h2>Logbuch</h2><button class="btn primary small" data-action="addNote" data-id="${p.id}">+ Notiz</button></div>
-    <p class="small muted">Halte Gedanken, Ideen, Entscheidungen und kleine Erfolge fest. Jede Notiz zählt als Aktivität.</p>
+    <div class="card-head"><h2>${tr('Logbuch')}</h2><button class="btn primary small" data-action="addNote" data-id="${p.id}">${tr('+ Notiz')}</button></div>
+    <p class="small muted">${tr('Halte Gedanken, Ideen, Entscheidungen und kleine Erfolge fest. Jede Notiz zählt als Aktivität.')}</p>
     ${notes.length ? `<ul class="list">${notes.map((n) => `
       <li>
         <div class="grow"><div class="title" style="white-space:pre-wrap;font-weight:400">${esc(n.text)}</div><div class="meta">${fmtDate(n.date)}</div></div>
         <div class="actions">
-          <button class="btn ghost icon" data-action="editNote" data-id="${n.id}" title="Bearbeiten">✎</button>
-          <button class="btn ghost icon danger" data-action="deleteNote" data-id="${n.id}" title="Löschen">🗑</button>
+          <button class="btn ghost icon" data-action="editNote" data-id="${n.id}" title="${tr('Bearbeiten')}">✎</button>
+          <button class="btn ghost icon danger" data-action="deleteNote" data-id="${n.id}" title="${tr('Löschen')}">🗑</button>
         </div>
-      </li>`).join('')}</ul>` : '<div class="empty">Noch keine Einträge.</div>'}
+      </li>`).join('')}</ul>` : `<div class="empty">${tr('Noch keine Einträge.')}</div>`}
   </section>`;
 }
 
@@ -1812,33 +1877,40 @@ function renderAppearanceSettings() {
   return `
     <div class="form" style="padding:0">
       <div>
-        <div class="field-label">Hintergrund</div>
-        <div class="segmented" role="radiogroup" aria-label="Hintergrund">
-          ${THEMES.map(([v, l]) => `<label><input type="radio" name="theme" value="${v}" data-theme-opt ${v === theme ? 'checked' : ''}>${l}</label>`).join('')}
+        <div class="field-label">${tr('Sprache')}</div>
+        <div class="segmented" role="radiogroup" aria-label="${tr('Sprache')}">
+          ${[['auto', `🌐 ${tr('Automatisch')}`], ...LANGUAGES].map(([v, l]) => `<label><input type="radio" name="language" value="${v}" data-lang-opt ${v === (set.language || 'auto') ? 'checked' : ''}>${esc(l)}</label>`).join('')}
         </div>
-        <div class="hint" style="margin-top:6px">„Wie Gerät“ folgt automatisch dem Hell-/Dunkelmodus deines iPhones, iPads, Macs oder PCs.</div>
+        <div class="hint" style="margin-top:6px">${tr('„Automatisch“ verwendet die Sprache deines Geräts (zurzeit: {lang}).', { lang: esc((LANGUAGES.find(([c]) => c === detectLang('auto')) || [, ''])[1]) })}</div>
       </div>
       <div>
-        <div class="field-label">Akzentfarbe</div>
+        <div class="field-label">${tr('Hintergrund')}</div>
+        <div class="segmented" role="radiogroup" aria-label="${tr('Hintergrund')}">
+          ${THEMES.map(([v, l]) => `<label><input type="radio" name="theme" value="${v}" data-theme-opt ${v === theme ? 'checked' : ''}>${tr(l)}</label>`).join('')}
+        </div>
+        <div class="hint" style="margin-top:6px">${tr('„Wie Gerät“ folgt automatisch dem Hell-/Dunkelmodus deines iPhones, iPads, Macs oder PCs.')}</div>
+      </div>
+      <div>
+        <div class="field-label">${tr('Akzentfarbe')}</div>
         <div class="swatches">
-          ${ACCENTS.map(([c, name]) => `<button type="button" class="swatch ${c === accent ? 'active' : ''}" style="background:${c}" data-accent="${c}" title="${name}" aria-label="${name}"></button>`).join('')}
+          ${ACCENTS.map(([c, name]) => `<button type="button" class="swatch ${c === accent ? 'active' : ''}" style="background:${c}" data-accent="${c}" title="${tr(name)}" aria-label="${tr(name)}"></button>`).join('')}
           <label class="swatch-custom ${isPreset ? '' : 'active'}">
-            <input type="color" id="accent-custom" value="${esc(accent)}" aria-label="Eigene Farbe"> Eigene Farbe
+            <input type="color" id="accent-custom" value="${esc(accent)}" aria-label="${tr('Eigene Farbe')}"> ${tr('Eigene Farbe')}
           </label>
         </div>
       </div>
       <div>
-        <div class="field-label">Animation im Motivationsbereich (Übersicht)</div>
-        <div class="segmented" role="radiogroup" aria-label="Animation">
-          ${BANNER_FX.map(([v, l]) => `<label><input type="radio" name="bannerFx" value="${v}" data-fx-opt ${(set.bannerFx || 'both') === v ? 'checked' : ''}>${l}</label>`).join('')}
+        <div class="field-label">${tr('Animation im Motivationsbereich (Übersicht)')}</div>
+        <div class="segmented" role="radiogroup" aria-label="${tr('Animation')}">
+          ${BANNER_FX.map(([v, l]) => `<label><input type="radio" name="bannerFx" value="${v}" data-fx-opt ${(set.bannerFx || 'both') === v ? 'checked' : ''}>${tr(l)}</label>`).join('')}
         </div>
-        <div class="hint" style="margin-top:6px">Das warme Glühen wird kräftiger, je länger deine Serie ist. Der Balken zeigt dein Wochenziel.</div>
+        <div class="hint" style="margin-top:6px">${tr('Das warme Glühen wird kräftiger, je länger deine Serie ist. Der Balken zeigt dein Wochenziel.')}</div>
       </div>
       <div>
-        <div class="field-label">Vorschau</div>
+        <div class="field-label">${tr('Vorschau')}</div>
         <div class="theme-preview">
-          <button type="button" class="btn primary small">Primärer Knopf</button>
-          <span class="badge abgeschlossen">Abgeschlossen</span>
+          <button type="button" class="btn primary small">${tr('Primärer Knopf')}</button>
+          <span class="badge abgeschlossen">${tr('Abgeschlossen')}</span>
           <a href="#/einstellungen">Link</a>
           <div style="width:120px">${progressBar(65)}</div>
           <span class="chip active">Filter</span>
@@ -1849,36 +1921,35 @@ function renderAppearanceSettings() {
 
 function renderReminderSettings() {
   const set = data.settings;
-  const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : DEFAULT_REMINDERS;
+  const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : defaultReminders();
   return `
-    <p class="small muted">Diese Hinweise erscheinen auf der Übersicht und im Projekt, wenn ein aktives Projekt zu lange ruht.
-    Pro Projekt kannst du unter <i>Bearbeiten</i> zusätzlich einen eigenen Text und eine eigene Anzahl Tage festlegen.</p>
+    <p class="small muted">${tr('Diese Hinweise erscheinen auf der Übersicht und im Projekt, wenn ein aktives Projekt zu lange ruht. Pro Projekt kannst du unter <i>Bearbeiten</i> zusätzlich einen eigenen Text und eine eigene Anzahl Tage festlegen.')}</p>
     <div class="grid-2">
       <form class="form" style="padding:0" data-form="reminders">
-        <label>Projekt gilt als „eingeschlafen“ nach … Tagen ohne Aktivität
+        <label>${tr('Projekt gilt als „eingeschlafen“ nach … Tagen ohne Aktivität')}
           <input type="number" min="1" step="1" name="staleDays" value="${esc(set.staleDays)}">
-          <span class="hint">Ab dem doppelten Wert wird das Projekt rot markiert und oben auf der Übersicht angezeigt.</span>
+          <span class="hint">${tr('Ab dem doppelten Wert wird das Projekt rot markiert und oben auf der Übersicht angezeigt.')}</span>
         </label>
-        <label>Deine Erinnerungstexte – ein Text pro Zeile
+        <label>${tr('Deine Erinnerungstexte – ein Text pro Zeile')}
           <textarea name="reminderTexts" class="autogrow" rows="4">${esc(texts.join('\n'))}</textarea>
-          <span class="hint">Bei mehreren Texten wechselt die Erinnerung jeden Tag.</span>
+          <span class="hint">${tr('Bei mehreren Texten wechselt die Erinnerung jeden Tag.')}</span>
         </label>
         <div class="placeholders">
-          <span class="hint">Platzhalter antippen zum Einfügen:</span>
-          ${PLACEHOLDERS.map(([k, d]) => `<button type="button" class="chip" data-insert="${k}" title="${esc(d)}">${k} <span class="muted">${esc(d)}</span></button>`).join('')}
+          <span class="hint">${tr('Platzhalter antippen zum Einfügen:')}</span>
+          ${placeholders().map(([k, d]) => `<button type="button" class="chip" data-insert="${k}" title="${esc(d)}">${k} <span class="muted">${esc(d)}</span></button>`).join('')}
         </div>
-        <label class="check-row"><input type="checkbox" name="reminderShowWhy" ${set.reminderShowWhy !== false ? 'checked' : ''}> Mein „Warum“ unter der Erinnerung anzeigen</label>
-        <label class="check-row"><input type="checkbox" name="reminderShowNext" ${set.reminderShowNext !== false ? 'checked' : ''}> Nächsten Schritt anzeigen</label>
-        <label>Minuten im Knopf „Nur … Minuten“
+        <label class="check-row"><input type="checkbox" name="reminderShowWhy" ${set.reminderShowWhy !== false ? 'checked' : ''}> ${tr('Mein „Warum“ unter der Erinnerung anzeigen')}</label>
+        <label class="check-row"><input type="checkbox" name="reminderShowNext" ${set.reminderShowNext !== false ? 'checked' : ''}> ${tr('Nächsten Schritt anzeigen')}</label>
+        <label>${tr('Minuten im Knopf „Nur … Minuten“')}
           <input type="number" min="1" max="240" step="1" name="reminderMinutes" value="${esc(set.reminderMinutes || 25)}">
         </label>
         <div class="form-actions">
-          <button type="button" class="btn" data-action="resetReminders">Standardtexte</button>
-          <button class="btn primary" type="submit">Speichern</button>
+          <button type="button" class="btn" data-action="resetReminders">${tr('Standardtexte')}</button>
+          <button class="btn primary" type="submit">${tr('Speichern')}</button>
         </div>
       </form>
       <div>
-        <h3>Vorschau</h3>
+        <h3>${tr('Vorschau')}</h3>
         <div id="reminder-preview">${reminderPreview(texts, set)}</div>
       </div>
     </div>`;
@@ -1888,25 +1959,25 @@ function previewProject() {
   const active = data.projects.filter((p) => p.status === 'aktiv').map((p) => ({ p, s: projectStats(p) }));
   active.sort((a, b) => b.s.idle - a.s.idle);
   if (active.length) return { ...active[0], s: { ...active[0].s, idle: Math.max(active[0].s.idle, 14) } };
-  return { p: { id: 'preview', name: 'Mein Projekt', why: 'Weil es mir Freude macht.', goal: 'Fertig und veröffentlicht' },
-    s: { idle: 14, minutes: 600, next: { title: 'Erste Skizze machen' } } };
+  return { p: { id: 'preview', name: tr('Mein Projekt'), why: tr('Weil es mir Freude macht.'), goal: tr('Fertig und veröffentlicht') },
+    s: { idle: 14, minutes: 600, next: { title: tr('Erste Skizze machen') } } };
 }
 
 function reminderPreview(texts, set) {
   const { p, s } = previewProject();
   const min = Number(set.reminderMinutes) || 25;
-  const lines = texts.length ? texts : DEFAULT_REMINDERS;
-  return `<p class="small muted">Beispiel mit „${esc(p.name)}“ nach ${s.idle} Tagen:</p>
+  const lines = texts.length ? texts : defaultReminders();
+  return `<p class="small muted">${tr('Beispiel mit „{name}“ nach {n} Tagen:', { name: esc(p.name), n: s.idle })}</p>
     <ul class="list">${lines.map((tpl) => {
-      const showWhy = set.reminderShowWhy !== false && p.why && !/\{warum\}/i.test(tpl);
-      const showNext = set.reminderShowNext !== false && !/\{schritt\}/i.test(tpl);
+      const showWhy = set.reminderShowWhy !== false && p.why && !/\{(warum|why)\}/i.test(tpl);
+      const showNext = set.reminderShowNext !== false && !/\{(schritt|step)\}/i.test(tpl);
       return `<li><div class="grow">
         <div class="title">😴 ${esc(fillReminder(tpl, p, s))}</div>
-        ${showWhy ? `<div class="small why">Dein Warum: „${esc(p.why)}“</div>` : ''}
-        ${showNext && s.next ? `<div class="small muted">Kleinster nächster Schritt: ${esc(s.next.title)}</div>` : ''}
+        ${showWhy ? `<div class="small why">${tr('Dein Warum: „{why}“', { why: esc(p.why) })}</div>` : ''}
+        ${showNext && s.next ? `<div class="small muted">${tr('Kleinster nächster Schritt: {step}', { step: esc(s.next.title) })}</div>` : ''}
       </div></li>`;
     }).join('')}</ul>
-    <p class="small muted">Knopf: <span class="badge">▶ Nur ${min} Minuten</span></p>`;
+    <p class="small muted">${tr('Knopf:')} <span class="badge">${tr('▶ Nur {n} Minuten', { n: min })}</span></p>`;
 }
 
 function readReminderForm(form) {
@@ -1923,7 +1994,7 @@ function readReminderForm(form) {
 /* Einklappbare Abschnitte der Einstellungen – offener Zustand wird pro Gerät gemerkt. */
 const SECTIONS_KEY = 'projekttracker.ui.openSections';
 let openSections = new Set();
-try { openSections = new Set(JSON.parse(localStorage.getItem(SECTIONS_KEY) || '[]')); } catch { /* ignorieren */ }
+try { openSections = new Set(JSON.parse(localStorage.getItem(SECTIONS_KEY) || '[]').slice(-1)); } catch { /* ignorieren */ }
 function rememberSections() {
   try { localStorage.setItem(SECTIONS_KEY, JSON.stringify([...openSections])); } catch { /* ignorieren */ }
 }
@@ -1941,10 +2012,10 @@ function settingsSection(id, icon, title, summary, body) {
 
 function weeklyGoalSummary() {
   const g = weeklyGoal();
-  if (!g.minutes) return 'kein Ziel festgelegt';
+  if (!g.minutes) return tr('kein Ziel festgelegt');
   return g.source === 'projects'
-    ? `${fmtStd(g.minutes / 60)} pro Woche · Summe aus ${g.projects.length} ${g.projects.length === 1 ? 'Projekt' : 'Projekten'}`
-    : `${fmtStd(g.minutes / 60)} pro Woche · Standard`;
+    ? trp(g.projects.length, '{h} pro Woche · Summe aus {n} Projekt', '{h} pro Woche · Summe aus {n} Projekten', { h: fmtStd(g.minutes / 60) })
+    : tr('{h} pro Woche · Standard', { h: fmtStd(g.minutes / 60) });
 }
 
 function renderWeeklyGoalSettings() {
@@ -1952,27 +2023,26 @@ function renderWeeklyGoalSettings() {
   const set = data.settings;
   const active = data.projects.filter((p) => p.status === 'aktiv');
   return `
-    <p class="small muted">Du kannst bei jedem Projekt unter <i>Bearbeiten</i> eine <b>Wochenarbeitszeit</b> eintragen.
-    Dann ist dein Wochenziel die <b>Summe der Wochenzeiten aller aktiven Projekte</b>. Hat kein aktives Projekt eine Wochenzeit, gilt das Standard-Wochenziel.</p>
+    <p class="small muted">${tr('Du kannst bei jedem Projekt unter <i>Bearbeiten</i> eine <b>Wochenarbeitszeit</b> eintragen. Dann ist dein Wochenziel die <b>Summe der Wochenzeiten aller aktiven Projekte</b>. Hat kein aktives Projekt eine Wochenzeit, gilt das Standard-Wochenziel.')}</p>
     ${active.length ? `<ul class="list weekly-list">${active.map((p) => `
       <li>
         <span class="dot-color" style="background:${esc(p.color)}"></span>
         <div class="grow"><a href="#/projekt/${p.id}">${esc(p.name)}</a></div>
         <span class="amount ${projectWeeklyMin(p) ? '' : 'muted'}">${projectWeeklyMin(p) ? fmtStd(projectWeeklyMin(p) / 60) : '–'}</span>
-        <button class="btn ghost icon" data-action="editProject" data-id="${p.id}" title="Wochenzeit bearbeiten">✎</button>
+        <button class="btn ghost icon" data-action="editProject" data-id="${p.id}" title="${tr('Wochenzeit bearbeiten')}">✎</button>
       </li>`).join('')}
-      <li class="weekly-total"><div class="grow"><b>Wochenziel gesamt</b>
-        <div class="small muted">${g.source === 'projects' ? 'Summe der Projekt-Wochenzeiten' : 'kein Projekt hat eine Wochenzeit – Standard gilt'}</div></div>
+      <li class="weekly-total"><div class="grow"><b>${tr('Wochenziel gesamt')}</b>
+        <div class="small muted">${g.source === 'projects' ? tr('Summe der Projekt-Wochenzeiten') : tr('kein Projekt hat eine Wochenzeit – Standard gilt')}</div></div>
         <span class="amount">${g.minutes ? fmtStd(g.minutes / 60) : '–'}</span><span style="width:40px"></span></li>
-    </ul>` : '<p class="small muted">Noch keine aktiven Projekte.</p>'}
+    </ul>` : `<p class="small muted">${tr('Noch keine aktiven Projekte.')}</p>`}
     <form class="form" style="padding:0;margin-top:16px" data-form="settings">
-      <label>Standard-Wochenziel (Stunden für alle Projekte)
+      <label>${tr('Standard-Wochenziel (Stunden für alle Projekte)')}
         <input type="number" min="0" step="0.5" name="weeklyHoursGoal" value="${esc(set.weeklyHoursGoal)}">
         <span class="hint">${g.source === 'projects'
-          ? '⚠️ Wird gerade nicht verwendet, weil Projekte eigene Wochenzeiten haben.'
-          : 'Gilt, solange kein aktives Projekt eine eigene Wochenarbeitszeit hat.'}</span>
+          ? tr('⚠️ Wird gerade nicht verwendet, weil Projekte eigene Wochenzeiten haben.')
+          : tr('Gilt, solange kein aktives Projekt eine eigene Wochenarbeitszeit hat.')}</span>
       </label>
-      <div class="form-actions"><button class="btn primary" type="submit">Speichern</button></div>
+      <div class="form-actions"><button class="btn primary" type="submit">${tr('Speichern')}</button></div>
     </form>`;
 }
 
@@ -1981,28 +2051,27 @@ const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'pomodoro', 'eri
 function renderPomodoroSettings() {
   const st = data.settings, cfg = pomoCfg();
   const perm = 'Notification' in window ? Notification.permission : 'unsupported';
-  const permText = { granted: '✔ Mitteilungen sind erlaubt.', denied: '✖ Mitteilungen sind im Browser blockiert – du kannst sie in den Website-Einstellungen des Browsers wieder erlauben.',
-    default: 'Mitteilungen wurden noch nicht erlaubt.', unsupported: 'Dieser Browser unterstützt hier keine Mitteilungen. Auf dem iPhone/iPad funktionieren sie nur, wenn der Tracker über den Home-Bildschirm geöffnet wird.' }[perm];
+  const permText = { granted: tr('✔ Mitteilungen sind erlaubt.'), denied: tr('✖ Mitteilungen sind im Browser blockiert – du kannst sie in den Website-Einstellungen des Browsers wieder erlauben.'),
+    default: tr('Mitteilungen wurden noch nicht erlaubt.'), unsupported: tr('Dieser Browser unterstützt hier keine Mitteilungen. Auf dem iPhone/iPad funktionieren sie nur, wenn der Tracker über den Home-Bildschirm geöffnet wird.') }[perm];
   return `
-    <p class="small muted">Arbeite in festen Fokus-Abschnitten mit Pausen dazwischen. Starte einen Pomodoro auf der Projektseite über <b>🍅 Pomodoro</b>.
-    Nach einer Pause startet der nächste Pomodoro erst auf Knopfdruck – so zählt nur echte Fokuszeit. Beim Beenden wird die gesammelte Fokuszeit als Zeiteintrag gespeichert.</p>
+    <p class="small muted">${tr('Arbeite in festen Fokus-Abschnitten mit Pausen dazwischen. Starte einen Pomodoro auf der Projektseite über <b>🍅 Pomodoro</b>. Nach einer Pause startet der nächste Pomodoro erst auf Knopfdruck – so zählt nur echte Fokuszeit. Beim Beenden wird die gesammelte Fokuszeit als Zeiteintrag gespeichert.')}</p>
     <form class="form" style="padding:0" data-form="pomodoro" novalidate>
       <div class="row2">
-        <label>Fokus (Minuten)<input type="number" min="1" max="180" step="1" name="pomoWork" value="${cfg.work}"></label>
-        <label>Kurze Pause (Minuten)<input type="number" min="1" max="60" step="1" name="pomoShort" value="${cfg.short}"></label>
+        <label>${tr('Fokus (Minuten)')}<input type="number" min="1" max="180" step="1" name="pomoWork" value="${cfg.work}"></label>
+        <label>${tr('Kurze Pause (Minuten)')}<input type="number" min="1" max="60" step="1" name="pomoShort" value="${cfg.short}"></label>
       </div>
       <div class="row2">
-        <label>Lange Pause (Minuten)<input type="number" min="1" max="120" step="1" name="pomoLong" value="${cfg.long}"></label>
-        <label>Lange Pause nach … Pomodoros<input type="number" min="1" max="12" step="1" name="pomoEvery" value="${cfg.every}"></label>
+        <label>${tr('Lange Pause (Minuten)')}<input type="number" min="1" max="120" step="1" name="pomoLong" value="${cfg.long}"></label>
+        <label>${tr('Lange Pause nach … Pomodoros')}<input type="number" min="1" max="12" step="1" name="pomoEvery" value="${cfg.every}"></label>
       </div>
-      <label class="check-row"><input type="checkbox" name="pomoSound" ${st.pomoSound !== false ? 'checked' : ''}> Ton am Ende von Fokus und Pause</label>
-      <label class="check-row"><input type="checkbox" name="pomoNotify" ${st.pomoNotify !== false ? 'checked' : ''}> Mitteilung anzeigen, wenn der Tracker im Hintergrund ist</label>
+      <label class="check-row"><input type="checkbox" name="pomoSound" ${st.pomoSound !== false ? 'checked' : ''}> ${tr('Ton am Ende von Fokus und Pause')}</label>
+      <label class="check-row"><input type="checkbox" name="pomoNotify" ${st.pomoNotify !== false ? 'checked' : ''}> ${tr('Mitteilung anzeigen, wenn der Tracker im Hintergrund ist')}</label>
       <div class="hint">${permText}
-        ${perm === 'default' ? ' <button type="button" class="btn small" data-action="askNotify">Mitteilungen erlauben</button>' : ''}</div>
-      <div class="hint">Hinweis: Auf iPhone und iPad hält Safari Webseiten im Hintergrund an. Das Signal kommt dort, sobald du den Tracker wieder öffnest – die Zeit stimmt trotzdem.</div>
+        ${perm === 'default' ? ` <button type="button" class="btn small" data-action="askNotify">${tr('Mitteilungen erlauben')}</button>` : ''}</div>
+      <div class="hint">${tr('Hinweis: Auf iPhone und iPad hält Safari Webseiten im Hintergrund an. Das Signal kommt dort, sobald du den Tracker wieder öffnest – die Zeit stimmt trotzdem.')}</div>
       <div class="form-actions">
-        <button type="button" class="btn" data-action="testChime">🔔 Ton testen</button>
-        <button class="btn primary" type="submit">Speichern</button>
+        <button type="button" class="btn" data-action="testChime">🔔 ${tr('Ton testen')}</button>
+        <button class="btn primary" type="submit">${tr('Speichern')}</button>
       </div>
     </form>`;
 }
@@ -2010,34 +2079,29 @@ function renderPomodoroSettings() {
 function renderSyncGuide() {
   const svc = syncService();
   return `<div class="help">
-    <p>Die Regel ist einfach: <b>Beim Aufhören sichern (💾), beim Anfangen importieren.</b>
-    Der Tracker erinnert dich daran: mit der gelben Leiste bei ungesicherten Änderungen, mit der blauen Leiste,
-    wenn du ein Gerät länger nicht benutzt hast, und am Computer zusätzlich mit einer Rückfrage beim Schließen.</p>
+    <p>${tr('Die Regel ist einfach: <b>Beim Aufhören sichern (💾), beim Anfangen importieren.</b> Der Tracker erinnert dich daran: mit der gelben Leiste bei ungesicherten Änderungen, mit der blauen Leiste, wenn du ein Gerät länger nicht benutzt hast, und am Computer zusätzlich mit einer Rückfrage beim Schließen.')}</p>
 
-    <div class="field-label">Welchen Dienst nutzt du?</div>
-    <div class="segmented" role="radiogroup" aria-label="Dienst">
-      ${SYNC_SERVICES.map((x) => `<label><input type="radio" name="syncService" value="${x.id}" data-sync-opt ${x.id === svc.id ? 'checked' : ''}>${esc(x.name)}</label>`).join('')}
+    <div class="field-label">${tr('Welchen Dienst nutzt du?')}</div>
+    <div class="segmented" role="radiogroup" aria-label="${tr('Dienst')}">
+      ${syncServices().map((x) => `<label><input type="radio" name="syncService" value="${x.id}" data-sync-opt ${x.id === svc.id ? 'checked' : ''}>${esc(x.name)}</label>`).join('')}
     </div>
 
     <p class="small muted" style="margin-top:12px">${svc.cloud
-      ? `Stelle auf allen Geräten denselben Ordner als Download-Ordner ein: <b>${esc(svc.folder)}</b>.
-         Dann landet jede Sicherung automatisch dort und ist auf deinen anderen Geräten verfügbar.
-         Beim Import wählst du die neueste Datei – der Dateiname enthält Datum und Uhrzeit.`
-      : 'Ohne Cloud-Dienst überträgst du die Sicherungsdatei selbst auf das andere Gerät und importierst sie dort. Der Dateiname enthält Datum und Uhrzeit.'}</p>
+      ? tr('Stelle auf allen Geräten denselben Ordner als Download-Ordner ein: <b>{folder}</b>. Dann landet jede Sicherung automatisch dort und ist auf deinen anderen Geräten verfügbar. Beim Import wählst du die neueste Datei – der Dateiname enthält Datum und Uhrzeit.', { folder: esc(svc.folder) })
+      : tr('Ohne Cloud-Dienst überträgst du die Sicherungsdatei selbst auf das andere Gerät und importierst sie dort. Der Dateiname enthält Datum und Uhrzeit.')}</p>
 
     <div class="grid-2 sync-devices">
       ${SYNC_DEVICES.map(([key, label]) => `<div>
-        <h3>${label}</h3>
+        <h3>${tr(label)}</h3>
         <ol>${svc.steps[key].map((step) => `<li>${step}</li>`).join('')}</ol>
       </div>`).join('')}
     </div>
 
-    <h3>Gut zu wissen</h3>
+    <h3>${tr('Gut zu wissen')}</h3>
     <ul>
-      <li><b>iPhone & iPad:</b> Füge den Tracker über <i>Teilen › Zum Home-Bildschirm</i> hinzu und öffne ihn immer darüber.
-        Sonst kann Safari die Daten nach 7 Tagen ohne Besuch löschen. Beim Schließen gibt es dort keine Rückfrage – achte auf die gelbe Leiste und den 💾-Knopf.</li>
-      <li><b>Chrome oder Edge am Mac:</b> Download-Ordner unter <i>Einstellungen › Downloads › Speicherort</i> festlegen.</li>
-      <li><b>Rückfrage beim Schließen:</b> Browser erlauben dort keinen eigenen Text. Bei „Diese Website verlassen?“ wähle „Abbrechen“ bzw. „Bleiben“ und tippe auf 💾 Sichern.</li>
+      <li>${tr('<b>iPhone & iPad:</b> Füge den Tracker über <i>Teilen › Zum Home-Bildschirm</i> hinzu und öffne ihn immer darüber. Sonst kann Safari die Daten nach 7 Tagen ohne Besuch löschen. Beim Schließen gibt es dort keine Rückfrage – achte auf die gelbe Leiste und den 💾-Knopf.')}</li>
+      <li>${tr('<b>Chrome oder Edge am Mac:</b> Download-Ordner unter <i>Einstellungen › Downloads › Speicherort</i> festlegen.')}</li>
+      <li>${tr('<b>Rückfrage beim Schließen:</b> Browser erlauben dort keinen eigenen Text. Bei „Diese Website verlassen?“ wähle „Abbrechen“ bzw. „Bleiben“ und tippe auf 💾 Sichern.')}</li>
     </ul>
   </div>`;
 }
@@ -2046,72 +2110,71 @@ function renderSettings() {
   const set = data.settings;
   const size = new Blob([JSON.stringify(data)]).size;
   const accent = (set.accent || '#4f46e5').toLowerCase();
-  const accentName = (ACCENTS.find(([c]) => c === accent) || [, 'Eigene Farbe'])[1];
-  const themeName = (THEMES.find(([v]) => v === (set.theme || 'system')) || [, ''])[1].replace(/^\S+\s/, '');
+  const accentName = tr((ACCENTS.find(([c]) => c === accent) || [, 'Eigene Farbe'])[1]);
+  const themeName = tr((THEMES.find(([v]) => v === (set.theme || 'system')) || [, ''])[1]).replace(/^\S+\s/, '');
+  const langName = (LANGUAGES.find(([c]) => c === LANG) || [, ''])[1];
   const dash = dashboardConfig();
-  const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : DEFAULT_REMINDERS;
-  const allOpen = SECTION_IDS.every((id) => openSections.has(id));
-
+  const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : defaultReminders();
   return `
     <div class="page-head">
-      <div><h1>Einstellungen</h1><p>Tippe auf einen Bereich, um ihn auf- oder zuzuklappen.</p></div>
-      <button class="btn small" data-action="toggleAllSections">${allOpen ? 'Alle zuklappen' : 'Alle aufklappen'}</button>
+      <div><h1>${tr('Einstellungen')}</h1><p>${tr('Tippe auf einen Bereich, um ihn zu öffnen.')}</p></div>
     </div>
 
-    ${settingsSection('darstellung', '🎨', 'Darstellung',
-      `${esc(themeName)} · <span class="dot-color" style="background:${esc(accent)}"></span> ${esc(accentName)}`,
+    ${settingsSection('darstellung', '🎨', tr('Darstellung'),
+      `🌐 ${esc(langName)} · ${esc(themeName)} · <span class="dot-color" style="background:${esc(accent)}"></span> ${esc(accentName)}`,
       renderAppearanceSettings())}
 
-    ${settingsSection('uebersicht', '🧩', 'Übersicht & Projektansicht',
-      `Übersicht: ${dash.widgets.filter((w) => w.visible).length} von ${dash.widgets.length} Bereichen · ${data.projects.filter((x) => x.layout).length} Projekt(e) mit eigener Anordnung`,
-      `<p class="small muted">Angepasst wird direkt auf der jeweiligen Seite: Bereiche am ⠿-Griff ziehen, Breite wählen, aus- und einblenden –
-      mit sofortiger Vorschau. Für die Projektansicht wählst du beim Speichern, ob die Anordnung für <b>alle Projekte</b> oder <b>nur für ein Projekt</b> gilt.</p>
+    ${settingsSection('uebersicht', '🧩', tr('Übersicht & Projektansicht'),
+      tr('Übersicht: {shown} von {all} Bereichen · {n} Projekt(e) mit eigener Anordnung', { shown: dash.widgets.filter((w) => w.visible).length, all: dash.widgets.length, n: data.projects.filter((x) => x.layout).length }),
+      `<p class="small muted">${tr('Angepasst wird direkt auf der jeweiligen Seite: Bereiche am ⠿-Griff ziehen, Breite wählen, aus- und einblenden – mit sofortiger Vorschau. Für die Projektansicht wählst du beim Speichern, ob die Anordnung für <b>alle Projekte</b> oder <b>nur für ein Projekt</b> gilt.')}</p>
       <div class="btn-row">
-        <button type="button" class="btn primary" data-action="customizeDashboard">🧩 Übersicht anpassen</button>
-        ${data.projects.length ? `<button type="button" class="btn" data-action="customizeProject" data-id="${esc((data.projects.find((x) => x.status === 'aktiv') || data.projects[0]).id)}">📁 Projektansicht anpassen</button>` : ''}
+        <button type="button" class="btn primary" data-action="customizeDashboard">🧩 ${tr('Übersicht anpassen')}</button>
+        ${data.projects.length ? `<button type="button" class="btn" data-action="customizeProject" data-id="${esc((data.projects.find((x) => x.status === 'aktiv') || data.projects[0]).id)}">📁 ${tr('Projektansicht anpassen')}</button>` : ''}
       </div>
-      ${data.projects.some((x) => x.layout) ? `<h3 style="margin-top:16px">Projekte mit eigener Anordnung</h3>
+      ${data.projects.some((x) => x.layout) ? `<h3 style="margin-top:16px">${tr('Projekte mit eigener Anordnung')}</h3>
         <ul class="list">${data.projects.filter((x) => x.layout).map((x) => `<li><span class="dot-color" style="background:${esc(x.color)}"></span>
           <div class="grow"><a href="#/projekt/${x.id}">${esc(x.name)}</a></div>
-          <button type="button" class="btn small" data-action="resetProjectLayout" data-id="${x.id}">Gemeinsame Anordnung verwenden</button></li>`).join('')}</ul>` : ''}
+          <button type="button" class="btn small" data-action="resetProjectLayout" data-id="${x.id}">${tr('Gemeinsame Anordnung verwenden')}</button></li>`).join('')}</ul>` : ''}
       <div class="btn-row" style="margin-top:12px">
-        <button type="button" class="btn small" data-action="resetAllLayouts">Alles auf Standard zurücksetzen</button>
+        <button type="button" class="btn small" data-action="resetAllLayouts">${tr('Alles auf Standard zurücksetzen')}</button>
       </div>`)}
 
-    ${settingsSection('wochenziel', '🎯', 'Wochenziel', weeklyGoalSummary(), renderWeeklyGoalSettings())}
+    ${settingsSection('wochenziel', '🎯', tr('Wochenziel'), weeklyGoalSummary(), renderWeeklyGoalSettings())}
 
-    ${settingsSection('pomodoro', '🍅', 'Pomodoro-Timer',
-      `${pomoCfg().work} Min Fokus · ${pomoCfg().short} / ${pomoCfg().long} Min Pause · lange Pause nach ${pomoCfg().every}`,
+    ${settingsSection('pomodoro', '🍅', tr('Pomodoro-Timer'),
+      tr('{w} Min Fokus · {s} / {l} Min Pause · lange Pause nach {e}', { w: pomoCfg().work, s: pomoCfg().short, l: pomoCfg().long, e: pomoCfg().every }),
       renderPomodoroSettings())}
 
-    ${settingsSection('erinnerungen', '😴', 'Erinnerungen bei eingeschlafenen Projekten',
-      `nach ${esc(set.staleDays)} Tagen · ${texts.length} ${texts.length === 1 ? 'Text' : 'Texte'}`,
+    ${settingsSection('erinnerungen', '😴', tr('Erinnerungen bei eingeschlafenen Projekten'),
+      `${tr('nach {n} Tagen', { n: esc(set.staleDays) })} · ${trp(texts.length, '{n} Text', '{n} Texte')}`,
       renderReminderSettings())}
 
-    ${settingsSection('sicherung', '💾', 'Datensicherung',
-      `Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : ''}`,
-      `<p class="small muted">Alle Daten werden nur lokal in diesem Browser gespeichert (${(size / 1024).toFixed(1)} KB).
-      Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung${syncService().cloud ? ` nach ${esc(syncService().name)}` : ' und überträgst sie'} und importierst sie dort.
-      Wie das geht, steht unter „Zwischen Geräten wechseln“.</p>
+    ${isServerMode() ? settingsSection('sicherung', '☁️', tr('Server-Speicherung'),
+      tr('Automatisch gespeichert · zuletzt abgeglichen {when}', { when: esc(fmtDateTime(syncState.lastSync)) }),
+      renderServerBackupSettings(size)) : settingsSection('sicherung', '💾', tr('Datensicherung'),
+      `${tr('Letzte Sicherung: {when}', { when: esc(fmtDateTime(meta.lastExport)) })} ${hasUnsavedChanges() ? `<span class="badge mittel">${tr('nicht gesichert')}</span>` : ''}`,
+      `<p class="small muted">${tr('Alle Daten werden nur lokal in diesem Browser gespeichert ({kb} KB).', { kb: fmtNum(size / 1024) })}
+      ${syncService().cloud ? tr('Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung nach {svc} und importierst sie dort.', { svc: esc(syncService().name) }) : tr('Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung, überträgst sie und importierst sie dort.')}
+      ${tr('Wie das geht, steht unter „Zwischen Geräten wechseln“.')}</p>
       <dl class="kv" style="margin-bottom:16px">
-        <dt>Letzte Sicherung</dt><dd>${esc(fmtDateTime(meta.lastExport))}</dd>
-        <dt>Letzte Änderung</dt><dd>${esc(fmtDateTime(meta.lastChange))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : '<span class="badge aktiv">gesichert</span>'}</dd>
+        <dt>${tr('Letzte Sicherung')}</dt><dd>${esc(fmtDateTime(meta.lastExport))}</dd>
+        <dt>${tr('Letzte Änderung')}</dt><dd>${esc(fmtDateTime(meta.lastChange))} ${hasUnsavedChanges() ? `<span class="badge mittel">${tr('nicht gesichert')}</span>` : `<span class="badge aktiv">${tr('gesichert')}</span>`}</dd>
       </dl>
       <div class="btn-row">
-        <button class="btn primary" data-action="exportData">⬇ Backup exportieren (JSON)</button>
-        <button class="btn" data-action="exportCsv">⬇ Zeit & Investitionen als CSV</button>
-        <button class="btn" data-action="importData">⬆ Backup importieren</button>
+        <button class="btn primary" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
+        <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
+        <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
       </div>
       <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
-      <h3>Gefahrenzone</h3>
-      <button class="btn danger" data-action="resetData">Alle Daten löschen</button>`)}
+      <h3>${tr('Gefahrenzone')}</h3>
+      <button class="btn danger" data-action="resetData">${tr('Alle Daten löschen')}</button>`)}
 
-    ${settingsSection('sync', '🔄', 'Zwischen Geräten wechseln',
-      `Anleitung für iCloud, OneDrive, Google Drive, Dropbox · gewählt: ${esc(syncService().name)}`,
+    ${isServerMode() ? '' : settingsSection('sync', '🔄', tr('Zwischen Geräten wechseln'),
+      tr('Anleitung für iCloud, OneDrive, Google Drive, Dropbox · gewählt: {svc}', { svc: esc(syncService().name) }),
       renderSyncGuide())}
 
-    <p class="small muted app-version">Version ${esc(APP_VERSION)} ·
-      <button class="btn ghost small" data-action="checkUpdateNow">Nach Updates suchen</button></p>`;
+    <p class="small muted app-version">${tr('Version {v}', { v: esc(APP_VERSION) })} ·
+      <button class="btn ghost small" data-action="checkUpdateNow">${tr('Nach Updates suchen')}</button></p>`;
 }
 
 /* ------------------------------------------------------------------------
@@ -2128,7 +2191,7 @@ function fieldHTML(f) {
     return `<div class="field"><div class="field-label">${esc(f.label)}</div>
       <div class="subtasks-editor" data-subtasks="${f.name}">
         <div class="subtask-rows">${(v || []).map(subtaskRowHTML).join('')}</div>
-        <button type="button" class="btn small" data-sub-add>+ Unterpunkt</button>
+        <button type="button" class="btn small" data-sub-add>${tr('+ Unterpunkt')}</button>
       </div>${hint}</div>`;
   }
   // Freitext wächst beim Tippen nach unten mit (statt seitlich zu scrollen)
@@ -2148,9 +2211,9 @@ function fieldHTML(f) {
 
 function subtaskRowHTML(st = {}) {
   return `<div class="subtask-row" data-id="${esc(st.id || '')}">
-    <input type="checkbox" ${st.done ? 'checked' : ''} aria-label="Erledigt">
-    <textarea class="autogrow single sub-title" rows="1" placeholder="Unterpunkt">${esc(st.title || '')}</textarea>
-    <button type="button" class="btn ghost icon danger" data-sub-del title="Entfernen" aria-label="Unterpunkt entfernen">✕</button>
+    <input type="checkbox" ${st.done ? 'checked' : ''} aria-label="${tr('Erledigt')}">
+    <textarea class="autogrow single sub-title" rows="1" placeholder="${tr('Unterpunkt')}">${esc(st.title || '')}</textarea>
+    <button type="button" class="btn ghost icon danger" data-sub-del title="${tr('Entfernen')}" aria-label="${tr('Unterpunkt entfernen')}">✕</button>
   </div>`;
 }
 
@@ -2162,7 +2225,7 @@ function autoGrow(el) {
 }
 const growAll = (root = document) => root.querySelectorAll('textarea.autogrow').forEach(autoGrow);
 
-function openForm({ title, fields, submitLabel = 'Speichern', onSubmit, wide = false }) {
+function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide = false }) {
   const dlg = $('#modal');
   const rows = [];
   if (wide) {
@@ -2181,7 +2244,7 @@ function openForm({ title, fields, submitLabel = 'Speichern', onSubmit, wide = f
     ${rows.join('')}
     <div class="form-error"></div>
     <div class="form-actions">
-      <button type="button" class="btn" data-close>Abbrechen</button>
+      <button type="button" class="btn" data-close>${tr('Abbrechen')}</button>
       <button type="submit" class="btn primary">${esc(submitLabel)}</button>
     </div>
   </form>`;
@@ -2206,15 +2269,15 @@ function openForm({ title, fields, submitLabel = 'Speichern', onSubmit, wide = f
       let v = fd.get(f.name);
       v = typeof v === 'string' ? v.trim() : v;
       if (typeof v === 'string' && (!f.type || f.type === 'text')) v = v.replace(/\s*\n\s*/g, ' ');
-      if (f.required && !v) return showError(`Bitte „${f.label}“ ausfüllen.`);
+      if (f.required && !v) return showError(tr('Bitte „{label}“ ausfüllen.', { label: f.label }));
       if (f.type === 'number') v = v === '' ? null : Number(String(v).replace(',', '.'));
       if (f.type === 'decimal') {
         v = parseAmount(v);
-        if (Number.isNaN(v)) return showError(`„${f.label}“ ist keine gültige Zahl.`);
+        if (Number.isNaN(v)) return showError(tr('„{label}“ ist keine gültige Zahl.', { label: f.label }));
       }
       if (f.type === 'duration' && v) {
         v = parseDuration(v);
-        if (!v) return showError('Dauer nicht erkannt. Beispiele: 1:30, 1,5, 90 min');
+        if (!v) return showError(tr('Dauer nicht erkannt. Beispiele: 1:30, 1,5, 90 min'));
       }
       values[f.name] = v;
     }
@@ -2309,7 +2372,7 @@ const actions = {
     p.status = status;
     commit();
     if (!wasDone && status === 'abgeschlossen') celebrateProject(p);
-    else toast(`Status: ${statusLabel(status)}`);
+    else toast(tr('Status: {s}', { s: statusLabel(status) }));
   },
   toggleSeries({ id }) {
     if (hiddenSeries.has(id)) hiddenSeries.delete(id); else hiddenSeries.add(id);
@@ -2320,15 +2383,15 @@ const actions = {
   resetProjectLayout({ id }) {
     delete getProject(id).layout;
     commit();
-    toast('Das Projekt nutzt wieder die gemeinsame Anordnung.');
+    toast(tr('Das Projekt nutzt wieder die gemeinsame Anordnung.'));
   },
   resetAllLayouts() {
-    if (!confirm('Übersicht und Projektansicht (inkl. aller projektspezifischen Anordnungen) auf Standard zurücksetzen?')) return;
+    if (!confirm(tr('Übersicht und Projektansicht (inkl. aller projektspezifischen Anordnungen) auf Standard zurücksetzen?'))) return;
     delete data.settings.dashboard;
     delete data.settings.projectLayout;
     data.projects.forEach((p) => delete p.layout);
     commit();
-    toast('Anordnungen zurückgesetzt');
+    toast(tr('Anordnungen zurückgesetzt'));
   },
   toggleSidebar() {
     const collapsed = document.documentElement.classList.toggle('side-collapsed');
@@ -2343,32 +2406,26 @@ const actions = {
   },
   async checkUpdateNow() {
     const v = await checkForUpdate(true);
-    if (location.protocol === 'file:') toast('Lokal geöffnet – Updates gibt es nur in der Online-Version.');
-    else if (v === null) toast('Update-Prüfung nicht möglich (offline?).', 'error');
-    else if (v === APP_VERSION) toast(`Du hast die neueste Version (${APP_VERSION}) ✔ – frisch veröffentlichte Änderungen brauchen 1–2 Minuten, bis sie hier ankommen.`);
+    if (location.protocol === 'file:') toast(tr('Lokal geöffnet – Updates gibt es nur in der Online-Version.'));
+    else if (v === null) toast(tr('Update-Prüfung nicht möglich (offline?).'), 'error');
+    else if (v === APP_VERSION) toast(tr('Du hast die neueste Version ({v}) ✔ – frisch veröffentlichte Änderungen brauchen 1–2 Minuten, bis sie hier ankommen.', { v: APP_VERSION }));
   },
   askNotify() {
     if (!('Notification' in window)) return;
     Notification.requestPermission().then(() => render()).catch(() => {});
   },
-  testChime() { unlockAudio(); playChime(); if (data.settings.pomoSound === false) toast('Der Ton ist ausgeschaltet.'); },
-  toggleAllSections() {
-    const allOpen = SECTION_IDS.every((id) => openSections.has(id));
-    openSections = new Set(allOpen ? [] : SECTION_IDS);
-    rememberSections();
-    render();
-  },
+  testChime() { unlockAudio(); playChime(); if (data.settings.pomoSound === false) toast(tr('Der Ton ist ausgeschaltet.')); },
   editProject({ id }) { projectForm(getProject(id)); },
 
   deleteProject({ id }) {
     const p = getProject(id);
-    if (!confirm(`Projekt „${p.name}“ inklusive aller Zeiten, Investitionen, Aufgaben und Meilensteine löschen?`)) return;
+    if (!confirm(tr('Projekt „{name}“ inklusive aller Zeiten, Investitionen, Aufgaben und Meilensteine löschen?', { name: p.name }))) return;
     data.projects = data.projects.filter((x) => x.id !== id);
     for (const k of ['timeEntries', 'investments', 'milestones', 'tasks', 'notes']) data[k] = data[k].filter((x) => x.projectId !== id);
     if (data.timer?.projectId === id) data.timer = null;
     save();
     location.hash = '#/projekte';
-    toast('Projekt gelöscht');
+    toast(tr('Projekt gelöscht'));
   },
 
   filterProjects({ id }) { projectFilter = id; render(); },
@@ -2385,9 +2442,9 @@ const actions = {
     const t = data.tasks.find((x) => x.id === id);
     const subs = t.subtasks || [];
     if (subs.length) {
-      if (t.done) return toast('Um die Aufgabe wieder zu öffnen, entferne den Haken bei einem Unterpunkt.');
+      if (t.done) return toast(tr('Um die Aufgabe wieder zu öffnen, entferne den Haken bei einem Unterpunkt.'));
       const open = subs.filter((st) => !st.done);
-      if (!confirm(`Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.\n\nAlle ${open.length} offenen Unterpunkte jetzt abhaken?`)) return;
+      if (!confirm(tr('Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.\n\nAlle {n} offenen Unterpunkte jetzt abhaken?', { n: open.length }))) return;
       open.forEach((st) => { st.done = true; st.doneAt = todayISO(); });
       syncTaskDone(t);
       commit();
@@ -2407,14 +2464,14 @@ const actions = {
     const change = syncTaskDone(t);
     commit();
     if (change === 'completed') celebrateTask(t);
-    else if (change === 'reopened') toast('Aufgabe wieder geöffnet');
+    else if (change === 'reopened') toast(tr('Aufgabe wieder geöffnet'));
   },
   addSubtask({ id }) {
     const t = data.tasks.find((x) => x.id === id);
     openForm({
-      title: `Unterpunkt zu „${t.title}“`,
-      submitLabel: 'Hinzufügen',
-      fields: [{ name: 'title', label: 'Unterpunkt', required: true, placeholder: 'Was gehört dazu?' }],
+      title: tr('Unterpunkt zu „{title}“', { title: t.title }),
+      submitLabel: tr('Hinzufügen'),
+      fields: [{ name: 'title', label: tr('Unterpunkt'), required: true, placeholder: tr('Was gehört dazu?') }],
       onSubmit(v) {
         (t.subtasks ||= []).push({ id: uid(), title: v.title, done: false, doneAt: null });
         syncTaskDone(t);
@@ -2423,7 +2480,7 @@ const actions = {
     });
   },
   deleteTask({ id }) {
-    if (!confirm('Aufgabe löschen?')) return;
+    if (!confirm(tr('Aufgabe löschen?'))) return;
     data.tasks = data.tasks.filter((t) => t.id !== id);
     commit();
   },
@@ -2436,10 +2493,10 @@ const actions = {
     m.done = !m.done;
     m.doneAt = m.done ? todayISO() : null;
     commit();
-    if (m.done) { toast(`🏁 Meilenstein „${m.title}“ erreicht!`); confetti(); }
+    if (m.done) { toast(tr('🏁 Meilenstein „{title}“ erreicht!', { title: m.title })); confetti(); }
   },
   deleteMilestone({ id }) {
-    if (!confirm('Meilenstein löschen? Zugeordnete Aufgaben bleiben erhalten.')) return;
+    if (!confirm(tr('Meilenstein löschen? Zugeordnete Aufgaben bleiben erhalten.'))) return;
     data.milestones = data.milestones.filter((m) => m.id !== id);
     data.tasks.forEach((t) => { if (t.milestoneId === id) t.milestoneId = null; });
     commit();
@@ -2447,21 +2504,21 @@ const actions = {
 
   /* Zeit */
   addTime({ id } = {}) {
-    if (!data.projects.length) return toast('Lege zuerst ein Projekt an.');
+    if (!data.projects.length) return toast(tr('Lege zuerst ein Projekt an.'));
     timeForm({ projectId: id || parseRoute().id });
   },
   editTime({ id }) { timeForm(data.timeEntries.find((e) => e.id === id)); },
   deleteTime({ id }) {
-    if (!confirm('Zeiteintrag löschen?')) return;
+    if (!confirm(tr('Zeiteintrag löschen?'))) return;
     data.timeEntries = data.timeEntries.filter((e) => e.id !== id);
     commit();
   },
 
   startTimer({ id }) {
-    if (data.timer && !confirm('Es läuft bereits ein Timer. Diesen verwerfen und neu starten?')) return;
+    if (data.timer && !confirm(tr('Es läuft bereits ein Timer. Diesen verwerfen und neu starten?'))) return;
     data.timer = { projectId: id, start: Date.now() };
     commit();
-    toast(`▶ Timer für „${getProject(id).name}“ gestartet. Los geht's!`);
+    toast(tr('▶ Timer für „{name}“ gestartet. Los geht’s!', { name: getProject(id).name }));
   },
   stopTimer() {
     const t = data.timer;
@@ -2471,20 +2528,35 @@ const actions = {
       const minutes = Math.max(1, Math.round(focus / 60000));
       const title = t.count ? `${t.count} × Pomodoro` : 'Pomodoro';
       return timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.start)), title,
-        description: t.count ? `${t.count} Pomodoro${t.count === 1 ? '' : 's'} à ${pomoCfg().work} Min` : '' }, { fromTimer: true });
+        description: t.count ? trp(t.count, '{n} Pomodoro à {m} Min', '{n} Pomodoros à {m} Min', { m: pomoCfg().work }) : '' }, { fromTimer: true });
     }
-    const minutes = Math.max(1, Math.round((Date.now() - t.start) / 60000));
-    timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.start)) }, { fromTimer: true });
+    const minutes = Math.max(1, Math.round(stopwatchMs(t) / 60000));
+    timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.startedAt || t.start)) }, { fromTimer: true });
+  },
+  /** Pausieren bzw. Fortsetzen – Stoppuhr und Pomodoro */
+  pauseTimer() {
+    const t = data.timer;
+    if (!t) return;
+    if (t.mode === 'pomodoro') return actions.pomoPause();
+    if (t.pausedAt) {
+      t.start += Date.now() - t.pausedAt; // Pausenzeit herausrechnen
+      t.pausedAt = null;
+      toast(tr('▶ Timer läuft weiter'));
+    } else {
+      t.startedAt ||= t.start; // ursprünglicher Start (für das Datum des Zeiteintrags)
+      t.pausedAt = Date.now();
+    }
+    save(); renderTimer(true);
   },
   startPomodoro({ id }) {
-    if (data.timer && !confirm('Es läuft bereits ein Timer. Diesen verwerfen und einen Pomodoro starten?')) return;
+    if (data.timer && !confirm(tr('Es läuft bereits ein Timer. Diesen verwerfen und einen Pomodoro starten?'))) return;
     unlockAudio();
     requestNotifyPermission();
     const now = Date.now();
     data.timer = { projectId: id, start: now, mode: 'pomodoro', phase: 'work', phaseStart: now,
       phaseEnd: now + pomoCfg().work * 60000, count: 0, focusMs: 0, pausedAt: null };
     commit();
-    toast(`🍅 Pomodoro für „${getProject(id).name}“ – ${pomoCfg().work} Minuten volle Konzentration!`);
+    toast(tr('🍅 Pomodoro für „{name}“ – {m} Minuten volle Konzentration!', { name: getProject(id).name, m: pomoCfg().work }));
   },
   pomoPause() {
     const t = data.timer;
@@ -2492,6 +2564,7 @@ const actions = {
     if (t.pausedAt) {
       const delta = Date.now() - t.pausedAt;
       t.phaseStart += delta; t.phaseEnd += delta; t.pausedAt = null;
+      toast(tr('▶ Pomodoro läuft weiter'));
     } else t.pausedAt = Date.now();
     save(); renderTimer(true);
   },
@@ -2510,7 +2583,7 @@ const actions = {
     save(); renderTimer(true);
   },
   discardTimer() {
-    if (!confirm('Laufenden Timer verwerfen?')) return;
+    if (!confirm(tr('Laufenden Timer verwerfen?'))) return;
     data.timer = null;
     commit();
   },
@@ -2519,7 +2592,7 @@ const actions = {
   addInvestment({ id }) { investmentForm({ projectId: id }); },
   editInvestment({ id }) { investmentForm(data.investments.find((e) => e.id === id)); },
   deleteInvestment({ id }) {
-    if (!confirm('Investition löschen?')) return;
+    if (!confirm(tr('Investition löschen?'))) return;
     data.investments = data.investments.filter((e) => e.id !== id);
     commit();
   },
@@ -2528,7 +2601,7 @@ const actions = {
   addNote({ id }) { noteForm({ projectId: id }); },
   editNote({ id }) { noteForm(data.notes.find((n) => n.id === id)); },
   deleteNote({ id }) {
-    if (!confirm('Notiz löschen?')) return;
+    if (!confirm(tr('Notiz löschen?'))) return;
     data.notes = data.notes.filter((n) => n.id !== id);
     commit();
   },
@@ -2542,14 +2615,14 @@ const actions = {
     saveMeta();
     render();
     const svc = syncService();
-    toast(`Sicherung exportiert ✔ – sie liegt in deinem Download-Ordner${svc.cloud ? ` (ideal: ${svc.folder})` : ''}.`);
+    toast(svc.cloud ? tr('Sicherung exportiert ✔ – sie liegt in deinem Download-Ordner (ideal: {folder}).', { folder: svc.folder }) : tr('Sicherung exportiert ✔ – sie liegt in deinem Download-Ordner.'));
   },
   resetReminders() {
     const ta = document.querySelector('[data-form="reminders"] textarea[name="reminderTexts"]');
     if (!ta) return;
-    ta.value = DEFAULT_REMINDERS.join('\n');
+    ta.value = defaultReminders().join('\n');
     ta.dispatchEvent(new Event('input', { bubbles: true }));
-    toast('Standardtexte eingesetzt – zum Übernehmen „Speichern“ tippen.');
+    toast(tr('Standardtexte eingesetzt – zum Übernehmen „Speichern“ tippen.'));
   },
   dismissSyncHint() {
     syncHintDismissed = true;
@@ -2558,9 +2631,12 @@ const actions = {
   exportCsv() {
     const q = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
     const name = (pid) => getProject(pid)?.name || '';
-    const rows = [['Typ', 'Datum', 'Projekt', 'Titel', 'Beschreibung', 'Kategorie', 'Minuten', 'Stunden', 'Betrag (EUR)'].map(q).join(';')];
-    data.timeEntries.forEach((e) => rows.push(['Zeit', e.date, name(e.projectId), e.title, e.description, '', e.minutes, (e.minutes / 60).toFixed(2).replace('.', ','), ''].map(q).join(';')));
-    data.investments.forEach((e) => rows.push(['Investition', e.date, name(e.projectId), e.description, '', e.category, '', '', String(e.amount.toFixed(2)).replace('.', ',')].map(q).join(';')));
+    // Deutsch: Semikolon & Dezimalkomma (Excel DE), sonst Komma & Dezimalpunkt
+    const sep = LANG === 'de' ? ';' : ',';
+    const dec = (n) => n.toFixed(2).replace('.', DEC());
+    const rows = [[tr('Typ'), tr('Datum'), tr('Projekt'), tr('Titel'), tr('Beschreibung'), tr('Kategorie'), tr('Minuten'), tr('Stunden'), tr('Betrag (EUR)')].map(q).join(sep)];
+    data.timeEntries.forEach((e) => rows.push([tr('Zeit'), e.date, name(e.projectId), entryTitle(e), e.description, '', e.minutes, dec(e.minutes / 60), ''].map(q).join(sep)));
+    data.investments.forEach((e) => rows.push([tr('Investition'), e.date, name(e.projectId), e.description, '', e.category, '', '', dec(e.amount)].map(q).join(sep)));
     download(`projekttracker-${todayISO()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv');
   },
   importData() {
@@ -2572,14 +2648,14 @@ const actions = {
       if (!file) return;
       try {
         const parsed = JSON.parse(await file.text());
-        if (!Array.isArray(parsed.projects)) throw new Error('Keine gültige Projekttracker-Datei.');
+        if (!Array.isArray(parsed.projects)) throw new Error(tr('Keine gültige Projekttracker-Datei.'));
         const backupTime = parsed.exportedAt ? Date.parse(parsed.exportedAt) : 0;
-        let msg = `Sicherung importieren?\n\nGesichert: ${backupTime ? fmtDateTime(backupTime) : 'unbekannt'}\nProjekte: ${parsed.projects.length}\n\nDie Daten auf diesem Gerät werden dadurch ersetzt.`;
+        let msg = tr('Sicherung importieren?\n\nGesichert: {when}\nProjekte: {n}\n\nDie Daten auf diesem Gerät werden dadurch ersetzt.', { when: backupTime ? fmtDateTime(backupTime) : tr('unbekannt'), n: parsed.projects.length });
         if (hasUnsavedChanges()) {
-          msg += `\n\n⚠️ Auf diesem Gerät gibt es ungesicherte Änderungen (letzte Sicherung: ${fmtDateTime(meta.lastExport)}). Sie gehen beim Import verloren!`;
+          msg += '\n\n' + tr('⚠️ Auf diesem Gerät gibt es ungesicherte Änderungen (letzte Sicherung: {when}). Sie gehen beim Import verloren!', { when: fmtDateTime(meta.lastExport) });
         }
         if (backupTime && meta.lastChange > backupTime) {
-          msg += `\n\n⚠️ Die Daten auf diesem Gerät (zuletzt geändert ${fmtDateTime(meta.lastChange)}) sind NEUER als diese Sicherung.`;
+          msg += '\n\n' + tr('⚠️ Die Daten auf diesem Gerät (zuletzt geändert {when}) sind NEUER als diese Sicherung.', { when: fmtDateTime(meta.lastChange) });
         }
         if (!confirm(msg)) return;
         delete parsed.exportedAt;
@@ -2589,16 +2665,16 @@ const actions = {
         saveMeta();
         syncHintDismissed = true;
         render();
-        toast('Import erfolgreich ✔');
+        toast(tr('Import erfolgreich ✔'));
       } catch (e) {
-        toast('Import fehlgeschlagen: ' + e.message, 'error');
+        toast(tr('Import fehlgeschlagen: {msg}', { msg: e.message }), 'error');
       }
     };
     input.click();
   },
   resetData() {
-    if (!confirm('Wirklich ALLE Daten löschen? Das kann nicht rückgängig gemacht werden.')) return;
-    if (!confirm('Letzte Chance: Hast du ein Backup exportiert? Endgültig löschen?')) return;
+    if (!confirm(tr('Wirklich ALLE Daten löschen? Das kann nicht rückgängig gemacht werden.'))) return;
+    if (!confirm(tr('Letzte Chance: Hast du ein Backup exportiert? Endgültig löschen?'))) return;
     data = structuredClone(DEFAULT_DATA);
     save();
     location.hash = '#/';
@@ -2607,41 +2683,41 @@ const actions = {
   loadDemo() {
     data = demoData();
     commit();
-    toast('Beispieldaten geladen – unter Einstellungen kannst du alles wieder löschen.');
+    toast(tr('Beispieldaten geladen – unter Einstellungen kannst du alles wieder löschen.'));
   },
 };
 
 /* ---------------------------- Formulardefinitionen ----------------------- */
 
-const decimalValue = (n) => (n === null || n === undefined || n === '' ? '' : String(n).replace('.', ','));
+const decimalValue = (n) => (n === null || n === undefined || n === '' ? '' : String(n).replace('.', DEC()));
 
 function projectForm(p) {
   const isNew = !p;
   p = p || { status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
   const cats = [...new Set(data.projects.map((x) => x.category).filter(Boolean))];
   openForm({
-    title: isNew ? 'Neues Projekt' : 'Projekt bearbeiten',
-    submitLabel: isNew ? 'Anlegen' : 'Speichern',
+    title: isNew ? tr('Neues Projekt') : tr('Projekt bearbeiten'),
+    submitLabel: isNew ? tr('Anlegen') : tr('Speichern'),
     wide: true,
     fields: [
-      { name: 'name', label: 'Name', required: true, value: p.name, w: 2 },
-      { name: 'status', label: 'Status', type: 'select', options: STATUS, value: p.status, w: 1 },
-      { name: 'category', label: 'Kategorie', value: p.category, list: cats, placeholder: 'z. B. Beruf, Hobby', w: 1 },
-      { name: 'description', label: 'Beschreibung', type: 'textarea', value: p.description, w: 2 },
-      { name: 'why', label: 'Warum ist mir dieses Projekt wichtig?', type: 'textarea', value: p.why, w: 2,
-        hint: 'Wird dir angezeigt, wenn das Projekt einzuschlafen droht.' },
-      { name: 'goal', label: 'Ziel – wann ist das Projekt fertig?', type: 'textarea', value: p.goal, w: 2 },
-      { name: 'reminderText', label: 'Eigene Erinnerung, wenn es einschläft', type: 'textarea', value: p.reminderText, w: 2,
-        placeholder: 'z. B. {tage} Tage ohne „{projekt}“? Deine Kunden warten!',
-        hint: 'Leer = allgemeine Texte. Platzhalter: {projekt}, {tage}, {warum}, {schritt}. Mehrere Zeilen = wechselt täglich.' },
-      { name: 'weeklyHours', label: 'Wochenarbeitszeit (Std)', type: 'decimal', value: decimalValue(p.weeklyHours), w: 1,
-        placeholder: 'z. B. 4 oder 2,5', hint: 'Leer = kein Wochenziel' },
-      { name: 'hourGoal', label: 'Gesamtzeit geplant (Std)', type: 'decimal', value: decimalValue(p.hourGoal), w: 1, hint: 'für das ganze Projekt' },
-      { name: 'budget', label: 'Budget (€)', type: 'decimal', value: decimalValue(p.budget), w: 1 },
-      { name: 'targetDate', label: 'Zieltermin', type: 'date', value: p.targetDate, w: 1 },
-      { name: 'staleDays', label: 'Erinnern nach … Tagen', type: 'number', value: p.staleDays, w: 1,
-        placeholder: `Standard: ${data.settings.staleDays}`, hint: 'ohne Aktivität; leer = Standard' },
-      { name: 'color', label: 'Farbe', type: 'color', value: p.color, w: 1 },
+      { name: 'name', label: tr('Name'), required: true, value: p.name, w: 2 },
+      { name: 'status', label: tr('Status'), type: 'select', options: STATUS, value: p.status, w: 1 },
+      { name: 'category', label: tr('Kategorie'), value: p.category, list: cats, placeholder: tr('z. B. Beruf, Hobby'), w: 1 },
+      { name: 'description', label: tr('Beschreibung'), type: 'textarea', value: p.description, w: 2 },
+      { name: 'why', label: tr('Warum ist mir dieses Projekt wichtig?'), type: 'textarea', value: p.why, w: 2,
+        hint: tr('Wird dir angezeigt, wenn das Projekt einzuschlafen droht.') },
+      { name: 'goal', label: tr('Ziel – wann ist das Projekt fertig?'), type: 'textarea', value: p.goal, w: 2 },
+      { name: 'reminderText', label: tr('Eigene Erinnerung, wenn es einschläft'), type: 'textarea', value: p.reminderText, w: 2,
+        placeholder: tr('z. B. {tage} Tage ohne „{projekt}“? Deine Kunden warten!'),
+        hint: tr('Leer = allgemeine Texte. Platzhalter: {projekt}, {tage}, {warum}, {schritt}. Mehrere Zeilen = wechselt täglich.') },
+      { name: 'weeklyHours', label: tr('Wochenarbeitszeit (Std)'), type: 'decimal', value: decimalValue(p.weeklyHours), w: 1,
+        placeholder: tr('z. B. 4 oder 2,5'), hint: tr('Leer = kein Wochenziel') },
+      { name: 'hourGoal', label: tr('Gesamtzeit geplant (Std)'), type: 'decimal', value: decimalValue(p.hourGoal), w: 1, hint: tr('für das ganze Projekt') },
+      { name: 'budget', label: tr('Budget (€)'), type: 'decimal', value: decimalValue(p.budget), w: 1 },
+      { name: 'targetDate', label: tr('Zieltermin'), type: 'date', value: p.targetDate, w: 1 },
+      { name: 'staleDays', label: tr('Erinnern nach … Tagen'), type: 'number', value: p.staleDays, w: 1,
+        placeholder: tr('Standard: {n}', { n: data.settings.staleDays }), hint: tr('ohne Aktivität; leer = Standard') },
+      { name: 'color', label: tr('Farbe'), type: 'color', value: p.color, w: 1 },
     ],
     onSubmit(v) {
       if (isNew) {
@@ -2649,7 +2725,7 @@ function projectForm(p) {
         data.projects.push(np);
         save();
         location.hash = `#/projekt/${np.id}`;
-        toast('Projekt angelegt. Lege gleich den ersten Schritt als Aufgabe fest!');
+        toast(tr('Projekt angelegt. Lege gleich den ersten Schritt als Aufgabe fest!'));
       } else {
         const wasDone = p.status === 'abgeschlossen';
         Object.assign(p, v);
@@ -2665,19 +2741,19 @@ function taskForm(t) {
   const pid = t.projectId;
   const ms = data.milestones.filter((m) => m.projectId === pid && !m.done);
   const fields = [
-    { name: 'title', label: 'Aufgabe', required: true, value: t.title, placeholder: 'Was ist konkret zu tun?' },
-    { name: 'priority', label: 'Priorität', type: 'select', options: PRIORITIES, value: t.priority || 'mittel', half: true },
-    { name: 'dueDate', label: 'Fällig am', type: 'date', value: t.dueDate, half: true },
+    { name: 'title', label: tr('Aufgabe'), required: true, value: t.title, placeholder: tr('Was ist konkret zu tun?') },
+    { name: 'priority', label: tr('Priorität'), type: 'select', options: PRIORITIES, value: t.priority || 'mittel', half: true },
+    { name: 'dueDate', label: tr('Fällig am'), type: 'date', value: t.dueDate, half: true },
   ];
   if (ms.length || t.milestoneId) {
     const opts = data.milestones.filter((m) => m.projectId === pid && (!m.done || m.id === t.milestoneId));
-    fields.push({ name: 'milestoneId', label: 'Meilenstein', type: 'select', value: t.milestoneId || '', options: [{ value: '', label: '– keiner –' }, ...opts.map((m) => ({ value: m.id, label: m.title }))] });
+    fields.push({ name: 'milestoneId', label: tr('Meilenstein'), type: 'select', value: t.milestoneId || '', options: [{ value: '', label: tr('– keiner –') }, ...opts.map((m) => ({ value: m.id, label: m.title }))] });
   }
-  fields.push({ name: 'subtasks', label: 'Unterpunkte', type: 'subtasks', value: t.subtasks || [],
-    hint: 'Die Aufgabe ist erst fertig, wenn alle Unterpunkte abgehakt sind. Eingabetaste = nächster Unterpunkt.' });
-  fields.push({ name: 'notes', label: 'Notiz', type: 'textarea', value: t.notes });
+  fields.push({ name: 'subtasks', label: tr('Unterpunkte'), type: 'subtasks', value: t.subtasks || [],
+    hint: tr('Die Aufgabe ist erst fertig, wenn alle Unterpunkte abgehakt sind. Eingabetaste = nächster Unterpunkt.') });
+  fields.push({ name: 'notes', label: tr('Notiz'), type: 'textarea', value: t.notes });
   openForm({
-    title: isNew ? 'Neue Aufgabe' : 'Aufgabe bearbeiten',
+    title: isNew ? tr('Neue Aufgabe') : tr('Aufgabe bearbeiten'),
     fields,
     onSubmit(v) {
       v.milestoneId = v.milestoneId || null;
@@ -2694,11 +2770,11 @@ function taskForm(t) {
 function milestoneForm(m) {
   const isNew = !m.id;
   openForm({
-    title: isNew ? 'Neuer Meilenstein' : 'Meilenstein bearbeiten',
+    title: isNew ? tr('Neuer Meilenstein') : tr('Meilenstein bearbeiten'),
     fields: [
-      { name: 'title', label: 'Meilenstein', required: true, value: m.title, placeholder: 'z. B. Prototyp fertig' },
-      { name: 'dueDate', label: 'Zieldatum', type: 'date', value: m.dueDate },
-      { name: 'description', label: 'Beschreibung / Kriterien', type: 'textarea', value: m.description },
+      { name: 'title', label: tr('Meilenstein'), required: true, value: m.title, placeholder: tr('z. B. Prototyp fertig') },
+      { name: 'dueDate', label: tr('Zieldatum'), type: 'date', value: m.dueDate },
+      { name: 'description', label: tr('Beschreibung / Kriterien'), type: 'textarea', value: m.description },
     ],
     onSubmit(v) {
       if (isNew) data.milestones.push({ id: uid(), projectId: m.projectId, done: false, doneAt: null, createdAt: new Date().toISOString(), ...v });
@@ -2715,19 +2791,19 @@ function timeForm(e, { fromTimer = false } = {}) {
     const p = getProject(e.projectId);
     if (p) opts.unshift({ value: p.id, label: p.name });
   }
-  if (!opts.length) return toast('Kein offenes Projekt vorhanden.');
+  if (!opts.length) return toast(tr('Kein offenes Projekt vorhanden.'));
   openForm({
-    title: fromTimer ? 'Timer stoppen & Zeit speichern' : isNew ? 'Zeit erfassen' : 'Zeiteintrag bearbeiten',
+    title: fromTimer ? tr('Timer stoppen & Zeit speichern') : isNew ? tr('Zeit erfassen') : tr('Zeiteintrag bearbeiten'),
     fields: [
-      { name: 'projectId', label: 'Projekt', type: 'select', options: opts, value: e.projectId },
-      { name: 'date', label: 'Datum', type: 'date', value: e.date || todayISO(), required: true, half: true },
-      { name: 'minutes', label: 'Dauer', type: 'duration', required: true, value: e.minutes ? `${Math.floor(e.minutes / 60)}:${pad(e.minutes % 60)}` : '', placeholder: '1:30', hint: 'z. B. 1:30, 1,5 oder 45 min', half: true },
-      { name: 'title', label: 'Titel', value: e.autoTitle ? '' : e.title,
-        placeholder: autoTimeTitle(e.date || todayISO()), hint: 'Leer lassen = Wochentag und Datum werden als Titel verwendet.' },
-      { name: 'description', label: 'Beschreibung', type: 'textarea', value: e.description,
-        placeholder: 'Was hast du gemacht? Details, Ergebnisse, offene Punkte …' },
+      { name: 'projectId', label: tr('Projekt'), type: 'select', options: opts, value: e.projectId },
+      { name: 'date', label: tr('Datum'), type: 'date', value: e.date || todayISO(), required: true, half: true },
+      { name: 'minutes', label: tr('Dauer'), type: 'duration', required: true, value: e.minutes ? `${Math.floor(e.minutes / 60)}:${pad(e.minutes % 60)}` : '', placeholder: '1:30', hint: tr('z. B. 1:30, 1,5 oder 45 min'), half: true },
+      { name: 'title', label: tr('Titel'), value: e.autoTitle ? '' : e.title,
+        placeholder: autoTimeTitle(e.date || todayISO()), hint: tr('Leer lassen = Wochentag und Datum werden als Titel verwendet.') },
+      { name: 'description', label: tr('Beschreibung'), type: 'textarea', value: e.description,
+        placeholder: tr('Was hast du gemacht? Details, Ergebnisse, offene Punkte …') },
     ],
-    submitLabel: 'Speichern',
+    submitLabel: tr('Speichern'),
     onSubmit(v) {
       v.autoTitle = !v.title;
       if (v.autoTitle) v.title = autoTimeTitle(v.date);
@@ -2735,15 +2811,16 @@ function timeForm(e, { fromTimer = false } = {}) {
       else Object.assign(e, v);
       if (fromTimer) data.timer = null;
       commit();
-      if (isNew) toast(`⏱ ${fmtDuration(v.minutes)} gespeichert. ${pick(CHEERS)}`);
+      if (isNew) toast(tr('⏱️ {d} gespeichert. {cheer}', { d: fmtDuration(v.minutes), cheer: tr(pick(CHEERS)) }));
     },
   });
+  renderPauseOverlay(); // Pausen-Hinweis ausblenden, solange der Dialog offen ist
   // Platzhalter des Titels folgt dem gewählten Datum
   const dateInput = $('#f_date'), titleInput = $('#f_title');
   dateInput.addEventListener('input', () => { titleInput.placeholder = autoTimeTitle(dateInput.value); });
   if (fromTimer) {
     const actionsEl = $('#modal .form-actions');
-    actionsEl.insertAdjacentHTML('afterbegin', '<button type="button" class="btn danger" data-action="discardTimer" style="margin-right:auto">Verwerfen</button>');
+    actionsEl.insertAdjacentHTML('afterbegin', `<button type="button" class="btn danger" data-action="discardTimer" style="margin-right:auto">${tr('Verwerfen')}</button>`);
     actionsEl.querySelector('[data-action="discardTimer"]').addEventListener('click', () => $('#modal').close());
   }
 }
@@ -2751,16 +2828,16 @@ function timeForm(e, { fromTimer = false } = {}) {
 function investmentForm(e) {
   const isNew = !e.id;
   openForm({
-    title: isNew ? 'Investition erfassen' : 'Investition bearbeiten',
+    title: isNew ? tr('Investition erfassen') : tr('Investition bearbeiten'),
     fields: [
-      { name: 'description', label: 'Wofür?', required: true, value: e.description },
-      { name: 'amount', label: 'Betrag (€)', type: 'decimal', required: true, value: e.amount != null ? String(e.amount).replace('.', ',') : '', placeholder: '49,99', half: true },
-      { name: 'date', label: 'Datum', type: 'date', required: true, value: e.date || todayISO(), half: true },
-      { name: 'category', label: 'Kategorie', value: e.category || '', chips: investmentCategories(),
-        placeholder: 'z. B. Werkzeug, Messe …', hint: 'Eigenen Namen eintippen oder einen Vorschlag antippen. Leer = „Sonstiges“.' },
+      { name: 'description', label: tr('Wofür?'), required: true, value: e.description },
+      { name: 'amount', label: tr('Betrag (€)'), type: 'decimal', required: true, value: e.amount != null ? decimalValue(e.amount) : '', placeholder: `49${DEC()}99`, half: true },
+      { name: 'date', label: tr('Datum'), type: 'date', required: true, value: e.date || todayISO(), half: true },
+      { name: 'category', label: tr('Kategorie'), value: e.category || '', chips: investmentCategories(),
+        placeholder: tr('z. B. Werkzeug, Messe …'), hint: tr('Eigenen Namen eintippen oder einen Vorschlag antippen. Leer = „Sonstiges“.') },
     ],
     onSubmit(v) {
-      if (v.amount == null) return 'Bitte einen Betrag angeben.';
+      if (v.amount == null) return tr('Bitte einen Betrag angeben.');
       v.category = normalizeCategory(v.category);
       if (isNew) data.investments.push({ id: uid(), projectId: e.projectId, ...v });
       else Object.assign(e, v);
@@ -2772,10 +2849,10 @@ function investmentForm(e) {
 function noteForm(n) {
   const isNew = !n.id;
   openForm({
-    title: isNew ? 'Neue Notiz' : 'Notiz bearbeiten',
+    title: isNew ? tr('Neue Notiz') : tr('Notiz bearbeiten'),
     fields: [
-      { name: 'date', label: 'Datum', type: 'date', required: true, value: n.date || todayISO() },
-      { name: 'text', label: 'Notiz', type: 'textarea', required: true, value: n.text, placeholder: 'Idee, Erkenntnis, Entscheidung, kleiner Erfolg …' },
+      { name: 'date', label: tr('Datum'), type: 'date', required: true, value: n.date || todayISO() },
+      { name: 'text', label: tr('Notiz'), type: 'textarea', required: true, value: n.text, placeholder: tr('Idee, Erkenntnis, Entscheidung, kleiner Erfolg …') },
     ],
     onSubmit(v) {
       if (isNew) data.notes.push({ id: uid(), projectId: n.projectId, createdAt: new Date().toISOString(), ...v });
@@ -2787,7 +2864,7 @@ function noteForm(n) {
 
 function celebrateProject(p) {
   confetti();
-  toast(`🎉 „${p.name}“ abgeschlossen! Großartige Leistung.`);
+  toast(tr('🎉 „{name}“ abgeschlossen! Großartige Leistung.', { name: p.name }));
 }
 
 /* ------------------------------------------------------------------------
@@ -2827,11 +2904,11 @@ function tickPomodoro() {
       data.counters.pomodoros = (data.counters.pomodoros || 0) + 1;
       startBreak(t, t.phaseEnd, true);
       signalMsg = t.phase === 'long'
-        ? [`🍅 ${t.count} Pomodoros geschafft!`, `Zeit für eine lange Pause (${pomoCfg().long} Min).`]
-        : [`🍅 Pomodoro ${t.count} geschafft!`, `Kurze Pause (${pomoCfg().short} Min) – steh auf, trink etwas.`];
+        ? [tr('🍅 {n} Pomodoros geschafft!', { n: t.count }), tr('Zeit für eine lange Pause ({m} Min).', { m: pomoCfg().long })]
+        : [tr('🍅 Pomodoro {n} geschafft!', { n: t.count }), tr('Kurze Pause ({m} Min) – steh auf, trink etwas.', { m: pomoCfg().short })];
     } else {
       Object.assign(t, { phase: 'ready', phaseStart: null, phaseEnd: null });
-      signalMsg = ['☕ Pause vorbei', 'Bereit für den nächsten Pomodoro?'];
+      signalMsg = [tr('☕ Pause vorbei'), tr('Bereit für den nächsten Pomodoro?')];
     }
   }
   if (signalMsg) {
@@ -2891,7 +2968,7 @@ const fmtClock = (secs) => {
 function renderTimer(force = false) {
   const el = $('#timer-indicator');
   const t = data.timer;
-  if (!t || !getProject(t.projectId)) { el.hidden = true; el.dataset.key = ''; return; }
+  if (!t || !getProject(t.projectId)) { el.hidden = true; el.dataset.key = ''; renderPauseOverlay(); return; }
   const name = getProject(t.projectId).name;
   const pomo = t.mode === 'pomodoro';
   const key = [t.projectId, t.mode, t.phase, !!t.pausedAt].join('|');
@@ -2899,14 +2976,17 @@ function renderTimer(force = false) {
   if (force || el.hidden || el.dataset.key !== key) {
     el.className = 'timer-indicator' + (pomo ? ` pomo pomo-${t.phase}${t.pausedAt ? ' paused' : ''}` : '');
     if (!pomo) {
-      el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small name">${esc(name)}</span><button class="btn small" data-action="stopTimer">■ Stopp</button>`;
+      el.className += t.pausedAt ? ' paused' : '';
+      el.innerHTML = `<span class="dot"></span><span class="t"></span><span class="small name">${esc(name)}</span>
+        <button class="btn small" data-action="pauseTimer" title="${t.pausedAt ? tr('Fortsetzen') : tr('Pausieren')}">${t.pausedAt ? tr('▶ Weiter') : tr('⏸ Pause')}</button>
+        <button class="btn small" data-action="stopTimer">■ ${tr('Stopp')}</button>`;
     } else {
-      const label = { work: `🍅 Fokus #${t.count + 1}`, short: '☕ Pause', long: '🌴 Lange Pause', ready: '✅ Pause vorbei' }[t.phase];
-      const next = { work: ['⏭', 'Fokus beenden & Pause'], short: ['⏭', 'Pause überspringen'], long: ['⏭', 'Pause überspringen'], ready: ['▶ Weiter', 'Nächsten Pomodoro starten'] }[t.phase];
+      const label = { work: tr('🍅 Fokus #{n}', { n: t.count + 1 }), short: tr('☕ Pause'), long: tr('🌴 Lange Pause'), ready: tr('✅ Pause vorbei') }[t.phase];
+      const next = { work: ['⏭', tr('Fokus beenden & Pause')], short: ['⏭', tr('Pause überspringen')], long: ['⏭', tr('Pause überspringen')], ready: [tr('▶ Weiter'), tr('Nächsten Pomodoro starten')] }[t.phase];
       el.innerHTML = `<span class="pomo-label small">${label}</span><span class="t"></span><span class="small name">${esc(name)}</span>
-        ${t.phase === 'ready' ? '' : `<button class="btn small icon" data-action="pomoPause" title="${t.pausedAt ? 'Fortsetzen' : 'Pausieren'}">${t.pausedAt ? '▶' : '⏸'}</button>`}
+        ${t.phase === 'ready' ? '' : `<button class="btn small icon" data-action="pomoPause" title="${t.pausedAt ? tr('Fortsetzen') : tr('Pausieren')}">${t.pausedAt ? '▶' : '⏸'}</button>`}
         <button class="btn small ${t.phase === 'ready' ? 'primary' : 'icon'}" data-action="pomoNext" title="${next[1]}">${next[0]}</button>
-        <button class="btn small icon" data-action="stopTimer" title="Beenden & Zeit speichern">■</button>
+        <button class="btn small icon" data-action="stopTimer" title="${tr('Beenden & Zeit speichern')}">■</button>
         <span class="pomo-bar"><span></span></span>`;
     }
     el.dataset.key = key;
@@ -2915,11 +2995,11 @@ function renderTimer(force = false) {
 
   let text, title;
   if (!pomo) {
-    text = fmtClock((Date.now() - t.start) / 1000);
-    title = `⏱ ${text} · ${name}`;
+    text = fmtClock(stopwatchMs(t) / 1000);
+    title = `${t.pausedAt ? '⏸' : '⏱️'} ${text} · ${name}`;
   } else if (t.phase === 'ready') {
     text = `${t.count} 🍅`;
-    title = Math.floor(Date.now() / 1000) % 2 ? '✅ Pause vorbei!' : `🍅 ${name}`;
+    title = Math.floor(Date.now() / 1000) % 2 ? tr('✅ Pause vorbei!') : `🍅 ${name}`;
   } else {
     const now = t.pausedAt || Date.now();
     const left = (t.phaseEnd - now) / 1000;
@@ -2930,11 +3010,64 @@ function renderTimer(force = false) {
   }
   el.querySelector('.t').textContent = text;
   document.title = title;
+  renderPauseOverlay();
 }
+
+/** Laufzeit der Stoppuhr ohne Pausen */
+const stopwatchMs = (t) => Math.max(0, (t.pausedAt || Date.now()) - t.start);
+
+/* Vollflächiger Hinweis, solange ein Timer pausiert ist – damit das Fortsetzen nicht vergessen wird */
+const pauseOverlay = document.createElement('div');
+pauseOverlay.className = 'pause-overlay';
+pauseOverlay.hidden = true;
+pauseOverlay.setAttribute('role', 'alertdialog');
+pauseOverlay.setAttribute('aria-modal', 'true');
+pauseOverlay.setAttribute('aria-labelledby', 'po-title');
+document.body.appendChild(pauseOverlay);
+
+function renderPauseOverlay() {
+  const t = data.timer;
+  const p = t && getProject(t.projectId);
+  const show = !!(p && t.pausedAt && !isLocked() && !$('#modal').open);
+  if (!show) {
+    if (!pauseOverlay.hidden) { pauseOverlay.hidden = true; pauseOverlay.dataset.key = ''; document.documentElement.classList.remove('paused-open'); }
+    return;
+  }
+  const pomo = t.mode === 'pomodoro';
+  const key = [t.projectId, t.mode, t.phase, t.pausedAt, LANG].join('|');
+  if (pauseOverlay.dataset.key !== key) {
+    const what = !pomo ? tr('Erfasste Zeit')
+      : t.phase === 'work' ? tr('Verbleibender Fokus') : tr('Verbleibende Pause');
+    pauseOverlay.innerHTML = `<div class="po-card">
+      <div class="po-icon" aria-hidden="true">⏸</div>
+      <h2 id="po-title">${pomo ? tr('Pomodoro pausiert') : tr('Timer pausiert')}</h2>
+      <div class="po-project"><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</div>
+      <div class="po-time-label small muted">${what}</div>
+      <div class="po-time"></div>
+      <p class="po-text muted">${tr('Die Zeit läuft gerade nicht weiter. Setze den Timer fort, sobald du weiterarbeitest – oder beende ihn, um die Zeit zu speichern.')}</p>
+      <div class="po-actions">
+        <button type="button" class="btn primary" data-action="pauseTimer">${tr('▶ Fortsetzen')}</button>
+        <button type="button" class="btn" data-action="stopTimer">${tr('■ Beenden & Zeit speichern')}</button>
+      </div>
+      <div class="po-since small muted"></div>
+    </div>`;
+    pauseOverlay.dataset.key = key;
+    pauseOverlay.hidden = false;
+    document.documentElement.classList.add('paused-open');
+    closePopover?.();
+    if (!matchMedia('(hover: none)').matches) pauseOverlay.querySelector('[data-action="pauseTimer"]').focus();
+  }
+  pauseOverlay.querySelector('.po-time').textContent = pomo ? fmtClock((t.phaseEnd - t.pausedAt) / 1000) : fmtClock(stopwatchMs(t) / 1000);
+  const since = Math.floor((Date.now() - t.pausedAt) / 60000);
+  pauseOverlay.querySelector('.po-since').textContent = since < 1 ? tr('gerade pausiert')
+    : trp(since, 'seit {n} Minute pausiert', 'seit {n} Minuten pausiert');
+}
+// Pausen-Hinweis wieder zeigen, sobald ein Dialog (z. B. „Zeit speichern“) geschlossen wird
+$('#modal').addEventListener('close', () => setTimeout(() => { if (data.timer) renderTimer(true); }, 0));
 setInterval(() => {
   tickPomodoro();
   if (data.timer) renderTimer();
-  else if (document.title !== 'Projekttracker') document.title = 'Projekttracker';
+  else if (document.title !== tr('Projekttracker')) document.title = tr('Projekttracker');
 }, 1000);
 // Beim Zurückkehren zur App sofort nachziehen (Handy pausiert Timer im Hintergrund)
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { tickPomodoro(); if (data.timer) renderTimer(true); } });
@@ -2985,47 +3118,47 @@ function demoData() {
   const M = (projectId, title, due, done) => { const id = uid(); d.milestones.push({ id, projectId, title, dueDate: due, done: !!done, doneAt: done || null, createdAt: '' }); return id; };
   const K = (projectId, title, priority, o = {}) => d.tasks.push({ id: uid(), projectId, title, priority, done: false, doneAt: null, createdAt: new Date().toISOString(), subtasks: [], ...o });
 
-  const shop = P({ name: 'Online-Shop für Holzdeko', status: 'aktiv', category: 'Nebenprojekt', color: '#eb6834',
-    description: 'Eigene Holzarbeiten über einen kleinen Online-Shop verkaufen.',
-    why: 'Ich möchte mir ein zweites Standbein aufbauen und mein Hobby zum Beruf machen.',
-    goal: 'Shop ist online und die ersten 10 Bestellungen sind verschickt.', hourGoal: 80, weeklyHours: 4, budget: 600, targetDate: ahead(45) });
-  const m1 = M(shop, 'Produktfotos fertig', ago(20), ago(18));
-  const m2 = M(shop, 'Shop online', ahead(10));
-  M(shop, 'Erste 10 Bestellungen', ahead(45));
-  K(shop, 'Versandkosten kalkulieren', 'hoch', { milestoneId: m2, dueDate: ahead(3) });
-  K(shop, 'Impressum & Datenschutzerklärung', 'hoch', { milestoneId: m2, subtasks: [
-    { id: uid(), title: 'Impressum-Generator ausfüllen', done: true, doneAt: ago(2) },
-    { id: uid(), title: 'Datenschutzerklärung erstellen', done: false, doneAt: null },
-    { id: uid(), title: 'Beide Seiten im Shop-Footer verlinken', done: false, doneAt: null },
+  const shop = P({ name: tr('Online-Shop für Holzdeko'), status: 'aktiv', category: tr('Nebenprojekt'), color: '#eb6834',
+    description: tr('Eigene Holzarbeiten über einen kleinen Online-Shop verkaufen.'),
+    why: tr('Ich möchte mir ein zweites Standbein aufbauen und mein Hobby zum Beruf machen.'),
+    goal: tr('Shop ist online und die ersten 10 Bestellungen sind verschickt.'), hourGoal: 80, weeklyHours: 4, budget: 600, targetDate: ahead(45) });
+  const m1 = M(shop, tr('Produktfotos fertig'), ago(20), ago(18));
+  const m2 = M(shop, tr('Shop online'), ahead(10));
+  M(shop, tr('Erste 10 Bestellungen'), ahead(45));
+  K(shop, tr('Versandkosten kalkulieren'), 'hoch', { milestoneId: m2, dueDate: ahead(3) });
+  K(shop, tr('Impressum & Datenschutzerklärung'), 'hoch', { milestoneId: m2, subtasks: [
+    { id: uid(), title: tr('Impressum-Generator ausfüllen'), done: true, doneAt: ago(2) },
+    { id: uid(), title: tr('Datenschutzerklärung erstellen'), done: false, doneAt: null },
+    { id: uid(), title: tr('Beide Seiten im Shop-Footer verlinken'), done: false, doneAt: null },
   ] });
-  K(shop, 'Produkttexte schreiben', 'mittel', { milestoneId: m2 });
-  K(shop, 'Instagram-Account anlegen', 'niedrig');
-  K(shop, 'Fotostudio aufbauen', 'mittel', { milestoneId: m1, done: true, doneAt: ago(25) });
-  [[90, 1, 'Shop-Theme angepasst'], [60, 2, 'Produkte angelegt'], [45, 4, ''], [120, 6, 'Fotos bearbeitet'], [30, 9, ''], [150, 13, 'Fotoshooting'], [60, 16, ''], [90, 20, ''], [45, 27, 'Recherche Shopsysteme']]
+  K(shop, tr('Produkttexte schreiben'), 'mittel', { milestoneId: m2 });
+  K(shop, tr('Instagram-Account anlegen'), 'niedrig');
+  K(shop, tr('Fotostudio aufbauen'), 'mittel', { milestoneId: m1, done: true, doneAt: ago(25) });
+  [[90, 1, tr('Shop-Theme angepasst')], [60, 2, tr('Produkte angelegt')], [45, 4, ''], [120, 6, tr('Fotos bearbeitet')], [30, 9, ''], [150, 13, tr('Fotoshooting')], [60, 16, ''], [90, 20, ''], [45, 27, tr('Recherche Shopsysteme')]]
     .forEach(([m, n, title]) => T(shop, m, n, title));
-  T(shop, 75, 0, 'Zahlungsanbieter eingerichtet', 'PayPal und Kreditkarte verbunden.\nTestbestellung erfolgreich – Rückerstattung muss noch geprüft werden.');
-  I(shop, 89, 30, 'Fotolicht-Set', 'Hardware');
-  I(shop, 29, 5, 'Shop-Abo (Monat)', 'Software');
-  I(shop, 140, 12, 'Holz & Lack', 'Material');
+  T(shop, 75, 0, tr('Zahlungsanbieter eingerichtet'), tr('PayPal und Kreditkarte verbunden.\nTestbestellung erfolgreich – Rückerstattung muss noch geprüft werden.'));
+  I(shop, 89, 30, tr('Fotolicht-Set'), tr('Hardware'));
+  I(shop, 29, 5, tr('Shop-Abo (Monat)'), tr('Software'));
+  I(shop, 140, 12, tr('Holz & Lack'), tr('Material'));
 
-  const app = P({ name: 'Fitness-App lernen', status: 'aktiv', category: 'Weiterbildung', color: '#2a78d6',
-    description: 'Programmieren lernen, indem ich eine eigene kleine Trainings-App baue.',
-    why: 'Ich will verstehen, wie Apps funktionieren – und endlich meine eigenen Trainingsdaten auswerten.', hourGoal: 50, weeklyHours: 2 });
-  M(app, 'Grundkurs abgeschlossen', ago(35), ago(33));
-  M(app, 'Erste Version auf dem Handy', ahead(20));
-  K(app, 'Kapitel 7 (Datenbanken) durcharbeiten', 'mittel');
-  K(app, 'Datenmodell für Workouts skizzieren', 'hoch');
-  [[60, 21, 'Kurs Kapitel 6'], [45, 24, ''], [90, 30, ''], [60, 34, '']].forEach(([m, n, title]) => T(app, m, n, title));
-  I(app, 19.99, 40, 'Online-Kurs', 'Weiterbildung');
+  const app = P({ name: tr('Fitness-App lernen'), status: 'aktiv', category: 'Weiterbildung', color: '#2a78d6',
+    description: tr('Programmieren lernen, indem ich eine eigene kleine Trainings-App baue.'),
+    why: tr('Ich will verstehen, wie Apps funktionieren – und endlich meine eigenen Trainingsdaten auswerten.'), hourGoal: 50, weeklyHours: 2 });
+  M(app, tr('Grundkurs abgeschlossen'), ago(35), ago(33));
+  M(app, tr('Erste Version auf dem Handy'), ahead(20));
+  K(app, tr('Kapitel 7 (Datenbanken) durcharbeiten'), 'mittel');
+  K(app, tr('Datenmodell für Workouts skizzieren'), 'hoch');
+  [[60, 21, tr('Kurs Kapitel 6')], [45, 24, ''], [90, 30, ''], [60, 34, '']].forEach(([m, n, title]) => T(app, m, n, title));
+  I(app, 19.99, 40, tr('Online-Kurs'), tr('Weiterbildung'));
 
-  const garden = P({ name: 'Hochbeet bauen', status: 'abgeschlossen', category: 'Haus & Garten', color: '#008300', createdAt: ago(80) });
-  M(garden, 'Hochbeet steht', ago(50), ago(50));
-  T(garden, 240, 52, 'Aufbau'); T(garden, 120, 55, 'Material besorgt');
-  I(garden, 185.5, 55, 'Lärchenholz & Schrauben', 'Material');
+  const garden = P({ name: tr('Hochbeet bauen'), status: 'abgeschlossen', category: tr('Haus & Garten'), color: '#008300', createdAt: ago(80) });
+  M(garden, tr('Hochbeet steht'), ago(50), ago(50));
+  T(garden, 240, 52, tr('Aufbau')); T(garden, 120, 55, tr('Material besorgt'));
+  I(garden, 185.5, 55, tr('Lärchenholz & Schrauben'), tr('Material'));
 
-  P({ name: 'Podcast starten', status: 'idee', category: 'Kreativ', color: '#e87ba4', description: 'Gespräche mit Handwerkern aus der Region.' });
+  P({ name: tr('Podcast starten'), status: 'idee', category: tr('Kreativ'), color: '#e87ba4', description: tr('Gespräche mit Handwerkern aus der Region.') });
 
-  d.notes.push({ id: uid(), projectId: shop, date: ago(3), createdAt: '', text: 'Idee: Gutscheincode für die ersten Kunden anbieten.' });
+  d.notes.push({ id: uid(), projectId: shop, date: ago(3), createdAt: '', text: tr('Idee: Gutscheincode für die ersten Kunden anbieten.') });
   return d;
 }
 
@@ -3056,8 +3189,8 @@ const lastMonths = (n, fn) => Array.from({ length: n }, (_, i) => fn(monthKey(i 
 function renderToday(c) {
   const today = c.today;
   const hour = new Date().getHours();
-  const greet = hour < 11 ? 'Guten Morgen' : hour < 18 ? 'Hallo' : 'Guten Abend';
-  const dayLabel = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  const greet = hour < 11 ? tr('Guten Morgen') : hour < 18 ? tr('Hallo') : tr('Guten Abend');
+  const dayLabel = new Date().toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' });
   const todayMin = minutesInRange(today, toISO(addDays(new Date(), 1)));
   const doneToday = data.tasks.filter((t) => t.done && t.doneAt === today).length;
   const min = Number(data.settings.reminderMinutes) || 25;
@@ -3070,9 +3203,9 @@ function renderToday(c) {
       <span class="today-ico">${t.dueDate < today ? '⚠️' : '⏰'}</span>
       <div class="grow"><div class="title">${esc(t.title)}</div>
         <div class="meta"><span><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</span>
-        <span class="${t.dueDate < today ? 'badge overdue' : ''}">${t.dueDate < today ? `überfällig seit ${fmtRelative(t.dueDate).replace('vor ', '')}` : 'heute fällig'}</span></div></div>
-      <div class="btn-row"><button class="btn small" data-action="toggleTask" data-id="${t.id}">✓ Erledigt</button>
-        <button class="btn small primary" data-action="startPomodoro" data-id="${p.id}">🍅 Start</button></div>
+        <span class="${t.dueDate < today ? 'badge overdue' : ''}">${t.dueDate < today ? trp(daysBetween(t.dueDate, today), 'überfällig seit {n} Tag', 'überfällig seit {n} Tagen') : tr('heute fällig')}</span></div></div>
+      <div class="btn-row"><button class="btn small" data-action="toggleTask" data-id="${t.id}">✓ ${tr('Erledigt')}</button>
+        <button class="btn small primary" data-action="startPomodoro" data-id="${p.id}">🍅 ${tr('Start')}</button></div>
     </li>`);
   });
   // 2) Das am längsten ruhende Projekt
@@ -3080,9 +3213,9 @@ function renderToday(c) {
   if (sleeping && items.length < 3) {
     items.push(`<li>
       <span class="today-ico">😴</span>
-      <div class="grow"><div class="title">${esc(sleeping.p.name)} ruht seit ${sleeping.s.idle} Tagen</div>
-        <div class="meta">${sleeping.s.next ? `Kleinster Schritt: ${esc(sleeping.s.next.title)}` : 'Lege einen kleinen nächsten Schritt fest'}</div></div>
-      <div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${sleeping.p.id}">🍅 ${min} Min</button></div>
+      <div class="grow"><div class="title">${tr('{name} ruht seit {n} Tagen', { name: esc(sleeping.p.name), n: sleeping.s.idle })}</div>
+        <div class="meta">${sleeping.s.next ? tr('Kleinster Schritt: {step}', { step: esc(sleeping.s.next.title) }) : tr('Lege einen kleinen nächsten Schritt fest')}</div></div>
+      <div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${sleeping.p.id}">🍅 ${tr('{m} Min', { m: min })}</button></div>
     </li>`);
   }
   // 3) Rest zum Wochenziel – Vorschlag: aktives Projekt mit dem größten Rückstand
@@ -3092,9 +3225,9 @@ function renderToday(c) {
     const behind = c.active.map((p) => ({ p, gap: projectWeeklyMin(p) - weekMinutes(0, p.id) })).sort((a, b) => b.gap - a.gap)[0];
     items.push(`<li>
       <span class="today-ico">🎯</span>
-      <div class="grow"><div class="title">Noch ${fmtHours(rest)} bis zum Wochenziel</div>
-        <div class="meta">ca. ${fmtDuration(Math.ceil(rest / daysLeft))} pro Tag bis Sonntag${behind && behind.gap > 0 ? ` · größter Rückstand: ${esc(behind.p.name)}` : ''}</div></div>
-      ${behind ? `<div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${behind.p.id}">🍅 Start</button></div>` : ''}
+      <div class="grow"><div class="title">${tr('Noch {h} bis zum Wochenziel', { h: fmtHours(rest) })}</div>
+        <div class="meta">${tr('ca. {d} pro Tag bis Sonntag', { d: fmtDuration(Math.ceil(rest / daysLeft)) })}${behind && behind.gap > 0 ? ` · ${tr('größter Rückstand: {name}', { name: esc(behind.p.name) })}` : ''}</div></div>
+      ${behind ? `<div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${behind.p.id}">🍅 ${tr('Start')}</button></div>` : ''}
     </li>`);
   }
   // 4) Meilenstein in den nächsten 7 Tagen
@@ -3104,19 +3237,19 @@ function renderToday(c) {
     items.push(`<li>
       <span class="today-ico">🏁</span>
       <div class="grow"><div class="title">${esc(soon.title)}</div>
-        <div class="meta">Meilenstein ${fmtRelative(soon.dueDate)} · ${esc(getProject(soon.projectId).name)}</div></div>
-      <div class="btn-row"><a class="btn small" href="#/projekt/${soon.projectId}/meilensteine">Ansehen</a></div>
+        <div class="meta">${tr('Meilenstein {when}', { when: fmtRelative(soon.dueDate) })} · ${esc(getProject(soon.projectId).name)}</div></div>
+      <div class="btn-row"><a class="btn small" href="#/projekt/${soon.projectId}/meilensteine">${tr('Ansehen')}</a></div>
     </li>`);
   }
   if (!items.length) {
     const nxt = c.active.map((p) => c.stats.get(p.id).next).filter(Boolean)[0];
-    items.push(`<li><span class="today-ico">✨</span><div class="grow"><div class="title">Alles im grünen Bereich</div>
-      <div class="meta">${nxt ? `Wie wäre es mit: ${esc(nxt.title)}` : 'Lege für deine Projekte einen nächsten Schritt fest.'}</div></div>
-      ${nxt ? `<div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${nxt.projectId}">🍅 Start</button></div>` : ''}</li>`);
+    items.push(`<li><span class="today-ico">✨</span><div class="grow"><div class="title">${tr('Alles im grünen Bereich')}</div>
+      <div class="meta">${nxt ? tr('Wie wäre es mit: {title}', { title: esc(nxt.title) }) : tr('Lege für deine Projekte einen nächsten Schritt fest.')}</div></div>
+      ${nxt ? `<div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${nxt.projectId}">🍅 ${tr('Start')}</button></div>` : ''}</li>`);
   }
   return `<section class="card today">
     <div class="card-head"><h2>☀️ ${greet}! <span class="muted today-date">${esc(dayLabel)}</span></h2></div>
-    <div class="today-sum small muted">Heute: <b>${fmtDuration(todayMin)}</b> erfasst · <b>${doneToday}</b> ${doneToday === 1 ? 'Aufgabe' : 'Aufgaben'} erledigt${c.streak ? ` · 🔥 ${c.streak} ${c.streak === 1 ? 'Tag' : 'Tage'} in Folge` : ''}</div>
+    <div class="today-sum small muted">${tr('Heute: <b>{d}</b> erfasst', { d: fmtDuration(todayMin) })} · ${trp(doneToday, '<b>{n}</b> Aufgabe erledigt', '<b>{n}</b> Aufgaben erledigt')}${c.streak ? ` · 🔥 ${trp(c.streak, '{n} Tag in Folge', '{n} Tage in Folge')}` : ''}</div>
     <ul class="list today-list">${items.join('')}</ul>
   </section>`;
 }
@@ -3147,24 +3280,24 @@ function weekGoalEverHit() {
 }
 
 const ACHIEVEMENTS = [
-  { id: 'first_project', icon: '🚀', name: 'Startschuss', desc: 'Erstes Projekt angelegt', goal: 1, val: (x) => x.projects },
-  { id: 'first_hour', icon: '⏱', name: 'Erste Stunde', desc: '1 Stunde Zeit erfasst', goal: 1, val: (x) => x.hours },
-  { id: 'hours_10', icon: '🔟', name: 'Zehner', desc: '10 Stunden erfasst', goal: 10, val: (x) => x.hours },
-  { id: 'hours_50', icon: '💪', name: 'Ausdauer', desc: '50 Stunden erfasst', goal: 50, val: (x) => x.hours },
-  { id: 'hours_100', icon: '🏆', name: 'Hundert', desc: '100 Stunden erfasst', goal: 100, val: (x) => x.hours },
-  { id: 'streak_3', icon: '🔥', name: 'Warmgelaufen', desc: '3 Tage in Folge aktiv', goal: 3, val: (x) => x.streak },
-  { id: 'streak_7', icon: '📅', name: 'Eine Woche dran', desc: '7 Tage in Folge aktiv', goal: 7, val: (x) => x.streak },
-  { id: 'streak_30', icon: '🌋', name: 'Unaufhaltsam', desc: '30 Tage in Folge aktiv', goal: 30, val: (x) => x.streak },
-  { id: 'pomo_1', icon: '🍅', name: 'Erster Pomodoro', desc: 'Einen Pomodoro abgeschlossen', goal: 1, val: (x) => x.pomodoros },
-  { id: 'pomo_10', icon: '🧺', name: 'Tomatenernte', desc: '10 Pomodoros abgeschlossen', goal: 10, val: (x) => x.pomodoros },
-  { id: 'pomo_50', icon: '🚜', name: 'Tomatenfarm', desc: '50 Pomodoros abgeschlossen', goal: 50, val: (x) => x.pomodoros },
-  { id: 'tasks_10', icon: '✅', name: 'Macher', desc: '10 Aufgaben erledigt', goal: 10, val: (x) => x.tasks },
-  { id: 'tasks_50', icon: '⚡', name: 'Abarbeiter', desc: '50 Aufgaben erledigt', goal: 50, val: (x) => x.tasks },
-  { id: 'milestone_1', icon: '🏁', name: 'Etappensieg', desc: 'Ersten Meilenstein erreicht', goal: 1, val: (x) => x.milestones },
-  { id: 'milestone_5', icon: '🗺', name: 'Wegbereiter', desc: '5 Meilensteine erreicht', goal: 5, val: (x) => x.milestones },
-  { id: 'project_done', icon: '🎉', name: 'Geschafft', desc: 'Ein Projekt abgeschlossen', goal: 1, val: (x) => x.projectsDone },
-  { id: 'revived', icon: '🌱', name: 'Wiederbelebt', desc: 'Ein Projekt nach 14+ Tagen Pause weitergeführt', goal: 1, val: (x) => x.revived },
-  { id: 'week_goal', icon: '🎯', name: 'Wochenziel', desc: 'Ein Wochenziel erreicht', goal: 1, val: (x) => x.weekGoal },
+  { id: 'first_project', icon: '🚀', get name() { return tr('Startschuss'); }, get desc() { return tr('Erstes Projekt angelegt'); }, goal: 1, val: (x) => x.projects },
+  { id: 'first_hour', icon: '⏱️', get name() { return tr('Erste Stunde'); }, get desc() { return tr('1 Stunde Zeit erfasst'); }, goal: 1, val: (x) => x.hours },
+  { id: 'hours_10', icon: '🔟', get name() { return tr('Zehner'); }, get desc() { return tr('10 Stunden erfasst'); }, goal: 10, val: (x) => x.hours },
+  { id: 'hours_50', icon: '💪', get name() { return tr('Ausdauer'); }, get desc() { return tr('50 Stunden erfasst'); }, goal: 50, val: (x) => x.hours },
+  { id: 'hours_100', icon: '🏆', get name() { return tr('Hundert'); }, get desc() { return tr('100 Stunden erfasst'); }, goal: 100, val: (x) => x.hours },
+  { id: 'streak_3', icon: '🔥', get name() { return tr('Warmgelaufen'); }, get desc() { return tr('3 Tage in Folge aktiv'); }, goal: 3, val: (x) => x.streak },
+  { id: 'streak_7', icon: '📅', get name() { return tr('Eine Woche dran'); }, get desc() { return tr('7 Tage in Folge aktiv'); }, goal: 7, val: (x) => x.streak },
+  { id: 'streak_30', icon: '🌋', get name() { return tr('Unaufhaltsam'); }, get desc() { return tr('30 Tage in Folge aktiv'); }, goal: 30, val: (x) => x.streak },
+  { id: 'pomo_1', icon: '🍅', get name() { return tr('Erster Pomodoro'); }, get desc() { return tr('Einen Pomodoro abgeschlossen'); }, goal: 1, val: (x) => x.pomodoros },
+  { id: 'pomo_10', icon: '🧺', get name() { return tr('Tomatenernte'); }, get desc() { return tr('10 Pomodoros abgeschlossen'); }, goal: 10, val: (x) => x.pomodoros },
+  { id: 'pomo_50', icon: '🚜', get name() { return tr('Tomatenfarm'); }, get desc() { return tr('50 Pomodoros abgeschlossen'); }, goal: 50, val: (x) => x.pomodoros },
+  { id: 'tasks_10', icon: '✅', get name() { return tr('Macher'); }, get desc() { return tr('10 Aufgaben erledigt'); }, goal: 10, val: (x) => x.tasks },
+  { id: 'tasks_50', icon: '⚡', get name() { return tr('Abarbeiter'); }, get desc() { return tr('50 Aufgaben erledigt'); }, goal: 50, val: (x) => x.tasks },
+  { id: 'milestone_1', icon: '🏁', get name() { return tr('Etappensieg'); }, get desc() { return tr('Ersten Meilenstein erreicht'); }, goal: 1, val: (x) => x.milestones },
+  { id: 'milestone_5', icon: '🗺️', get name() { return tr('Wegbereiter'); }, get desc() { return tr('5 Meilensteine erreicht'); }, goal: 5, val: (x) => x.milestones },
+  { id: 'project_done', icon: '🎉', get name() { return tr('Geschafft'); }, get desc() { return tr('Ein Projekt abgeschlossen'); }, goal: 1, val: (x) => x.projectsDone },
+  { id: 'revived', icon: '🌱', get name() { return tr('Wiederbelebt'); }, get desc() { return tr('Ein Projekt nach 14+ Tagen Pause weitergeführt'); }, goal: 1, val: (x) => x.revived },
+  { id: 'week_goal', icon: '🎯', get name() { return tr('Wochenziel'); }, get desc() { return tr('Ein Wochenziel erreicht'); }, goal: 1, val: (x) => x.weekGoal },
 ];
 
 function achievementStats() {
@@ -3194,7 +3327,7 @@ function checkAchievements() {
   if (fresh.length) {
     const first = ACHIEVEMENTS.find((a) => a.id === fresh[0]);
     setTimeout(() => {
-      toast(`🏅 Erfolg freigeschaltet: ${first.icon} ${first.name}${fresh.length > 1 ? ` (+${fresh.length - 1} weitere)` : ''}`);
+      toast(tr('🏅 Erfolg freigeschaltet: {name}', { name: `${first.icon} ${first.name}` }) + (fresh.length > 1 ? ` ${tr('(+{n} weitere)', { n: fresh.length - 1 })}` : ''));
       confetti();
     }, 300);
   }
@@ -3208,14 +3341,14 @@ function renderAchievements() {
   const badges = ACHIEVEMENTS.map((a) => {
     const done = !!got[a.id];
     const v = Math.min(a.goal, a.val(x));
-    const tip = `<b>${a.icon} ${esc(a.name)}</b><span class="tip-sub">${esc(a.desc)}</span>${done ? `<span class="tip-sub">✔ erreicht am ${fmtDate(got[a.id])}</span>` : `<span class="tip-sub">Fortschritt: ${Math.floor(v * 10) / 10} / ${a.goal}</span>`}`;
+    const tip = `<b>${a.icon} ${esc(a.name)}</b><span class="tip-sub">${esc(a.desc)}</span>${done ? `<span class="tip-sub">✔ ${tr('erreicht am {date}', { date: fmtDate(got[a.id]) })}</span>` : `<span class="tip-sub">${tr('Fortschritt: {v} / {goal}', { v: fmtNum(Math.floor(v * 10) / 10), goal: a.goal })}</span>`}`;
     return `<div class="badge-tile ${done ? 'earned' : 'locked'}" tabindex="0" data-tip="${esc(tip)}">
       <span class="badge-icon">${a.icon}</span><span class="badge-name">${esc(a.name)}</span>
       ${done ? '' : `<span class="badge-prog"><span style="width:${(v / a.goal) * 100}%"></span></span>`}
     </div>`;
   }).join('');
   return `<section class="card">
-    <div class="card-head"><h2>🏅 Erfolge</h2><span class="small muted">${n} von ${ACHIEVEMENTS.length}</span></div>
+    <div class="card-head"><h2>🏅 ${tr('Erfolge')}</h2><span class="small muted">${tr('{n} von {all}', { n, all: ACHIEVEMENTS.length })}</span></div>
     <div class="badge-grid">${badges}</div>
   </section>`;
 }
@@ -3260,27 +3393,27 @@ window.addEventListener('resize', closePopover);
 
 function projectMenuHTML(p) {
   return `<div class="pop-title"><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</div>
-    <button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 Pomodoro starten</button>
-    <button class="pop-item" data-action="startTimer" data-id="${p.id}">▶ Stoppuhr starten</button>
-    <button class="pop-item" data-action="addTime" data-id="${p.id}">⏱ Zeit erfassen</button>
-    <button class="pop-item" data-action="addTask" data-id="${p.id}">✅ Aufgabe anlegen</button>
-    <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 Notiz</button>
-    <button class="pop-item" data-action="goProject" data-id="${p.id}">📁 Projekt öffnen</button>
+    <button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 ${tr('Pomodoro starten')}</button>
+    <button class="pop-item" data-action="startTimer" data-id="${p.id}">▶ ${tr('Stoppuhr starten')}</button>
+    <button class="pop-item" data-action="addTime" data-id="${p.id}">⏱️ ${tr('Zeit erfassen')}</button>
+    <button class="pop-item" data-action="addTask" data-id="${p.id}">✅ ${tr('Aufgabe anlegen')}</button>
+    <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 ${tr('Notiz')}</button>
+    <button class="pop-item" data-action="goProject" data-id="${p.id}">📁 ${tr('Projekt öffnen')}</button>
     <div class="pop-sep"></div>
-    <div class="pop-label">Status</div>
+    <div class="pop-label">${tr('Status')}</div>
     <div class="pop-chips">${STATUS.map((st) => `<button class="chip ${p.status === st.value ? 'active' : ''}" data-action="setProjectStatus" data-id="${p.id}" data-status="${st.value}">${st.label}</button>`).join('')}</div>`;
 }
-const qaButton = (p) => `<button class="btn ghost icon qa-btn" data-action="quickMenu" data-id="${p.id}" aria-label="Aktionen für ${esc(p.name)}" title="Aktionen">⋯</button>`;
+const qaButton = (p) => `<button class="btn ghost icon qa-btn" data-action="quickMenu" data-id="${p.id}" aria-label="${tr('Aktionen für {name}', { name: esc(p.name) })}" title="${tr('Aktionen')}">⋯</button>`;
 
 function taskMenuHTML(t) {
   const p = getProject(t.projectId);
   return `<div class="pop-title">${esc(t.title)}</div>
-    <button class="pop-item" data-action="toggleTask" data-id="${t.id}">${t.done ? '↺ Wieder öffnen' : '✓ Erledigt'}</button>
-    <button class="pop-item" data-action="editTask" data-id="${t.id}">✎ Bearbeiten</button>
-    ${t.done ? '' : `<button class="pop-item" data-action="addSubtask" data-id="${t.id}">＋ Unterpunkt</button>`}
-    ${p ? `<button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 Pomodoro für ${esc(p.name)}</button>` : ''}
+    <button class="pop-item" data-action="toggleTask" data-id="${t.id}">${t.done ? `↺ ${tr('Wieder öffnen')}` : `✓ ${tr('Erledigt')}`}</button>
+    <button class="pop-item" data-action="editTask" data-id="${t.id}">✎ ${tr('Bearbeiten')}</button>
+    ${t.done ? '' : `<button class="pop-item" data-action="addSubtask" data-id="${t.id}">＋ ${tr('Unterpunkt')}</button>`}
+    ${p ? `<button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 ${tr('Pomodoro für {name}', { name: esc(p.name) })}</button>` : ''}
     <div class="pop-sep"></div>
-    <button class="pop-item danger" data-action="deleteTask" data-id="${t.id}">🗑 Löschen</button>`;
+    <button class="pop-item danger" data-action="deleteTask" data-id="${t.id}">🗑 ${tr('Löschen')}</button>`;
 }
 
 /* ---------------------------- Detailansichten (Diagramme anklicken) ------- */
@@ -3295,37 +3428,37 @@ function openDetail(spec) {
   const entryRow = (e) => {
     const p = getProject(e.projectId);
     return `<li><span class="dot-color" style="background:${esc(p?.color || 'var(--muted)')}"></span>
-      <div class="grow"><div class="title">${esc(e.title || autoTimeTitle(e.date))}</div>
-        <div class="meta"><span class="amount">⏱ ${fmtDuration(e.minutes)}</span><span>${esc(p?.name || '–')}</span>${kind === 'week' ? `<span>${esc(autoTimeTitle(e.date))}</span>` : ''}</div>
+      <div class="grow"><div class="title">${esc(entryTitle(e))}</div>
+        <div class="meta"><span class="amount">⏱️ ${fmtDuration(e.minutes)}</span><span>${esc(p?.name || '–')}</span>${kind === 'week' ? `<span>${esc(autoTimeTitle(e.date))}</span>` : ''}</div>
         ${e.description ? `<div class="entry-desc">${esc(e.description)}</div>` : ''}</div>
-      <button class="btn ghost icon" data-action="editTime" data-id="${e.id}" title="Bearbeiten" aria-label="Zeiteintrag bearbeiten">✎</button></li>`;
+      <button class="btn ghost icon" data-action="editTime" data-id="${e.id}" title="${tr('Bearbeiten')}" aria-label="${tr('Zeiteintrag bearbeiten')}">✎</button></li>`;
   };
   if (kind === 'day') {
     const items = dayDetails(a)[a] || [];
     const entries = data.timeEntries.filter((e) => e.date === a);
-    const other = items.filter((it) => it.icon !== '⏱');
-    title = parseISO(a).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-    body = `<p class="small muted" style="margin:0">${fmtDuration(sum(entries, (e) => e.minutes))} erfasst · ${items.length} ${items.length === 1 ? 'Aktivität' : 'Aktivitäten'}</p>
-      ${entries.length ? `<h3>⏱ Zeiteinträge</h3><ul class="list">${entries.map(entryRow).join('')}</ul>` : ''}
-      ${other.length ? `<h3>Weitere Aktivitäten</h3><ul class="list">${other.map((it) => `<li><span class="dot-color" style="background:${esc(it.p.color)}"></span><div class="grow"><div class="title">${it.icon} ${esc(it.text)}</div><div class="meta">${esc(it.p.name)}</div></div></li>`).join('')}</ul>` : ''}
-      ${items.length ? '' : '<div class="empty">An diesem Tag gab es keine Aktivität.</div>'}`;
+    const other = items.filter((it) => it.icon !== '⏱️');
+    title = parseISO(a).toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    body = `<p class="small muted" style="margin:0">${tr('{d} erfasst', { d: fmtDuration(sum(entries, (e) => e.minutes)) })} · ${trp(items.length, '{n} Aktivität', '{n} Aktivitäten')}</p>
+      ${entries.length ? `<h3>⏱️ ${tr('Zeiteinträge')}</h3><ul class="list">${entries.map(entryRow).join('')}</ul>` : ''}
+      ${other.length ? `<h3>${tr('Weitere Aktivitäten')}</h3><ul class="list">${other.map((it) => `<li><span class="dot-color" style="background:${esc(it.p.color)}"></span><div class="grow"><div class="title">${it.icon} ${esc(it.text)}</div><div class="meta">${esc(it.p.name)}</div></div></li>`).join('')}</ul>` : ''}
+      ${items.length ? '' : `<div class="empty">${tr('An diesem Tag gab es keine Aktivität.')}</div>`}`;
   } else {
     const start = addDays(startOfWeek(new Date()), Number(a) * 7);
     const from = toISO(start), to = toISO(addDays(start, 7));
     const entries = data.timeEntries.filter((e) => e.date >= from && e.date < to && (!pid || e.projectId === pid))
       .sort((x, y) => y.date.localeCompare(x.date));
     const p = pid ? getProject(pid) : null;
-    title = `Woche ${fmtDate(from)} – ${fmtDate(toISO(addDays(start, 6)))}${p ? ` · ${p.name}` : ''}`;
+    title = tr('Woche {range}', { range: `${fmtDate(from)} – ${fmtDate(toISO(addDays(start, 6)))}` }) + (p ? ` · ${p.name}` : '');
     const byProject = {};
     entries.forEach((e) => (byProject[e.projectId] = (byProject[e.projectId] || 0) + e.minutes));
-    body = `<p class="small muted" style="margin:0">${fmtDuration(sum(entries, (e) => e.minutes))} in ${entries.length} ${entries.length === 1 ? 'Eintrag' : 'Einträgen'}</p>
+    body = `<p class="small muted" style="margin:0">${trp(entries.length, '{d} in {n} Eintrag', '{d} in {n} Einträgen', { d: fmtDuration(sum(entries, (e) => e.minutes)) })}</p>
       ${!pid && Object.keys(byProject).length > 1 ? `<div class="detail-split">${Object.entries(byProject).sort((x, y) => y[1] - x[1]).map(([id, m]) => `<span><span class="dot-color" style="background:${esc(getProject(id)?.color || 'var(--muted)')}"></span> ${esc(getProject(id)?.name || '–')} <b>${fmtDuration(m)}</b></span>`).join('')}</div>` : ''}
-      ${entries.length ? `<ul class="list">${entries.map(entryRow).join('')}</ul>` : '<div class="empty">In dieser Woche wurde keine Zeit erfasst.</div>'}`;
+      ${entries.length ? `<ul class="list">${entries.map(entryRow).join('')}</ul>` : `<div class="empty">${tr('In dieser Woche wurde keine Zeit erfasst.')}</div>`}`;
   }
   const dlg = $('#modal');
   dlg.classList.remove('wide');
   dlg.innerHTML = `<div class="form detail-view"><h2>${esc(title)}</h2>${body}
-    <div class="form-actions"><button type="button" class="btn primary" data-close>Schließen</button></div></div>`;
+    <div class="form-actions"><button type="button" class="btn primary" data-close>${tr('Schließen')}</button></div></div>`;
   dlg.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
   lockScroll();
   dlg.showModal();
@@ -3336,29 +3469,31 @@ function openDetail(spec) {
 function paletteCommands() {
   const cmds = [];
   const add = (icon, label, run, hint = '') => cmds.push({ icon, label, run, hint, key: `${label} ${hint}`.toLocaleLowerCase('de') });
-  add('🏠', 'Übersicht', () => { location.hash = '#/'; }, 'Navigation');
-  add('📁', 'Projekte', () => { location.hash = '#/projekte'; }, 'Navigation');
-  add('⚙️', 'Einstellungen', () => { location.hash = '#/einstellungen'; }, 'Navigation');
-  add('➕', 'Neues Projekt', () => actions.newProject());
-  add('⏱', 'Zeit erfassen', () => actions.addTime({}));
-  if (data.timer) add('■', data.timer.mode === 'pomodoro' ? 'Pomodoro beenden' : 'Timer stoppen', () => actions.stopTimer());
-  add('💾', 'Sicherung exportieren', () => actions.exportData(), 'Backup');
-  add('⬆', 'Sicherung importieren', () => actions.importData(), 'Backup');
-  add('🧩', 'Übersicht anpassen', () => actions.customizeDashboard(), 'Layout');
-  THEMES.forEach(([v, l]) => add(l.split(' ')[0], `Darstellung: ${l.replace(/^\S+\s/, '')}`, () => { data.settings.theme = v; commit(); }, 'Theme Hell Dunkel'));
-  add('↔', 'Seitenleiste ein-/ausklappen', () => actions.toggleSidebar(), 'Navigation');
+  const nav = tr('Navigation');
+  add('🏠', tr('Übersicht'), () => { location.hash = '#/'; }, nav);
+  add('📁', tr('Projekte'), () => { location.hash = '#/projekte'; }, nav);
+  add('⚙️', tr('Einstellungen'), () => { location.hash = '#/einstellungen'; }, nav);
+  add('➕', tr('Neues Projekt'), () => actions.newProject());
+  add('⏱️', tr('Zeit erfassen'), () => actions.addTime({}));
+  if (data.timer) add('■', data.timer.mode === 'pomodoro' ? tr('Pomodoro beenden') : tr('Timer stoppen'), () => actions.stopTimer());
+  add('💾', tr('Sicherung exportieren'), () => actions.exportData(), 'Backup');
+  add('⬆', tr('Sicherung importieren'), () => actions.importData(), 'Backup');
+  add('🧩', tr('Übersicht anpassen'), () => actions.customizeDashboard(), 'Layout');
+  THEMES.forEach(([v, l]) => add(l.split(' ')[0], tr('Darstellung: {theme}', { theme: tr(l).replace(/^\S+\s/, '') }), () => { data.settings.theme = v; commit(); }, tr('Theme Hell Dunkel')));
+  LANGUAGES.forEach(([code, name]) => add('🌐', tr('Sprache: {lang}', { lang: name }), () => { data.settings.language = code; commit(); }, 'Language Sprache'));
+  add('↔', tr('Seitenleiste ein-/ausklappen'), () => actions.toggleSidebar(), nav);
   const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
   [...data.projects].sort((a, b) => order[a.status] - order[b.status]).forEach((p) => {
-    add('📁', `Öffnen: ${p.name}`, () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
+    add('📁', tr('Öffnen: {name}', { name: p.name }), () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
     if (p.status !== 'abgeschlossen') {
-      add('🍅', `Pomodoro: ${p.name}`, () => actions.startPomodoro({ id: p.id }), 'Timer');
-      add('⏱', `Zeit erfassen: ${p.name}`, () => actions.addTime({ id: p.id }));
-      add('✅', `Aufgabe anlegen: ${p.name}`, () => actions.addTask({ id: p.id }));
-      add('📝', `Notiz: ${p.name}`, () => actions.addNote({ id: p.id }));
+      add('🍅', tr('Pomodoro: {name}', { name: p.name }), () => actions.startPomodoro({ id: p.id }), 'Timer');
+      add('⏱️', tr('Zeit erfassen: {name}', { name: p.name }), () => actions.addTime({ id: p.id }));
+      add('✅', tr('Aufgabe anlegen: {name}', { name: p.name }), () => actions.addTask({ id: p.id }));
+      add('📝', tr('Notiz: {name}', { name: p.name }), () => actions.addNote({ id: p.id }));
     }
   });
   sortTasks(data.tasks.filter((t) => !t.done)).forEach((t) => {
-    add('☐', `Erledigen: ${t.title}`, () => actions.toggleTask({ id: t.id }), getProject(t.projectId)?.name || '');
+    add('☐', tr('Erledigen: {title}', { title: t.title }), () => actions.toggleTask({ id: t.id }), getProject(t.projectId)?.name || '');
   });
   return cmds;
 }
@@ -3371,9 +3506,9 @@ function openPalette() {
   const dlg = $('#modal');
   dlg.classList.remove('wide');
   dlg.innerHTML = `<div class="palette">
-    <input type="text" class="palette-input" placeholder="Befehl oder Projekt suchen …" aria-label="Befehl suchen" autocomplete="off" spellcheck="false">
+    <input type="text" class="palette-input" placeholder="${tr('Befehl oder Projekt suchen …')}" aria-label="${tr('Befehl suchen')}" autocomplete="off" spellcheck="false">
     <ul class="palette-list" role="listbox"></ul>
-    <div class="palette-foot small muted">↑ ↓ auswählen · Enter ausführen · Esc schließen</div>
+    <div class="palette-foot small muted">${tr('↑ ↓ auswählen · Enter ausführen · Esc schließen')}</div>
   </div>`;
   const input = dlg.querySelector('.palette-input');
   input.addEventListener('input', () => { paletteState.active = 0; renderPalette(input.value); });
@@ -3403,7 +3538,7 @@ function renderPalette(q, keepList = false) {
   const ul = $('#modal .palette-list');
   ul.innerHTML = paletteState.list.length ? paletteState.list.map((c, i) => `<li data-i="${i}" role="option" class="${i === paletteState.active ? 'active' : ''}" aria-selected="${i === paletteState.active}">
       <span class="pal-ico">${c.icon}</span><span class="pal-label">${esc(c.label)}</span>${c.hint ? `<span class="pal-hint">${esc(c.hint)}</span>` : ''}</li>`).join('')
-    : '<li class="pal-empty">Nichts gefunden</li>';
+    : `<li class="pal-empty">${tr('Nichts gefunden')}</li>`;
   ul.querySelector('.active')?.scrollIntoView({ block: 'nearest' });
 }
 function runPalette(i) {
@@ -3451,7 +3586,7 @@ document.addEventListener('pointermove', (e) => {
   swipe.li.style.transform = `translateX(${swipe.dx}px)`;
   const done = swipe.li.classList.contains('done');
   swipe.bg.className = `swipe-bg ${swipe.dx > 0 ? 'right' : 'left'} ${Math.abs(swipe.dx) > 80 ? 'armed' : ''}`;
-  swipe.bg.innerHTML = swipe.dx > 0 ? `<span>${done ? '↺ Wieder öffnen' : '✓ Erledigt'}</span>` : '<span>⋯ Optionen</span>';
+  swipe.bg.innerHTML = swipe.dx > 0 ? `<span>${done ? `↺ ${tr('Wieder öffnen')}` : `✓ ${tr('Erledigt')}`}</span>` : `<span>⋯ ${tr('Optionen')}</span>`;
 });
 function endSwipe() {
   if (!swipe) return;
@@ -3495,7 +3630,7 @@ document.addEventListener('change', (e) => {
   p.status = el.value;
   commit();
   if (!wasDone && p.status === 'abgeschlossen') celebrateProject(p);
-  else toast(`Status: ${statusLabel(p.status)}`);
+  else toast(tr('Status: {s}', { s: statusLabel(p.status) }));
 });
 
 document.addEventListener('submit', (e) => {
@@ -3505,7 +3640,7 @@ document.addEventListener('submit', (e) => {
   const fd = new FormData(form);
   data.settings.weeklyHoursGoal = Math.max(0, Number(fd.get('weeklyHoursGoal')) || 0);
   commit();
-  toast('Einstellungen gespeichert');
+  toast(tr('Einstellungen gespeichert'));
 });
 
 document.addEventListener('submit', (e) => {
@@ -3521,7 +3656,7 @@ document.addEventListener('submit', (e) => {
   Object.assign(data.settings, { pomoWork: pomoCfg().work, pomoShort: pomoCfg().short, pomoLong: pomoCfg().long, pomoEvery: pomoCfg().every });
   if (data.settings.pomoNotify) requestNotifyPermission();
   commit();
-  toast('Pomodoro-Einstellungen gespeichert');
+  toast(tr('Pomodoro-Einstellungen gespeichert'));
 });
 
 document.addEventListener('submit', (e) => {
@@ -3532,7 +3667,14 @@ document.addEventListener('submit', (e) => {
   if (!v.reminderTexts.length) v.reminderTexts = null; // leer = Standardtexte
   Object.assign(data.settings, v);
   commit();
-  toast('Erinnerungen gespeichert');
+  toast(tr('Erinnerungen gespeichert'));
+});
+
+// Sprache
+document.addEventListener('change', (e) => {
+  if (!e.target.matches('[data-lang-opt]')) return;
+  data.settings.language = e.target.value;
+  commit();
 });
 
 // Animation im Motivationsbereich
@@ -3573,11 +3715,20 @@ document.addEventListener('click', (e) => {
 document.addEventListener('toggle', (e) => {
   const d = e.target;
   if (!(d instanceof HTMLDetailsElement) || !d.dataset.section) return;
-  if (d.open) openSections.add(d.dataset.section); else openSections.delete(d.dataset.section);
+  if (d.open) {
+    // Immer nur ein Bereich offen: die anderen zuklappen
+    document.querySelectorAll('details.settings-section[open]').forEach((o) => { if (o !== d) o.open = false; });
+    openSections = new Set([d.dataset.section]);
+    growAll(d); // Textfelder in vorher zugeklappten Bereichen anpassen
+    // Kopf des geöffneten Bereichs sichtbar halten (der zugeklappte darüber verschiebt die Seite)
+    requestAnimationFrame(() => {
+      const top = d.getBoundingClientRect().top;
+      if (top < 0 || top > window.innerHeight * 0.6) d.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    });
+  } else {
+    openSections.delete(d.dataset.section);
+  }
   rememberSections();
-  if (d.open) growAll(d); // Textfelder in vorher zugeklappten Bereichen anpassen
-  const btn = document.querySelector('[data-action="toggleAllSections"]');
-  if (btn) btn.textContent = SECTION_IDS.every((id) => openSections.has(id)) ? 'Alle zuklappen' : 'Alle aufklappen';
 }, true);
 
 // Mitwachsende Textfelder
@@ -3607,6 +3758,7 @@ document.addEventListener('click', (e) => {
 // Änderungen aus einem anderen Tab übernehmen
 window.addEventListener('storage', (e) => {
   if (e.key === STORAGE_KEY) data = load();
+  if (e.key === SYNC_KEY) syncState = loadSyncState();
   if (e.key === STORAGE_KEY || e.key === META_KEY) { meta = loadMeta(); render(); }
 });
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
@@ -3615,7 +3767,8 @@ window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); }
 // Browser zeigen dabei nur ihren eigenen Standardtext; iPhone/iPad-Safari unterstützt das gar nicht –
 // dort übernimmt die Hinweisleiste die Erinnerung.
 window.addEventListener('beforeunload', (e) => {
-  if (!hasUnsavedChanges()) return;
+  if (isServerMode() && syncState.dirty && server.authed) push({ keepalive: true });
+  if (!hasUnsavedChanges() && !(isServerMode() && syncState.dirty)) return;
   e.preventDefault();
   e.returnValue = '';
   return '';
@@ -3627,7 +3780,7 @@ let previousOpen = 0;
 let showSyncHint = false;
 function checkSyncHint() {
   meta = loadMeta();
-  if (data.projects.length && meta.lastOpen && Date.now() - meta.lastOpen > SYNC_HINT_AFTER_MS) {
+  if (!isServerMode() && data.projects.length && meta.lastOpen && Date.now() - meta.lastOpen > SYNC_HINT_AFTER_MS) {
     previousOpen = meta.lastOpen;
     showSyncHint = true;
     syncHintDismissed = false;
@@ -3656,10 +3809,10 @@ async function checkForUpdate(force = false) {
       // Wurde diese Version schon geladen, kam aber noch die alte an? Dann ist die Bereitstellung noch nicht überall durch.
       const tried = new URLSearchParams(location.search).get('v') === version;
       bar.innerHTML = tried
-        ? `<div class="container"><span>⏳ <b>Die neue Version ${esc(version)} wird gerade noch bereitgestellt.</b> Das dauert meist 1–2 Minuten.</span>
-            <span class="btn-row"><button class="btn primary small" data-action="applyUpdate" data-id="${esc(version)}-${Date.now()}">Erneut versuchen</button></span></div>`
-        : `<div class="container"><span>🆕 <b>Neue Version verfügbar.</b> Deine Daten bleiben dabei erhalten.</span>
-            <span class="btn-row"><button class="btn primary small" data-action="applyUpdate" data-id="${esc(version)}">Jetzt aktualisieren</button></span></div>`;
+        ? `<div class="container"><span>⏳ ${tr('<b>Die neue Version {v} wird gerade noch bereitgestellt.</b> Das dauert meist 1–2 Minuten.', { v: esc(version) })}</span>
+            <span class="btn-row"><button class="btn primary small" data-action="applyUpdate" data-id="${esc(version)}-${Date.now()}">${tr('Erneut versuchen')}</button></span></div>`
+        : `<div class="container"><span>🆕 ${tr('<b>Neue Version verfügbar.</b> Deine Daten bleiben dabei erhalten.')}</span>
+            <span class="btn-row"><button class="btn primary small" data-action="applyUpdate" data-id="${esc(version)}">${tr('Jetzt aktualisieren')}</button></span></div>`;
       bar.hidden = false;
     } else if (version === APP_VERSION) {
       bar.hidden = true;
@@ -3675,11 +3828,11 @@ window.addEventListener('pageshow', (e) => { if (e.persisted) checkForUpdate(tru
 setInterval(() => { if (document.visibilityState === 'visible') checkForUpdate(); }, 2 * 60 * 1000);
 
 // Tastenkürzel passend zum Betriebssystem anzeigen
-{
+function applyShortcutHint() {
   const kbd = document.querySelector('.cmd-btn kbd');
   const mac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-  if (kbd) kbd.textContent = mac ? '⌘K' : 'Strg K';
-  document.querySelector('.cmd-btn')?.setAttribute('title', `Befehlspalette (${mac ? '⌘K' : 'Strg+K'})`);
+  if (kbd) kbd.textContent = mac ? '⌘K' : tr('Strg K');
+  document.querySelector('.cmd-btn')?.setAttribute('title', tr('Befehlspalette ({keys})', { keys: mac ? '⌘K' : tr('Strg+K') }));
 }
 
 function updateSideToggle() {
@@ -3687,11 +3840,474 @@ function updateSideToggle() {
   if (!btn) return;
   const collapsed = document.documentElement.classList.contains('side-collapsed');
   btn.textContent = collapsed ? '»' : '«';
-  btn.title = btn.ariaLabel = collapsed ? 'Seitenleiste ausklappen' : 'Seitenleiste einklappen';
+  btn.title = btn.ariaLabel = collapsed ? tr('Seitenleiste ausklappen') : tr('Seitenleiste einklappen');
 }
 updateSideToggle();
 
 // Safari löscht Website-Daten sonst nach 7 Tagen ohne Besuch – dauerhaften Speicher anfragen.
 navigator.storage?.persist?.().catch(() => {});
 
+/* ------------------------------------------------------------------------
+   Server-Speicherung (optional)
+   Liegt der Tracker auf einem eigenen Server mit api.php, werden alle Änderungen
+   automatisch dort gespeichert und auf allen Geräten abgeglichen. Ohne Server
+   (z. B. GitHub Pages oder lokale Datei) bleibt alles wie bisher.
+   ------------------------------------------------------------------------ */
+
+function loadSyncState() {
+  const def = { server: false, rev: 0, dirty: false, lastSync: 0 };
+  try { return { ...def, ...JSON.parse(localStorage.getItem(SYNC_KEY) || '{}') }; } catch { return def; }
+}
+function saveSyncState() {
+  try { localStorage.setItem(SYNC_KEY, JSON.stringify(syncState)); } catch { /* ignorieren */ }
+}
+function loadBase() {
+  try { return JSON.parse(localStorage.getItem(SYNC_BASE_KEY) || 'null'); } catch { return null; }
+}
+function saveBase(d) {
+  try { localStorage.setItem(SYNC_BASE_KEY, JSON.stringify(d)); } catch { /* Speicher voll: Abgleich klappt trotzdem, nur gröber */ }
+}
+
+function isServerMode() { return syncState.server; }
+function isLocked() { return syncState.server && server.checked && !server.authed; }
+
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iPad'
+    : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Macintosh/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : tr('Gerät');
+  const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+  return br ? `${os} · ${br}` : os;
+}
+
+async function api(action, { method = 'GET', body, params = '', keepalive = false } = {}) {
+  const payload = body === undefined ? undefined : JSON.stringify(body);
+  const res = await fetch(`${API_URL}?action=${action}${params}`, {
+    method,
+    credentials: 'same-origin',
+    cache: 'no-store',
+    keepalive: keepalive && payload && payload.length < 60000,
+    headers: payload === undefined ? { 'X-Tracker': '1' } : { 'Content-Type': 'application/json', 'X-Tracker': '1' },
+    body: payload,
+  });
+  let json = null;
+  try { json = await res.json(); } catch { /* keine JSON-Antwort */ }
+  return { status: res.status, ok: res.ok, json };
+}
+
+/** Meldung einer Server-Antwort in der aktuellen Sprache (anhand des Fehlercodes) */
+function apiMessage(json, status) {
+  const known = {
+    auth: tr('Bitte melde dich an.'),
+    wrong_password: tr('Falsches Passwort.'),
+    locked: tr('Zu viele Fehlversuche. Bitte warte 15 Minuten.'),
+    not_configured: tr('Auf dem Server ist noch kein Passwort festgelegt (config.php).'),
+    too_large: tr('Die Daten sind zu groß.'),
+    bad_json: tr('Ungültige Anfrage.'),
+    bad_data: tr('Keine gültigen Projekttracker-Daten.'),
+    not_found: tr('Diesen Stand gibt es nicht mehr.'),
+    forbidden: tr('Anfrage nicht erlaubt.'),
+    server: tr('Interner Serverfehler. Details stehen im Fehlerprotokoll des Servers.'),
+  };
+  return known[json?.error] || json?.message || tr('Fehler {status}', { status });
+}
+
+function setSyncStatus(status, error = '') {
+  server.status = status;
+  server.error = error;
+  if (!isLocked()) renderBackupBar();
+}
+
+/* Dreiwege-Abgleich: base = letzter gemeinsamer Stand, local = dieses Gerät, remote = Server.
+   Was nur auf einer Seite geändert wurde, wird übernommen. Listen mit IDs werden Eintrag für Eintrag
+   abgeglichen (neue, geänderte und gelöschte Einträge beider Seiten bleiben erhalten). Wurde derselbe
+   Wert auf beiden Seiten geändert, gewinnt dieses Gerät. */
+function sameJson(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function isPlainObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+function isIdList(v) { return Array.isArray(v) && v.every((x) => isPlainObj(x) && x.id !== undefined); }
+
+function merge3(base, local, remote, path = []) {
+  if (sameJson(local, remote)) return local;
+  if (sameJson(base, local)) return remote;
+  if (sameJson(base, remote)) return local;
+  if (path[0] === 'counters' && typeof local === 'number' && typeof remote === 'number') {
+    return remote + local - (typeof base === 'number' ? base : 0);
+  }
+  if (isIdList(local) && isIdList(remote)) return mergeById(isIdList(base) ? base : [], local, remote, path);
+  if (isPlainObj(local) && isPlainObj(remote)) {
+    const out = {};
+    const b = isPlainObj(base) ? base : {};
+    for (const k of new Set([...Object.keys(remote), ...Object.keys(local)])) {
+      const v = merge3(b[k], local[k], remote[k], [...path, k]);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+  return local;
+}
+
+function mergeById(base, local, remote, path) {
+  const bm = new Map(base.map((x) => [x.id, x]));
+  const lm = new Map(local.map((x) => [x.id, x]));
+  const rm = new Map(remote.map((x) => [x.id, x]));
+  const ids = [...remote.map((x) => x.id), ...local.filter((x) => !rm.has(x.id)).map((x) => x.id)];
+  const out = [];
+  for (const id of ids) {
+    const b = bm.get(id), l = lm.get(id), r = rm.get(id);
+    if (l && r) out.push(merge3(b, l, r, [...path, id]));
+    else if (r) { if (!(b && sameJson(b, r))) out.push(r); }      // hier gelöscht, dort unverändert → gelöscht lassen
+    else if (l) { if (!(b && sameJson(b, l))) out.push(l); }      // dort gelöscht, hier unverändert → gelöscht lassen
+  }
+  return out;
+}
+
+/** Übernimmt den Server-Stand als lokalen Stand. */
+function adoptRemote(remote) {
+  const changed = !sameJson(remote.data, data);
+  data = normalize(remote.data);
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch { /* ignorieren */ }
+  syncState.rev = remote.rev;
+  syncState.dirty = false;
+  syncState.lastSync = Date.now();
+  saveSyncState();
+  saveBase(remote.data);
+  if (changed) render();
+}
+
+function hasLocalContent(d) {
+  return ['projects', 'timeEntries', 'investments', 'milestones', 'tasks', 'notes'].some((k) => (d[k] || []).length);
+}
+
+/** Bringt den lokalen Stand und den Server-Stand zusammen. */
+async function reconcile(remote) {
+  if (!remote || remote.rev === 0 || !remote.data) {
+    // Server ist noch leer: Daten dieses Geräts hochladen
+    syncState.rev = 0;
+    if (hasLocalContent(data) || syncState.dirty) {
+      syncState.dirty = true;
+      saveSyncState();
+      server.busy = false;
+      await push();
+      if (!syncState.dirty) toast(tr('☁️ Deine Daten wurden auf den Server übertragen.'));
+    } else {
+      setSyncStatus('ok');
+    }
+    return;
+  }
+  if (server.asking) return;
+  // Erste Verbindung dieses Geräts, aber hier liegen schon (z. B. importierte) Daten: nachfragen
+  if (!syncState.lastSync && hasLocalContent(data) && !sameJson(normalize(remote.data), data)) {
+    server.busy = false;
+    askFirstMerge(remote);
+    return;
+  }
+  if (!syncState.dirty) {
+    if (remote.rev !== syncState.rev || !syncState.lastSync) adoptRemote(remote);
+    setSyncStatus('ok');
+    return;
+  }
+  if (remote.rev !== syncState.rev) {
+    // Auf einem anderen Gerät wurde inzwischen gespeichert → zusammenführen
+    const merged = merge3(loadBase(), JSON.parse(JSON.stringify(data)), remote.data);
+    data = normalize(merged);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch { /* ignorieren */ }
+    syncState.rev = remote.rev;
+    saveBase(remote.data);
+    saveSyncState();
+    render();
+  }
+  server.busy = false;
+  await push();
+}
+
+function schedulePush(delay = 1200) {
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => push(), delay);
+  if (server.status !== 'offline') setSyncStatus('pending');
+}
+
+async function push({ keepalive = false } = {}) {
+  clearTimeout(pushTimer);
+  if (!isServerMode() || !server.authed || !syncState.dirty) return;
+  if (server.busy) { schedulePush(600); return; }
+  server.busy = true;
+  setSyncStatus('saving');
+  try {
+    const sent = JSON.parse(JSON.stringify(data));
+    const r = await api('data', { method: 'POST', body: { baseRev: syncState.rev, data: sent, device: deviceLabel() }, keepalive });
+    if (r.status === 401) { lostAuth(); return; }
+    if (r.status === 409) { server.busy = false; await reconcile(r.json); return; }
+    if (!r.ok) throw new Error(apiMessage(r.json, r.status));
+    syncState.rev = r.json.rev;
+    syncState.dirty = !sameJson(data, sent); // während des Speicherns geändert? Dann gleich nochmal
+    syncState.lastSync = Date.now();
+    saveSyncState();
+    saveBase(sent);
+    setSyncStatus('ok');
+    if (syncState.dirty) schedulePush(300);
+  } catch (e) {
+    syncError(e);
+  } finally {
+    server.busy = false;
+  }
+}
+
+async function pull() {
+  if (!isServerMode() || !server.authed) return;
+  if (server.busy) return;
+  server.busy = true;
+  try {
+    const r = await api('data');
+    if (r.status === 401) { lostAuth(); return; }
+    if (!r.ok) throw new Error(apiMessage(r.json, r.status));
+    await reconcile(r.json);
+  } catch (e) {
+    syncError(e);
+  } finally {
+    server.busy = false;
+  }
+}
+
+function syncError(e) {
+  const offline = e instanceof TypeError || navigator.onLine === false;
+  setSyncStatus(offline ? 'offline' : 'error', offline ? '' : e.message);
+}
+
+function lostAuth() {
+  server.authed = false;
+  server.busy = false;
+  render();
+}
+
+/* Erste Anmeldung auf einem Gerät mit vorhandenen Daten */
+function askFirstMerge(remote) {
+  server.asking = true;
+  const dlg = $('#modal');
+  dlg.classList.remove('wide');
+  const when = remote.updatedAt ? fmtDateTime(remote.updatedAt) : tr('unbekannt');
+  dlg.innerHTML = `<div class="form detail-view"><h2>☁️ ${tr('Daten zusammenführen?')}</h2>
+    <p>${remote.device ? tr('Auf dem Server liegen bereits Daten (zuletzt gespeichert {when} auf {device}), und auch auf diesem Gerät sind Daten vorhanden.', { when: esc(when), device: esc(remote.device) }) : tr('Auf dem Server liegen bereits Daten (zuletzt gespeichert {when}), und auch auf diesem Gerät sind Daten vorhanden.', { when: esc(when) })}</p>
+    <p class="small muted">${tr('<b>Zusammenführen</b> behält alle Projekte und Einträge von beiden Seiten. <b>Server-Daten verwenden</b> ersetzt die Daten auf diesem Gerät.')}</p>
+    <div class="form-actions">
+      <button type="button" class="btn" data-choice="remote">${tr('Server-Daten verwenden')}</button>
+      <button type="button" class="btn primary" data-choice="merge">${tr('Zusammenführen')}</button>
+    </div></div>`;
+  dlg.querySelectorAll('[data-choice]').forEach((b) => b.addEventListener('click', async () => {
+    server.asking = false;
+    dlg.close();
+    unlockScroll();
+    if (b.dataset.choice === 'remote') {
+      adoptRemote(remote);
+      setSyncStatus('ok');
+      toast(tr('Server-Daten übernommen ✔'));
+    } else {
+      data = normalize(merge3({}, JSON.parse(JSON.stringify(data)), remote.data));
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch { /* ignorieren */ }
+      syncState.rev = remote.rev;
+      syncState.dirty = true;
+      syncState.lastSync = Date.now();
+      saveSyncState();
+      saveBase(remote.data);
+      render();
+      await push();
+      toast(tr('Daten zusammengeführt ✔'));
+    }
+  }));
+  dlg.addEventListener('cancel', (e) => e.preventDefault(), { once: true });
+  lockScroll();
+  dlg.showModal();
+}
+
+/* Anmeldeseite */
+function renderLockScreen() {
+  document.body.classList.add('locked');
+  renderPauseOverlay();
+  const info = server.info || {};
+  const problem = info.dbError ? tr('Die Datenbank ist nicht erreichbar. Prüfe die Einstellungen in config.php.')
+    : info.configured === false ? tr('Auf dem Server ist noch kein Passwort festgelegt. Lege die Datei config.php an (Vorlage: config.sample.php).') : '';
+  $('#app').innerHTML = `<div class="lock-wrap"><form class="card lock-card form" data-form="login">
+    <div class="lock-logo">🚀</div>
+    <h1>${tr('Projekttracker')}</h1>
+    <p class="muted">${tr('Deine Daten liegen auf deinem Server und sind auf allen Geräten automatisch aktuell. Melde dich einmal pro Gerät an.')}</p>
+    ${problem ? `<div class="lock-msg error">⚠️ ${esc(problem)}</div>` : `
+    ${info.secure === false ? `<div class="lock-msg warn">🔓 ${tr('Die Verbindung ist <b>nicht verschlüsselt</b> (kein HTTPS). Richte HTTPS ein, bevor du den Tracker über das Internet nutzt.')}</div>` : ''}
+    <label class="field"><span>${tr('Passwort')}</span>
+      <input type="password" name="password" autocomplete="current-password" required></label>
+    <div class="lock-msg error" data-login-error hidden></div>
+    <button class="btn primary" type="submit">${tr('Anmelden')}</button>`}
+  </form></div>`;
+  $('#backup-bar').hidden = true;
+  if (!('ontouchstart' in window)) $('#app input[name="password"]')?.focus();
+}
+
+document.addEventListener('submit', async (e) => {
+  const form = e.target.closest('[data-form="login"]');
+  if (!form) return;
+  e.preventDefault();
+  const btn = form.querySelector('button[type="submit"]');
+  const err = form.querySelector('[data-login-error]');
+  btn.disabled = true;
+  btn.textContent = tr('Anmelden …');
+  err.hidden = true;
+  try {
+    const r = await api('login', { method: 'POST', body: { password: form.password.value, device: deviceLabel() } });
+    if (!r.ok) throw new Error(apiMessage(r.json, r.status));
+    server.authed = true;
+    document.body.classList.remove('locked');
+    render();
+    await pull();
+  } catch (ex) {
+    err.textContent = ex instanceof TypeError ? tr('Der Server ist nicht erreichbar.') : ex.message;
+    err.hidden = false;
+    btn.disabled = false;
+    btn.textContent = tr('Anmelden');
+  }
+});
+
+/* Start: Gibt es eine Server-API neben der App? */
+async function initServer() {
+  if (location.protocol === 'file:') return;
+  let st = null;
+  try {
+    const r = await api('status');
+    st = r.json;
+  } catch {
+    if (syncState.server) setSyncStatus('offline'); // Server bekannt, aber gerade nicht erreichbar: lokal weiterarbeiten
+    return;
+  }
+  if (!st || st.app !== 'projekttracker') {
+    if (syncState.server) { syncState.server = false; saveSyncState(); render(); }
+    return;
+  }
+  server.info = st;
+  server.checked = true;
+  if (!syncState.server) { syncState.server = true; saveSyncState(); }
+  server.authed = !!st.authenticated && !st.dbError;
+  if (!server.authed) { render(); return; }
+  document.body.classList.remove('locked');
+  render();
+  await pull();
+}
+
+/** Server-Abgleich beim Zurückkehren, regelmäßig und wenn die Verbindung wiederkommt. */
+function syncSoon() {
+  if (!isServerMode() || !server.authed) return;
+  if (syncState.dirty) push(); else pull();
+}
+document.addEventListener('visibilitychange', () => {
+  if (!isServerMode()) return;
+  if (document.visibilityState === 'hidden') { if (syncState.dirty) push({ keepalive: true }); }
+  else syncSoon();
+});
+window.addEventListener('online', syncSoon);
+window.addEventListener('focus', () => { if (Date.now() - (server.lastFocusSync || 0) > 5000) { server.lastFocusSync = Date.now(); syncSoon(); } });
+setInterval(() => { if (document.visibilityState === 'visible') syncSoon(); }, 30 * 1000);
+
+async function showHistory() {
+  const dlg = $('#modal');
+  dlg.classList.remove('wide');
+  dlg.innerHTML = `<div class="form detail-view"><h2>🕘 ${tr('Frühere Stände')}</h2><p class="muted">${tr('Wird geladen …')}</p>
+    <div class="form-actions"><button type="button" class="btn primary" data-close>${tr('Schließen')}</button></div></div>`;
+  const close = () => { dlg.close(); unlockScroll(); };
+  dlg.querySelector('[data-close]').addEventListener('click', close);
+  lockScroll();
+  dlg.showModal();
+  try {
+    const r = await api('history');
+    if (r.status === 401) { close(); lostAuth(); return; }
+    if (!r.ok) throw new Error(apiMessage(r.json, r.status));
+    const items = r.json.items || [];
+    dlg.querySelector('.detail-view').innerHTML = `<h2>🕘 ${tr('Frühere Stände')}</h2>
+      <p class="small muted" style="margin:0">${tr('Der Server hebt die letzten 50 Speicherstände auf und zusätzlich den letzten Stand jedes Tages der vergangenen 60 Tage. Beim Wiederherstellen wird der gewählte Stand zum aktuellen – auf allen Geräten.')}</p>
+      ${items.length ? `<ul class="list">${items.map((it, i) => `<li><div class="grow"><div class="title">${esc(fmtDateTime(it.savedAt))}${i === 0 ? ` <span class="badge aktiv">${tr('aktuell')}</span>` : ''}</div>
+        <div class="meta">${esc(it.device || tr('unbekanntes Gerät'))} · ${tr('Stand {rev}', { rev: it.rev })} · ${fmtNum(it.size / 1024)} KB</div></div>
+        ${i === 0 ? '' : `<button type="button" class="btn small" data-restore="${it.id}">${tr('Wiederherstellen')}</button>`}</li>`).join('')}</ul>`
+        : `<div class="empty">${tr('Noch keine gespeicherten Stände.')}</div>`}
+      <div class="form-actions"><button type="button" class="btn primary" data-close>${tr('Schließen')}</button></div>`;
+    dlg.querySelector('[data-close]').addEventListener('click', close);
+    dlg.querySelectorAll('[data-restore]').forEach((b) => b.addEventListener('click', async () => {
+      const it = items.find((x) => String(x.id) === b.dataset.restore);
+      if (!confirm(tr('Stand vom {when} wiederherstellen?\n\nDer aktuelle Stand bleibt im Verlauf erhalten.', { when: fmtDateTime(it.savedAt) }))) return;
+      b.disabled = true;
+      const res = await api('history', { params: `&id=${encodeURIComponent(it.id)}` });
+      if (!res.ok) { toast(res.json?.error ? apiMessage(res.json, res.status) : tr('Wiederherstellen fehlgeschlagen.'), 'error'); b.disabled = false; return; }
+      data = normalize(res.json.data);
+      close();
+      commit();
+      toast(tr('Stand wiederhergestellt ✔'));
+    }));
+  } catch (e) {
+    dlg.querySelector('.detail-view p').textContent = e instanceof TypeError ? tr('Der Server ist nicht erreichbar.') : e.message;
+  }
+}
+
+Object.assign(actions, {
+  syncNow() {
+    if (!server.authed) { initServer(); return; }
+    if (syncState.dirty) push(); else pull().then(() => { if (server.status === 'ok') toast(tr('☁️ Alles aktuell.')); });
+  },
+  showHistory() { showHistory(); },
+  async logout() {
+    if (!confirm(tr('Auf diesem Gerät abmelden?\n\nDie Daten bleiben auf dem Server und werden von diesem Gerät entfernt.'))) return;
+    if (syncState.dirty) await push();
+    if (syncState.dirty && !confirm(tr('Einige Änderungen konnten noch nicht gespeichert werden und gehen beim Abmelden verloren. Trotzdem abmelden?'))) return;
+    try { await api('logout', { method: 'POST', body: {} }); } catch { /* trotzdem lokal abmelden */ }
+    const keepLang = data.settings.language;
+    data = structuredClone(DEFAULT_DATA);
+    data.settings.language = keepLang; // Anmeldeseite in der gewohnten Sprache
+    try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(SYNC_BASE_KEY); } catch { /* ignorieren */ }
+    syncState = { server: true, rev: 0, dirty: false, lastSync: 0 };
+    saveSyncState();
+    server.authed = false;
+    location.hash = '#/';
+    render();
+  },
+});
+
+/** Inhalt des Bereichs „Datensicherung“ im Server-Modus. */
+function renderServerBackupSettings(size) {
+  const st = { ok: tr('✅ Alles gespeichert'), pending: tr('⏳ Wird gleich gespeichert'), saving: tr('⏳ Wird gespeichert'), offline: tr('📴 Offline – wird nachgeholt'), error: tr('⚠️ Fehler'), idle: '…' }[server.status] || '…';
+  return `<p class="small muted">${tr('Alle Änderungen werden <b>automatisch auf deinem Server</b> gespeichert und auf deinen anderen Geräten übernommen. Exportieren und Importieren ist nicht mehr nötig. Eine Kopie ({kb} KB) bleibt in diesem Browser, damit du auch ohne Verbindung weiterarbeiten kannst.', { kb: fmtNum(size / 1024) })}</p>
+    <dl class="kv" style="margin-bottom:16px">
+      <dt>${tr('Status')}</dt><dd>${st}${server.error ? ` <span class="small muted">(${esc(server.error)})</span>` : ''}</dd>
+      <dt>${tr('Zuletzt abgeglichen')}</dt><dd>${esc(fmtDateTime(syncState.lastSync))}</dd>
+      <dt>${tr('Dieses Gerät')}</dt><dd>${esc(deviceLabel())}</dd>
+    </dl>
+    <div class="btn-row">
+      <button class="btn primary" data-action="syncNow">🔄 ${tr('Jetzt abgleichen')}</button>
+      <button class="btn" data-action="showHistory">🕘 ${tr('Frühere Stände')}</button>
+      <button class="btn" data-action="logout">${tr('Abmelden')}</button>
+    </div>
+    <h3 style="margin-top:20px">${tr('Zusätzliche Sicherung')}</h3>
+    <div class="btn-row">
+      <button class="btn" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
+      <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
+      <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
+    </div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
+    <h3>${tr('Gefahrenzone')}</h3>
+    <button class="btn danger" data-action="resetData">${tr('Alle Daten löschen')}</button>`;
+}
+
+/* ------------------------------------------------------------------------
+   Sprache: automatisch (Gerät) oder fest aus den Einstellungen
+   ------------------------------------------------------------------------ */
+let appliedLang = null;
+function applyLanguage() {
+  const want = detectLang(data.settings.language);
+  if (want === appliedLang) return;
+  setLang(data.settings.language);
+  appliedLang = LANG;
+  // Feste Texte im Rahmen (index.html): data-i18n = Text, data-i18n-title/-aria = Attribute
+  document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = tr(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = tr(el.dataset.i18nTitle); });
+  document.querySelectorAll('[data-i18n-aria]').forEach((el) => { el.setAttribute('aria-label', tr(el.dataset.i18nAria)); });
+  document.querySelector('meta[name="description"]')?.setAttribute('content', tr('Persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben – mit Motivationshilfen.'));
+  if (!data.timer) document.title = tr('Projekttracker');
+  applyShortcutHint();
+  updateSideToggle();
+}
+// Gerätesprache geändert (z. B. in den Systemeinstellungen) → bei „Automatisch“ übernehmen
+window.addEventListener('languagechange', () => render());
+
 render();
+initServer();

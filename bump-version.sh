@@ -10,6 +10,6 @@ if [ $# -ge 1 ]; then new=$1; else
   if [[ $old == "$today"-* ]]; then new="$today-$(( ${old##*-} + 1 ))"; else new="$today-1"; fi
 fi
 sed -i "s/^const APP_VERSION = '.*';/const APP_VERSION = '$new';/" app.js
-sed -i "s/styles\.css?v=[^\"]*/styles.css?v=$new/; s/app\.js?v=[^\"]*/app.js?v=$new/" index.html
+sed -i -E "s/(styles\.css|[a-z0-9-]+\.js)\?v=[^\"]*/\1?v=$new/g" index.html
 printf '{ "version": "%s" }\n' "$new" > version.json
 echo "$old -> $new"
