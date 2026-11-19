@@ -27,7 +27,8 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
   - **Unterpunkte** zum Abhaken. Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.
 - 📝 **Logbuch** für Ideen, Entscheidungen und kleine Erfolge
 
-**Darstellung**
+**Sprache & Darstellung**
+- 🌐 **Deutsch und Englisch.** Die Sprache richtet sich automatisch nach der Gerätesprache. Ist die Gerätesprache nicht verfügbar, gilt Englisch. Unter *Einstellungen › Darstellung › Sprache* lässt sie sich fest einstellen. Datums-, Zahlen- und Währungsformate passen sich mit an.
 - Hintergrund **hell, dunkel oder wie das Gerät** (Einstellungen › Darstellung)
 - **Akzentfarbe** frei wählbar (Vorschläge oder eigene Farbe). Abgeleitete Töne werden automatisch angepasst und bleiben in beiden Modi lesbar.
 
@@ -124,11 +125,21 @@ Der Tracker läuft dann auf Port 8080, die Daten liegen im Docker-Volume `tracke
 
 ## Technik
 
-Reines HTML, CSS und JavaScript (`index.html`, `styles.css`, `app.js`) ohne Abhängigkeiten oder Build-Schritt. Optional `api.php` (PHP 8.1+, PDO mit SQLite oder MySQL/MariaDB) für die Server-Speicherung.
+Reines HTML, CSS und JavaScript (`index.html`, `styles.css`, `i18n.js`, `lang-en.js`, `app.js`) ohne Abhängigkeiten oder Build-Schritt. Optional `api.php` (PHP 8.1+, PDO mit SQLite oder MySQL/MariaDB) für die Server-Speicherung.
+
+### Sprachen
+
+- Die Texte stehen auf Deutsch im Code (`tr('…')`). `lang-en.js` enthält die englische Übersetzung, Schlüssel ist jeweils der deutsche Text. Platzhalter wie `{n}` werden unverändert übernommen.
+- **Neue Sprache hinzufügen:**
+  1. `lang-en.js` als `lang-xx.js` kopieren und die Werte übersetzen.
+  2. In `index.html` vor `app.js` einbinden.
+  3. In `i18n.js` unter `LANGUAGES` eintragen.
+
+  Fehlende Übersetzungen erscheinen in der Browser-Konsole als `[i18n] fehlt: …` und werden bis dahin auf Deutsch angezeigt.
 
 ### Updates & Cache
 
 Browser und GitHub Pages speichern Dateien zwischen. Damit Änderungen sicher ankommen:
-- `index.html` lädt `styles.css` und `app.js` mit Versionsnummer (`?v=…`).
+- `index.html` lädt Stylesheet und Skripte mit Versionsnummer (`?v=…`).
 - Die App fragt beim Öffnen `version.json` am Cache vorbei ab und zeigt bei einer neuen Version die Leiste **„Neue Version verfügbar – Jetzt aktualisieren“**. Die Daten bleiben dabei erhalten.
 - **Vor jeder Veröffentlichung** `./bump-version.sh` ausführen. Es erhöht die Versionsnummer in `index.html`, `app.js` und `version.json`.
