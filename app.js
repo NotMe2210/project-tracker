@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.19-1';
+const APP_VERSION = '2026.11.19-2';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -178,7 +178,7 @@ const SYNC_SERVICES = [
   } },
 ];
 const SYNC_DEVICES = [
-  ['ios', '📱 iPhone & iPad (Safari)'], ['mac', '💻 Mac (Safari)'], ['win', '🖥 Windows-PC (Edge)'], ['android', '🤖 Android (Chrome)'],
+  ['ios', '📱 iPhone & iPad (Safari)'], ['mac', '💻 Mac (Safari)'], ['win', '🖥️ Windows-PC (Edge)'], ['android', '🤖 Android (Chrome)'],
 ];
 const syncService = () => SYNC_SERVICES.find((x) => x.id === data.settings.syncService) || SYNC_SERVICES[0];
 
@@ -730,10 +730,10 @@ const WIDGETS = [
   { id: 'projects', label: 'Alle Projekte (Tabelle)', icon: '📋', wide: true, visible: true },
   { id: 'achievements', label: 'Erfolge', icon: '🏅', wide: true, visible: true },
   { id: 'dueTasks', label: 'Fällige Aufgaben (7 Tage)', icon: '⏰', wide: false, visible: false },
-  { id: 'weekProjects', label: 'Zeit diese Woche je Projekt', icon: '⏱', wide: false, visible: false },
+  { id: 'weekProjects', label: 'Zeit diese Woche je Projekt', icon: '⏱️', wide: false, visible: false },
   { id: 'weekChart', label: 'Stunden pro Woche (alle Projekte)', icon: '📊', wide: false, visible: false },
   { id: 'recent', label: 'Letzte Aktivitäten', icon: '🕘', wide: false, visible: false },
-  { id: 'projectCards', label: 'Projektkacheln', icon: '🗂', wide: true, visible: false },
+  { id: 'projectCards', label: 'Projektkacheln', icon: '🗂️', wide: true, visible: false },
 ];
 
 const STAT_TILES = [
@@ -752,7 +752,7 @@ const PROJECT_WIDGETS = [
   { id: 'why', label: 'Warum & Ziel', icon: '💭', wide: true, visible: true },
   { id: 'stats', label: 'Kennzahlen', icon: '📊', wide: true, visible: true },
   { id: 'next', label: 'Nächster Schritt', icon: '👉', wide: false, visible: true },
-  { id: 'hours', label: 'Stunden pro Woche', icon: '⏱', wide: false, visible: true },
+  { id: 'hours', label: 'Stunden pro Woche', icon: '⏱️', wide: false, visible: true },
   { id: 'milestones', label: 'Nächste Meilensteine', icon: '🏁', wide: false, visible: true },
   { id: 'recent', label: 'Letzte Aktivitäten', icon: '🕘', wide: false, visible: true },
   { id: 'description', label: 'Beschreibung', icon: '📝', wide: true, visible: true },
@@ -1143,7 +1143,7 @@ function renderWidget(id, c, cfg) {
         .filter((x) => x.min > 0 || x.goal > 0)
         .sort((a, b) => (b.goal ? b.min / b.goal : 0) - (a.goal ? a.min / a.goal : 0) || b.min - a.min);
       const max = Math.max(1, ...rows.map((r) => r.min));
-      return card('⏱ Zeit diese Woche', rows.length ? `<ul class="list">${rows.map(({ p, min, goal }) => `
+      return card('⏱️ Zeit diese Woche', rows.length ? `<ul class="list">${rows.map(({ p, min, goal }) => `
         <li><div class="grow">
           <div class="row-between"><a href="#/projekt/${p.id}">${esc(p.name)}</a>
             <span class="amount">${fmtDuration(min)}${goal ? ` <span class="muted small">/ ${fmtStd(goal / 60)}</span>` : ''}</span></div>
@@ -1183,7 +1183,7 @@ function renderWidget(id, c, cfg) {
 
     case 'projectCards': {
       const list = data.projects.filter((p) => p.status === 'aktiv' || p.status === 'pausiert');
-      return card('🗂 Projekte', list.length ? `<div class="project-grid">${list.map((p) => projectCard(p, c.stats.get(p.id))).join('')}</div>`
+      return card('🗂️ Projekte', list.length ? `<div class="project-grid">${list.map((p) => projectCard(p, c.stats.get(p.id))).join('')}</div>`
         : '<div class="empty">Keine aktiven oder pausierten Projekte.</div>', '<button class="btn small" data-action="newProject">+ Projekt</button>');
     }
   }
@@ -1276,7 +1276,7 @@ function dayDetails(fromISO) {
   const out = {};
   const add = (date, item) => { if (date && date >= fromISO) (out[date] ||= []).push(item); };
   const proj = (id) => getProject(id) || { name: '–', color: 'var(--muted)' };
-  data.timeEntries.forEach((e) => add(e.date, { p: proj(e.projectId), icon: '⏱', text: `${fmtDuration(e.minutes)} – ${e.title || autoTimeTitle(e.date)}`, order: 0 }));
+  data.timeEntries.forEach((e) => add(e.date, { p: proj(e.projectId), icon: '⏱️', text: `${fmtDuration(e.minutes)} – ${e.title || autoTimeTitle(e.date)}`, order: 0 }));
   data.milestones.filter((m) => m.done).forEach((m) => add(m.doneAt, { p: proj(m.projectId), icon: '🏁', text: `Meilenstein erreicht: ${m.title}`, order: 1 }));
   data.tasks.forEach((t) => {
     if (t.done) add(t.doneAt, { p: proj(t.projectId), icon: '✅', text: t.title, order: 2 });
@@ -1366,7 +1366,7 @@ function stackedWeekBars() {
       <div class="stack-scale small muted"><span>${scaleH} Std</span><span>0</span></div>
       <div class="bars stacked">${weeks.map((w, wi) => `
         <div class="bar ${w.current ? 'current' : ''}" tabindex="0" data-detail="week:${w.i}" data-tip="${esc(totals[wi] ? tip(w, wi) : `<b>${w.current ? 'Diese Woche' : `Woche ${w.range}`}</b><br>keine Zeit erfasst`)}">
-          <div class="stack" style="height:calc((100% - 22px) * ${(totals[wi] / (scaleH * 60)).toFixed(4)})">
+          <div class="wstack" style="height:calc((100% - 22px) * ${(totals[wi] / (scaleH * 60)).toFixed(4)})">
             ${projects.filter((x) => x.per[wi]).map((x) => `<span style="flex-grow:${x.per[wi]};background:${esc(x.p.color)}"></span>`).join('')}
           </div>
           <small>${w.current ? 'jetzt' : w.label.slice(0, 3)}</small>
@@ -1565,7 +1565,7 @@ function projectRow(p, s) {
       ${goal ? `<div class="row small muted"><span>Diese Woche</span><span>${fmtHours(wk)} / ${fmtStd(goal / 60)}</span></div>${progressBar((wk / goal) * 100, wk >= goal ? 'good' : '')}` : ''}
     </div>
     <div class="pr-figures">
-      <span title="Zeit gesamt">⏱ <b>${fmtHours(s.minutes)}</b></span>
+      <span title="Zeit gesamt">⏱️ <b>${fmtHours(s.minutes)}</b></span>
       <span title="Investiert">💶 <b>${fmtEUR(s.invested)}</b></span>
       <span title="Aufgaben erledigt">✅ <b>${s.tasksDone}/${s.tasksTotal}</b></span>
       <span title="Meilensteine erreicht">🏁 <b>${s.msDone}/${s.msTotal}</b></span>
@@ -1587,7 +1587,7 @@ function projectCard(p, s) {
           ${progressBar((weekMinutes(0, p.id) / projectWeeklyMin(p)) * 100, weekMinutes(0, p.id) >= projectWeeklyMin(p) ? 'good' : '')}
         </div>` : ''}
         <div class="figures">
-          <span>⏱ <b>${fmtHours(s.minutes)}</b></span>
+          <span>⏱️ <b>${fmtHours(s.minutes)}</b></span>
           <span>💶 <b>${fmtEUR(s.invested)}</b></span>
           <span>✅ <b>${s.tasksDone}/${s.tasksTotal}</b></span>
           <span>🏁 <b>${s.msDone}/${s.msTotal}</b></span>
@@ -1711,7 +1711,7 @@ function renderProjectWidget(id, p, s, cfg) {
     }
 
     case 'hours':
-      return `<section class="card"><div class="card-head"><h2>⏱ Stunden pro Woche</h2></div>${weekBars(p.id)}</section>`;
+      return `<section class="card"><div class="card-head"><h2>⏱️ Stunden pro Woche</h2></div>${weekBars(p.id)}</section>`;
 
     case 'recent': {
       const recent = recentActivity(p.id).slice(0, 8);
@@ -1747,7 +1747,7 @@ function renderProjectWidget(id, p, s, cfg) {
 
 function recentActivity(pid) {
   const out = [];
-  data.timeEntries.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '⏱', text: `${fmtDuration(e.minutes)} – ${e.title || autoTimeTitle(e.date)}` }));
+  data.timeEntries.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '⏱️', text: `${fmtDuration(e.minutes)} – ${e.title || autoTimeTitle(e.date)}` }));
   data.investments.filter((e) => e.projectId === pid).forEach((e) => out.push({ date: e.date, icon: '💶', text: `${fmtEUR(e.amount)} – ${e.description}` }));
   data.tasks.filter((t) => t.projectId === pid && t.done).forEach((t) => out.push({ date: t.doneAt, icon: '✅', text: t.title }));
   data.milestones.filter((m) => m.projectId === pid && m.done).forEach((m) => out.push({ date: m.doneAt, icon: '🏁', text: `Meilenstein erreicht: ${m.title}` }));
@@ -1789,7 +1789,7 @@ function projectTime(p) {
       <li>
         <div class="grow">
           <div class="title">${esc(e.title || autoTimeTitle(e.date))}</div>
-          <div class="meta"><span class="amount">⏱ ${fmtDuration(e.minutes)}</span>${e.autoTitle ? '' : `<span>${esc(autoTimeTitle(e.date))}</span>`}</div>
+          <div class="meta"><span class="amount">⏱️ ${fmtDuration(e.minutes)}</span>${e.autoTitle ? '' : `<span>${esc(autoTimeTitle(e.date))}</span>`}</div>
           ${e.description ? `<div class="entry-desc">${esc(e.description)}</div>` : ''}
         </div>
         <div class="actions">
@@ -1964,7 +1964,7 @@ function readReminderForm(form) {
 /* Einklappbare Abschnitte der Einstellungen – offener Zustand wird pro Gerät gemerkt. */
 const SECTIONS_KEY = 'projekttracker.ui.openSections';
 let openSections = new Set();
-try { openSections = new Set(JSON.parse(localStorage.getItem(SECTIONS_KEY) || '[]')); } catch { /* ignorieren */ }
+try { openSections = new Set(JSON.parse(localStorage.getItem(SECTIONS_KEY) || '[]').slice(-1)); } catch { /* ignorieren */ }
 function rememberSections() {
   try { localStorage.setItem(SECTIONS_KEY, JSON.stringify([...openSections])); } catch { /* ignorieren */ }
 }
@@ -2091,12 +2091,9 @@ function renderSettings() {
   const themeName = (THEMES.find(([v]) => v === (set.theme || 'system')) || [, ''])[1].replace(/^\S+\s/, '');
   const dash = dashboardConfig();
   const texts = Array.isArray(set.reminderTexts) && set.reminderTexts.length ? set.reminderTexts : DEFAULT_REMINDERS;
-  const allOpen = SECTION_IDS.every((id) => openSections.has(id));
-
   return `
     <div class="page-head">
-      <div><h1>Einstellungen</h1><p>Tippe auf einen Bereich, um ihn auf- oder zuzuklappen.</p></div>
-      <button class="btn small" data-action="toggleAllSections">${allOpen ? 'Alle zuklappen' : 'Alle aufklappen'}</button>
+      <div><h1>Einstellungen</h1><p>Tippe auf einen Bereich, um ihn zu öffnen.</p></div>
     </div>
 
     ${settingsSection('darstellung', '🎨', 'Darstellung',
@@ -2395,12 +2392,6 @@ const actions = {
     Notification.requestPermission().then(() => render()).catch(() => {});
   },
   testChime() { unlockAudio(); playChime(); if (data.settings.pomoSound === false) toast('Der Ton ist ausgeschaltet.'); },
-  toggleAllSections() {
-    const allOpen = SECTION_IDS.every((id) => openSections.has(id));
-    openSections = new Set(allOpen ? [] : SECTION_IDS);
-    rememberSections();
-    render();
-  },
   editProject({ id }) { projectForm(getProject(id)); },
 
   deleteProject({ id }) {
@@ -2778,7 +2769,7 @@ function timeForm(e, { fromTimer = false } = {}) {
       else Object.assign(e, v);
       if (fromTimer) data.timer = null;
       commit();
-      if (isNew) toast(`⏱ ${fmtDuration(v.minutes)} gespeichert. ${pick(CHEERS)}`);
+      if (isNew) toast(`⏱️ ${fmtDuration(v.minutes)} gespeichert. ${pick(CHEERS)}`);
     },
   });
   // Platzhalter des Titels folgt dem gewählten Datum
@@ -2959,7 +2950,7 @@ function renderTimer(force = false) {
   let text, title;
   if (!pomo) {
     text = fmtClock((Date.now() - t.start) / 1000);
-    title = `⏱ ${text} · ${name}`;
+    title = `⏱️ ${text} · ${name}`;
   } else if (t.phase === 'ready') {
     text = `${t.count} 🍅`;
     title = Math.floor(Date.now() / 1000) % 2 ? '✅ Pause vorbei!' : `🍅 ${name}`;
@@ -3191,7 +3182,7 @@ function weekGoalEverHit() {
 
 const ACHIEVEMENTS = [
   { id: 'first_project', icon: '🚀', name: 'Startschuss', desc: 'Erstes Projekt angelegt', goal: 1, val: (x) => x.projects },
-  { id: 'first_hour', icon: '⏱', name: 'Erste Stunde', desc: '1 Stunde Zeit erfasst', goal: 1, val: (x) => x.hours },
+  { id: 'first_hour', icon: '⏱️', name: 'Erste Stunde', desc: '1 Stunde Zeit erfasst', goal: 1, val: (x) => x.hours },
   { id: 'hours_10', icon: '🔟', name: 'Zehner', desc: '10 Stunden erfasst', goal: 10, val: (x) => x.hours },
   { id: 'hours_50', icon: '💪', name: 'Ausdauer', desc: '50 Stunden erfasst', goal: 50, val: (x) => x.hours },
   { id: 'hours_100', icon: '🏆', name: 'Hundert', desc: '100 Stunden erfasst', goal: 100, val: (x) => x.hours },
@@ -3204,7 +3195,7 @@ const ACHIEVEMENTS = [
   { id: 'tasks_10', icon: '✅', name: 'Macher', desc: '10 Aufgaben erledigt', goal: 10, val: (x) => x.tasks },
   { id: 'tasks_50', icon: '⚡', name: 'Abarbeiter', desc: '50 Aufgaben erledigt', goal: 50, val: (x) => x.tasks },
   { id: 'milestone_1', icon: '🏁', name: 'Etappensieg', desc: 'Ersten Meilenstein erreicht', goal: 1, val: (x) => x.milestones },
-  { id: 'milestone_5', icon: '🗺', name: 'Wegbereiter', desc: '5 Meilensteine erreicht', goal: 5, val: (x) => x.milestones },
+  { id: 'milestone_5', icon: '🗺️', name: 'Wegbereiter', desc: '5 Meilensteine erreicht', goal: 5, val: (x) => x.milestones },
   { id: 'project_done', icon: '🎉', name: 'Geschafft', desc: 'Ein Projekt abgeschlossen', goal: 1, val: (x) => x.projectsDone },
   { id: 'revived', icon: '🌱', name: 'Wiederbelebt', desc: 'Ein Projekt nach 14+ Tagen Pause weitergeführt', goal: 1, val: (x) => x.revived },
   { id: 'week_goal', icon: '🎯', name: 'Wochenziel', desc: 'Ein Wochenziel erreicht', goal: 1, val: (x) => x.weekGoal },
@@ -3305,7 +3296,7 @@ function projectMenuHTML(p) {
   return `<div class="pop-title"><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</div>
     <button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 Pomodoro starten</button>
     <button class="pop-item" data-action="startTimer" data-id="${p.id}">▶ Stoppuhr starten</button>
-    <button class="pop-item" data-action="addTime" data-id="${p.id}">⏱ Zeit erfassen</button>
+    <button class="pop-item" data-action="addTime" data-id="${p.id}">⏱️ Zeit erfassen</button>
     <button class="pop-item" data-action="addTask" data-id="${p.id}">✅ Aufgabe anlegen</button>
     <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 Notiz</button>
     <button class="pop-item" data-action="goProject" data-id="${p.id}">📁 Projekt öffnen</button>
@@ -3339,17 +3330,17 @@ function openDetail(spec) {
     const p = getProject(e.projectId);
     return `<li><span class="dot-color" style="background:${esc(p?.color || 'var(--muted)')}"></span>
       <div class="grow"><div class="title">${esc(e.title || autoTimeTitle(e.date))}</div>
-        <div class="meta"><span class="amount">⏱ ${fmtDuration(e.minutes)}</span><span>${esc(p?.name || '–')}</span>${kind === 'week' ? `<span>${esc(autoTimeTitle(e.date))}</span>` : ''}</div>
+        <div class="meta"><span class="amount">⏱️ ${fmtDuration(e.minutes)}</span><span>${esc(p?.name || '–')}</span>${kind === 'week' ? `<span>${esc(autoTimeTitle(e.date))}</span>` : ''}</div>
         ${e.description ? `<div class="entry-desc">${esc(e.description)}</div>` : ''}</div>
       <button class="btn ghost icon" data-action="editTime" data-id="${e.id}" title="Bearbeiten" aria-label="Zeiteintrag bearbeiten">✎</button></li>`;
   };
   if (kind === 'day') {
     const items = dayDetails(a)[a] || [];
     const entries = data.timeEntries.filter((e) => e.date === a);
-    const other = items.filter((it) => it.icon !== '⏱');
+    const other = items.filter((it) => it.icon !== '⏱️');
     title = parseISO(a).toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     body = `<p class="small muted" style="margin:0">${fmtDuration(sum(entries, (e) => e.minutes))} erfasst · ${items.length} ${items.length === 1 ? 'Aktivität' : 'Aktivitäten'}</p>
-      ${entries.length ? `<h3>⏱ Zeiteinträge</h3><ul class="list">${entries.map(entryRow).join('')}</ul>` : ''}
+      ${entries.length ? `<h3>⏱️ Zeiteinträge</h3><ul class="list">${entries.map(entryRow).join('')}</ul>` : ''}
       ${other.length ? `<h3>Weitere Aktivitäten</h3><ul class="list">${other.map((it) => `<li><span class="dot-color" style="background:${esc(it.p.color)}"></span><div class="grow"><div class="title">${it.icon} ${esc(it.text)}</div><div class="meta">${esc(it.p.name)}</div></div></li>`).join('')}</ul>` : ''}
       ${items.length ? '' : '<div class="empty">An diesem Tag gab es keine Aktivität.</div>'}`;
   } else {
@@ -3383,7 +3374,7 @@ function paletteCommands() {
   add('📁', 'Projekte', () => { location.hash = '#/projekte'; }, 'Navigation');
   add('⚙️', 'Einstellungen', () => { location.hash = '#/einstellungen'; }, 'Navigation');
   add('➕', 'Neues Projekt', () => actions.newProject());
-  add('⏱', 'Zeit erfassen', () => actions.addTime({}));
+  add('⏱️', 'Zeit erfassen', () => actions.addTime({}));
   if (data.timer) add('■', data.timer.mode === 'pomodoro' ? 'Pomodoro beenden' : 'Timer stoppen', () => actions.stopTimer());
   add('💾', 'Sicherung exportieren', () => actions.exportData(), 'Backup');
   add('⬆', 'Sicherung importieren', () => actions.importData(), 'Backup');
@@ -3395,7 +3386,7 @@ function paletteCommands() {
     add('📁', `Öffnen: ${p.name}`, () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
     if (p.status !== 'abgeschlossen') {
       add('🍅', `Pomodoro: ${p.name}`, () => actions.startPomodoro({ id: p.id }), 'Timer');
-      add('⏱', `Zeit erfassen: ${p.name}`, () => actions.addTime({ id: p.id }));
+      add('⏱️', `Zeit erfassen: ${p.name}`, () => actions.addTime({ id: p.id }));
       add('✅', `Aufgabe anlegen: ${p.name}`, () => actions.addTask({ id: p.id }));
       add('📝', `Notiz: ${p.name}`, () => actions.addNote({ id: p.id }));
     }
@@ -3616,11 +3607,20 @@ document.addEventListener('click', (e) => {
 document.addEventListener('toggle', (e) => {
   const d = e.target;
   if (!(d instanceof HTMLDetailsElement) || !d.dataset.section) return;
-  if (d.open) openSections.add(d.dataset.section); else openSections.delete(d.dataset.section);
+  if (d.open) {
+    // Immer nur ein Bereich offen: die anderen zuklappen
+    document.querySelectorAll('details.settings-section[open]').forEach((o) => { if (o !== d) o.open = false; });
+    openSections = new Set([d.dataset.section]);
+    growAll(d); // Textfelder in vorher zugeklappten Bereichen anpassen
+    // Kopf des geöffneten Bereichs sichtbar halten (der zugeklappte darüber verschiebt die Seite)
+    requestAnimationFrame(() => {
+      const top = d.getBoundingClientRect().top;
+      if (top < 0 || top > window.innerHeight * 0.6) d.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    });
+  } else {
+    openSections.delete(d.dataset.section);
+  }
   rememberSections();
-  if (d.open) growAll(d); // Textfelder in vorher zugeklappten Bereichen anpassen
-  const btn = document.querySelector('[data-action="toggleAllSections"]');
-  if (btn) btn.textContent = SECTION_IDS.every((id) => openSections.has(id)) ? 'Alle zuklappen' : 'Alle aufklappen';
 }, true);
 
 // Mitwachsende Textfelder

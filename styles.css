@@ -317,9 +317,9 @@ td .progress { width: 90px; display: inline-block; vertical-align: middle; }
 .stack-scale { display: flex; flex-direction: column; justify-content: space-between; height: 128px; padding-bottom: 18px; font-size: .65rem; text-align: right; white-space: nowrap; }
 .bars.stacked { flex: 1; height: 128px; border-bottom: 1px solid var(--border); min-width: 0; gap: 4px; }
 .bars.stacked .bar { gap: 4px; padding-top: 4px; }
-.bars.stacked .stack { width: 100%; max-width: 30px; display: flex; flex-direction: column-reverse; gap: 2px; min-height: 0; }
-.bars.stacked .stack > span { display: block; min-height: 2px; flex-basis: 0; }
-.bars.stacked .stack > span:last-child { border-radius: 4px 4px 0 0; }
+.bars.stacked .wstack { width: 100%; max-width: 30px; display: flex; flex-direction: column-reverse; gap: 2px; min-height: 0; flex: none; }
+.bars.stacked .wstack > span { display: block; min-height: 2px; flex-basis: 0; flex-shrink: 1; margin: 0; }
+.bars.stacked .wstack > span:last-child { border-radius: 4px 4px 0 0; }
 .chart-legend { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .82rem; }
 .chart-legend li { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .chart-legend .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
@@ -725,7 +725,7 @@ html.modal-open body { position: fixed; left: 0; right: 0; width: 100%; }
   .heatmap { grid-template-rows: repeat(7, auto); grid-auto-columns: minmax(14px, 1fr); gap: 4px; }
   .heatmap span { width: min(100%, 26px); height: auto; aspect-ratio: 1; }
   .bars .bar > span { max-width: 44px; }
-  .bars.stacked .stack { max-width: 44px; }
+  .bars.stacked .wstack { max-width: 44px; }
 }
 
 /* ---------- Anpassbare Layouts (Übersicht & Projektansicht) ---------- */
