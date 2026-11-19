@@ -971,3 +971,32 @@ li.task.swiping { position: relative; z-index: 1; background: var(--surface); }
 @media (prefers-reduced-motion: reduce) {
   .fx-host, .banner-fx, .pulse-bar > span { animation: none !important; }
 }
+
+/* ---------- Server-Speicherung: Statusknopf & Anmeldeseite ---------- */
+.backup-btn.sync-busy { color: var(--primary); }
+.backup-btn.sync-busy::after {
+  content: ""; position: absolute; top: -3px; right: -3px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--primary); border: 2px solid var(--surface); animation: pulse 1.2s infinite;
+}
+.backup-btn.sync-warn { border-color: var(--warn); color: var(--warn); }
+.backup-btn.sync-warn::after {
+  content: ""; position: absolute; top: -3px; right: -3px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--warn); border: 2px solid var(--surface);
+}
+body.locked { padding: 0 !important; }
+body.locked .topbar, body.locked #update-bar, body.locked #backup-bar, body.locked .pomo-fab { display: none !important; }
+body.locked #app { max-width: none; padding: 0; }
+.lock-wrap {
+  min-height: 100vh; min-height: 100dvh; display: grid; place-items: center;
+  padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+}
+.lock-card { width: 100%; max-width: 400px; padding: 32px 28px; display: flex; flex-direction: column; gap: 14px; text-align: center; }
+.lock-card h1 { margin: 0; font-size: 1.5rem; }
+.lock-card p { margin: 0; }
+.lock-card .field { text-align: left; display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: .9rem; }
+.lock-card input { width: 100%; font-size: 16px; }
+.lock-card .btn { width: 100%; justify-content: center; padding: 11px; }
+.lock-logo { font-size: 2.6rem; line-height: 1; }
+.lock-msg { text-align: left; font-size: .9rem; padding: 10px 12px; border-radius: 10px; }
+.lock-msg.warn { background: var(--warn-soft); }
+.lock-msg.error { background: var(--bad-soft); color: var(--bad); }

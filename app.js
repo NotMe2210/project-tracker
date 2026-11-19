@@ -5,9 +5,12 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.16-9';
+const APP_VERSION = '2026.11.19-1';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
+const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
+const SYNC_BASE_KEY = 'projekttracker.server.base'; // letzter gemeinsamer Stand mit dem Server
+const API_URL = 'api.php';
 
 const DEFAULT_DATA = {
   version: 1,
@@ -185,6 +188,10 @@ const CHEERS = ['Stark! 💪', 'Erledigt! ✅', 'Weiter so! 🚀', 'Super gemach
 
 let data = load();
 let meta = loadMeta();
+let syncState = loadSyncState();
+let pushTimer = null;
+// Laufzeit-Zustand der Server-Verbindung (nicht gespeichert)
+const server = { checked: false, authed: false, status: 'idle', error: '', busy: false, info: null, asking: false, lastFocusSync: 0 };
 let projectFilter = 'aktiv';
 let syncHintDismissed = false;
 
@@ -235,6 +242,7 @@ function save() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     meta.lastChange = Date.now();
     saveMeta();
+    if (isServerMode()) { syncState.dirty = true; saveSyncState(); if (server.authed) schedulePush(); }
   } catch (e) {
     toast('Speichern fehlgeschlagen: ' + e.message, 'error');
   }
@@ -250,7 +258,8 @@ function saveMeta() {
   try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch { /* ignorieren */ }
 }
 
-const hasUnsavedChanges = () => data.projects.length > 0 && meta.lastChange > meta.lastExport;
+// Im Server-Modus wird automatisch gespeichert – dann gibt es keine Export-Erinnerungen.
+const hasUnsavedChanges = () => !isServerMode() && data.projects.length > 0 && meta.lastChange > meta.lastExport;
 
 function fmtDateTime(ts) {
   if (!ts) return 'noch nie';
@@ -612,6 +621,8 @@ function render() {
   applyTheme();
   if (editState && !editMatchesRoute()) editState = null;
   if (typeof hideTip === 'function') hideTip();
+  if (isLocked()) { renderLockScreen(); return; }
+  document.body.classList.remove('locked');
   const r = parseRoute();
   const app = $('#app');
   let html;
@@ -633,6 +644,10 @@ function render() {
 function renderBackupBar() {
   const bar = $('#backup-bar');
   const btn = $('#backup-btn');
+  if (isServerMode()) { renderSyncBar(bar, btn); return; }
+  btn.dataset.action = 'exportData';
+  btn.innerHTML = '💾 <span>Sichern</span>';
+  btn.classList.remove('sync-warn', 'sync-busy');
   const dirty = hasUnsavedChanges();
   btn.classList.toggle('dirty', dirty);
   btn.title = dirty ? `Ungesicherte Änderungen – letzte Sicherung: ${fmtDateTime(meta.lastExport)}` : `Alles gesichert (${fmtDateTime(meta.lastExport)})`;
@@ -652,6 +667,32 @@ function renderBackupBar() {
     bar.innerHTML = `<div class="container">
       <span>💾 <b>Ungesicherte Änderungen.</b> Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))}.<span class="long"> Exportiere vor dem Schließen, damit deine anderen Geräte aktuell bleiben.</span></span>
       <span class="btn-row"><button class="btn primary small" data-action="exportData">⬇ Jetzt sichern</button></span></div>`;
+    bar.hidden = false;
+  } else {
+    bar.hidden = true;
+    bar.innerHTML = '';
+  }
+}
+
+/* Server-Modus: Knopf zeigt den Speicherstatus, Leiste erscheint nur bei Problemen. */
+function renderSyncBar(bar, btn) {
+  const st = server.status;
+  const pending = syncState.dirty || st === 'saving' || st === 'pending';
+  const problem = st === 'offline' || st === 'error';
+  btn.dataset.action = 'syncNow';
+  btn.classList.remove('dirty');
+  btn.classList.toggle('sync-busy', pending && !problem);
+  btn.classList.toggle('sync-warn', problem);
+  btn.innerHTML = problem ? (st === 'offline' ? '📴 <span>Offline</span>' : '⚠️ <span>Fehler</span>')
+    : pending ? '☁️ <span>Speichert…</span>' : '☁️ <span>Gespeichert</span>';
+  btn.title = problem ? 'Keine Verbindung zum Server – tippen, um es erneut zu versuchen'
+    : pending ? 'Änderungen werden auf dem Server gespeichert' : `Alles auf dem Server gespeichert (${fmtDateTime(syncState.lastSync)})`;
+  if (problem && syncState.dirty) {
+    bar.className = 'backup-bar warn';
+    bar.innerHTML = `<div class="container">
+      <span>${st === 'offline' ? '📴 <b>Keine Verbindung zum Server.</b>' : `⚠️ <b>Speichern auf dem Server fehlgeschlagen.</b>${server.error ? ` ${esc(server.error)}` : ''}`}
+      <span class="long"> Deine Änderungen sind auf diesem Gerät sicher und werden übertragen, sobald der Server wieder erreichbar ist.</span></span>
+      <span class="btn-row"><button class="btn primary small" data-action="syncNow">🔄 Erneut versuchen</button></span></div>`;
     bar.hidden = false;
   } else {
     bar.hidden = true;
@@ -2088,7 +2129,9 @@ function renderSettings() {
       `nach ${esc(set.staleDays)} Tagen · ${texts.length} ${texts.length === 1 ? 'Text' : 'Texte'}`,
       renderReminderSettings())}
 
-    ${settingsSection('sicherung', '💾', 'Datensicherung',
+    ${isServerMode() ? settingsSection('sicherung', '☁️', 'Server-Speicherung',
+      `Automatisch gespeichert · zuletzt abgeglichen ${esc(fmtDateTime(syncState.lastSync))}`,
+      renderServerBackupSettings(size)) : settingsSection('sicherung', '💾', 'Datensicherung',
       `Letzte Sicherung: ${esc(fmtDateTime(meta.lastExport))} ${hasUnsavedChanges() ? '<span class="badge mittel">nicht gesichert</span>' : ''}`,
       `<p class="small muted">Alle Daten werden nur lokal in diesem Browser gespeichert (${(size / 1024).toFixed(1)} KB).
       Um sie auf deinen anderen Geräten zu nutzen, exportierst du eine Sicherung${syncService().cloud ? ` nach ${esc(syncService().name)}` : ' und überträgst sie'} und importierst sie dort.
@@ -2106,7 +2149,7 @@ function renderSettings() {
       <h3>Gefahrenzone</h3>
       <button class="btn danger" data-action="resetData">Alle Daten löschen</button>`)}
 
-    ${settingsSection('sync', '🔄', 'Zwischen Geräten wechseln',
+    ${isServerMode() ? '' : settingsSection('sync', '🔄', 'Zwischen Geräten wechseln',
       `Anleitung für iCloud, OneDrive, Google Drive, Dropbox · gewählt: ${esc(syncService().name)}`,
       renderSyncGuide())}
 
@@ -3607,6 +3650,7 @@ document.addEventListener('click', (e) => {
 // Änderungen aus einem anderen Tab übernehmen
 window.addEventListener('storage', (e) => {
   if (e.key === STORAGE_KEY) data = load();
+  if (e.key === SYNC_KEY) syncState = loadSyncState();
   if (e.key === STORAGE_KEY || e.key === META_KEY) { meta = loadMeta(); render(); }
 });
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
@@ -3615,7 +3659,8 @@ window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); }
 // Browser zeigen dabei nur ihren eigenen Standardtext; iPhone/iPad-Safari unterstützt das gar nicht –
 // dort übernimmt die Hinweisleiste die Erinnerung.
 window.addEventListener('beforeunload', (e) => {
-  if (!hasUnsavedChanges()) return;
+  if (isServerMode() && syncState.dirty && server.authed) push({ keepalive: true });
+  if (!hasUnsavedChanges() && !(isServerMode() && syncState.dirty)) return;
   e.preventDefault();
   e.returnValue = '';
   return '';
@@ -3627,7 +3672,7 @@ let previousOpen = 0;
 let showSyncHint = false;
 function checkSyncHint() {
   meta = loadMeta();
-  if (data.projects.length && meta.lastOpen && Date.now() - meta.lastOpen > SYNC_HINT_AFTER_MS) {
+  if (!isServerMode() && data.projects.length && meta.lastOpen && Date.now() - meta.lastOpen > SYNC_HINT_AFTER_MS) {
     previousOpen = meta.lastOpen;
     showSyncHint = true;
     syncHintDismissed = false;
@@ -3694,4 +3739,429 @@ updateSideToggle();
 // Safari löscht Website-Daten sonst nach 7 Tagen ohne Besuch – dauerhaften Speicher anfragen.
 navigator.storage?.persist?.().catch(() => {});
 
+/* ------------------------------------------------------------------------
+   Server-Speicherung (optional)
+   Liegt der Tracker auf einem eigenen Server mit api.php, werden alle Änderungen
+   automatisch dort gespeichert und auf allen Geräten abgeglichen. Ohne Server
+   (z. B. GitHub Pages oder lokale Datei) bleibt alles wie bisher.
+   ------------------------------------------------------------------------ */
+
+function loadSyncState() {
+  const def = { server: false, rev: 0, dirty: false, lastSync: 0 };
+  try { return { ...def, ...JSON.parse(localStorage.getItem(SYNC_KEY) || '{}') }; } catch { return def; }
+}
+function saveSyncState() {
+  try { localStorage.setItem(SYNC_KEY, JSON.stringify(syncState)); } catch { /* ignorieren */ }
+}
+function loadBase() {
+  try { return JSON.parse(localStorage.getItem(SYNC_BASE_KEY) || 'null'); } catch { return null; }
+}
+function saveBase(d) {
+  try { localStorage.setItem(SYNC_BASE_KEY, JSON.stringify(d)); } catch { /* Speicher voll: Abgleich klappt trotzdem, nur gröber */ }
+}
+
+function isServerMode() { return syncState.server; }
+function isLocked() { return syncState.server && server.checked && !server.authed; }
+
+function deviceLabel() {
+  const ua = navigator.userAgent;
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iPad'
+    : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Macintosh/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Gerät';
+  const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+  return br ? `${os} · ${br}` : os;
+}
+
+async function api(action, { method = 'GET', body, params = '', keepalive = false } = {}) {
+  const payload = body === undefined ? undefined : JSON.stringify(body);
+  const res = await fetch(`${API_URL}?action=${action}${params}`, {
+    method,
+    credentials: 'same-origin',
+    cache: 'no-store',
+    keepalive: keepalive && payload && payload.length < 60000,
+    headers: payload === undefined ? { 'X-Tracker': '1' } : { 'Content-Type': 'application/json', 'X-Tracker': '1' },
+    body: payload,
+  });
+  let json = null;
+  try { json = await res.json(); } catch { /* keine JSON-Antwort */ }
+  return { status: res.status, ok: res.ok, json };
+}
+
+function setSyncStatus(status, error = '') {
+  server.status = status;
+  server.error = error;
+  if (!isLocked()) renderBackupBar();
+}
+
+/* Dreiwege-Abgleich: base = letzter gemeinsamer Stand, local = dieses Gerät, remote = Server.
+   Was nur auf einer Seite geändert wurde, wird übernommen. Listen mit IDs werden Eintrag für Eintrag
+   abgeglichen (neue, geänderte und gelöschte Einträge beider Seiten bleiben erhalten). Wurde derselbe
+   Wert auf beiden Seiten geändert, gewinnt dieses Gerät. */
+function sameJson(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function isPlainObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+function isIdList(v) { return Array.isArray(v) && v.every((x) => isPlainObj(x) && x.id !== undefined); }
+
+function merge3(base, local, remote, path = []) {
+  if (sameJson(local, remote)) return local;
+  if (sameJson(base, local)) return remote;
+  if (sameJson(base, remote)) return local;
+  if (path[0] === 'counters' && typeof local === 'number' && typeof remote === 'number') {
+    return remote + local - (typeof base === 'number' ? base : 0);
+  }
+  if (isIdList(local) && isIdList(remote)) return mergeById(isIdList(base) ? base : [], local, remote, path);
+  if (isPlainObj(local) && isPlainObj(remote)) {
+    const out = {};
+    const b = isPlainObj(base) ? base : {};
+    for (const k of new Set([...Object.keys(remote), ...Object.keys(local)])) {
+      const v = merge3(b[k], local[k], remote[k], [...path, k]);
+      if (v !== undefined) out[k] = v;
+    }
+    return out;
+  }
+  return local;
+}
+
+function mergeById(base, local, remote, path) {
+  const bm = new Map(base.map((x) => [x.id, x]));
+  const lm = new Map(local.map((x) => [x.id, x]));
+  const rm = new Map(remote.map((x) => [x.id, x]));
+  const ids = [...remote.map((x) => x.id), ...local.filter((x) => !rm.has(x.id)).map((x) => x.id)];
+  const out = [];
+  for (const id of ids) {
+    const b = bm.get(id), l = lm.get(id), r = rm.get(id);
+    if (l && r) out.push(merge3(b, l, r, [...path, id]));
+    else if (r) { if (!(b && sameJson(b, r))) out.push(r); }      // hier gelöscht, dort unverändert → gelöscht lassen
+    else if (l) { if (!(b && sameJson(b, l))) out.push(l); }      // dort gelöscht, hier unverändert → gelöscht lassen
+  }
+  return out;
+}
+
+/** Übernimmt den Server-Stand als lokalen Stand. */
+function adoptRemote(remote) {
+  const changed = !sameJson(remote.data, data);
+  data = normalize(remote.data);
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch { /* ignorieren */ }
+  syncState.rev = remote.rev;
+  syncState.dirty = false;
+  syncState.lastSync = Date.now();
+  saveSyncState();
+  saveBase(remote.data);
+  if (changed) render();
+}
+
+function hasLocalContent(d) {
+  return ['projects', 'timeEntries', 'investments', 'milestones', 'tasks', 'notes'].some((k) => (d[k] || []).length);
+}
+
+/** Bringt den lokalen Stand und den Server-Stand zusammen. */
+async function reconcile(remote) {
+  if (!remote || remote.rev === 0 || !remote.data) {
+    // Server ist noch leer: Daten dieses Geräts hochladen
+    syncState.rev = 0;
+    if (hasLocalContent(data) || syncState.dirty) {
+      syncState.dirty = true;
+      saveSyncState();
+      server.busy = false;
+      await push();
+      if (!syncState.dirty) toast('☁️ Deine Daten wurden auf den Server übertragen.');
+    } else {
+      setSyncStatus('ok');
+    }
+    return;
+  }
+  if (server.asking) return;
+  // Erste Verbindung dieses Geräts, aber hier liegen schon (z. B. importierte) Daten: nachfragen
+  if (!syncState.lastSync && hasLocalContent(data) && !sameJson(normalize(remote.data), data)) {
+    server.busy = false;
+    askFirstMerge(remote);
+    return;
+  }
+  if (!syncState.dirty) {
+    if (remote.rev !== syncState.rev || !syncState.lastSync) adoptRemote(remote);
+    setSyncStatus('ok');
+    return;
+  }
+  if (remote.rev !== syncState.rev) {
+    // Auf einem anderen Gerät wurde inzwischen gespeichert → zusammenführen
+    const merged = merge3(loadBase(), JSON.parse(JSON.stringify(data)), remote.data);
+    data = normalize(merged);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch { /* ignorieren */ }
+    syncState.rev = remote.rev;
+    saveBase(remote.data);
+    saveSyncState();
+    render();
+  }
+  server.busy = false;
+  await push();
+}
+
+function schedulePush(delay = 1200) {
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => push(), delay);
+  if (server.status !== 'offline') setSyncStatus('pending');
+}
+
+async function push({ keepalive = false } = {}) {
+  clearTimeout(pushTimer);
+  if (!isServerMode() || !server.authed || !syncState.dirty) return;
+  if (server.busy) { schedulePush(600); return; }
+  server.busy = true;
+  setSyncStatus('saving');
+  try {
+    const sent = JSON.parse(JSON.stringify(data));
+    const r = await api('data', { method: 'POST', body: { baseRev: syncState.rev, data: sent, device: deviceLabel() }, keepalive });
+    if (r.status === 401) { lostAuth(); return; }
+    if (r.status === 409) { server.busy = false; await reconcile(r.json); return; }
+    if (!r.ok) throw new Error(r.json?.message || `Fehler ${r.status}`);
+    syncState.rev = r.json.rev;
+    syncState.dirty = !sameJson(data, sent); // während des Speicherns geändert? Dann gleich nochmal
+    syncState.lastSync = Date.now();
+    saveSyncState();
+    saveBase(sent);
+    setSyncStatus('ok');
+    if (syncState.dirty) schedulePush(300);
+  } catch (e) {
+    syncError(e);
+  } finally {
+    server.busy = false;
+  }
+}
+
+async function pull() {
+  if (!isServerMode() || !server.authed) return;
+  if (server.busy) return;
+  server.busy = true;
+  try {
+    const r = await api('data');
+    if (r.status === 401) { lostAuth(); return; }
+    if (!r.ok) throw new Error(r.json?.message || `Fehler ${r.status}`);
+    await reconcile(r.json);
+  } catch (e) {
+    syncError(e);
+  } finally {
+    server.busy = false;
+  }
+}
+
+function syncError(e) {
+  const offline = e instanceof TypeError || navigator.onLine === false;
+  setSyncStatus(offline ? 'offline' : 'error', offline ? '' : e.message);
+}
+
+function lostAuth() {
+  server.authed = false;
+  server.busy = false;
+  render();
+}
+
+/* Erste Anmeldung auf einem Gerät mit vorhandenen Daten */
+function askFirstMerge(remote) {
+  server.asking = true;
+  const dlg = $('#modal');
+  dlg.classList.remove('wide');
+  const when = remote.updatedAt ? fmtDateTime(remote.updatedAt) : 'unbekannt';
+  dlg.innerHTML = `<div class="form detail-view"><h2>☁️ Daten zusammenführen?</h2>
+    <p>Auf dem Server liegen bereits Daten (zuletzt gespeichert ${esc(when)}${remote.device ? ` auf ${esc(remote.device)}` : ''}),
+    und auch auf diesem Gerät sind Daten vorhanden.</p>
+    <p class="small muted"><b>Zusammenführen</b> behält alle Projekte und Einträge von beiden Seiten.
+    <b>Server-Daten verwenden</b> ersetzt die Daten auf diesem Gerät.</p>
+    <div class="form-actions">
+      <button type="button" class="btn" data-choice="remote">Server-Daten verwenden</button>
+      <button type="button" class="btn primary" data-choice="merge">Zusammenführen</button>
+    </div></div>`;
+  dlg.querySelectorAll('[data-choice]').forEach((b) => b.addEventListener('click', async () => {
+    server.asking = false;
+    dlg.close();
+    unlockScroll();
+    if (b.dataset.choice === 'remote') {
+      adoptRemote(remote);
+      setSyncStatus('ok');
+      toast('Server-Daten übernommen ✔');
+    } else {
+      data = normalize(merge3({}, JSON.parse(JSON.stringify(data)), remote.data));
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch { /* ignorieren */ }
+      syncState.rev = remote.rev;
+      syncState.dirty = true;
+      syncState.lastSync = Date.now();
+      saveSyncState();
+      saveBase(remote.data);
+      render();
+      await push();
+      toast('Daten zusammengeführt ✔');
+    }
+  }));
+  dlg.addEventListener('cancel', (e) => e.preventDefault(), { once: true });
+  lockScroll();
+  dlg.showModal();
+}
+
+/* Anmeldeseite */
+function renderLockScreen() {
+  document.body.classList.add('locked');
+  const info = server.info || {};
+  const problem = info.dbError || (info.configured === false ? 'Auf dem Server ist noch kein Passwort festgelegt. Lege die Datei config.php an (Vorlage: config.sample.php).' : '');
+  $('#app').innerHTML = `<div class="lock-wrap"><form class="card lock-card form" data-form="login">
+    <div class="lock-logo">🚀</div>
+    <h1>Projekttracker</h1>
+    <p class="muted">Deine Daten liegen auf deinem Server und sind auf allen Geräten automatisch aktuell. Melde dich einmal pro Gerät an.</p>
+    ${problem ? `<div class="lock-msg error">⚠️ ${esc(problem)}</div>` : `
+    ${info.secure === false ? '<div class="lock-msg warn">🔓 Die Verbindung ist <b>nicht verschlüsselt</b> (kein HTTPS). Richte HTTPS ein, bevor du den Tracker über das Internet nutzt.</div>' : ''}
+    <label class="field"><span>Passwort</span>
+      <input type="password" name="password" autocomplete="current-password" required></label>
+    <div class="lock-msg error" data-login-error hidden></div>
+    <button class="btn primary" type="submit">Anmelden</button>`}
+  </form></div>`;
+  $('#backup-bar').hidden = true;
+  if (!('ontouchstart' in window)) $('#app input[name="password"]')?.focus();
+}
+
+document.addEventListener('submit', async (e) => {
+  const form = e.target.closest('[data-form="login"]');
+  if (!form) return;
+  e.preventDefault();
+  const btn = form.querySelector('button[type="submit"]');
+  const err = form.querySelector('[data-login-error]');
+  btn.disabled = true;
+  btn.textContent = 'Anmelden …';
+  err.hidden = true;
+  try {
+    const r = await api('login', { method: 'POST', body: { password: form.password.value, device: deviceLabel() } });
+    if (!r.ok) throw new Error(r.json?.message || `Anmeldung fehlgeschlagen (${r.status}).`);
+    server.authed = true;
+    document.body.classList.remove('locked');
+    render();
+    await pull();
+  } catch (ex) {
+    err.textContent = ex instanceof TypeError ? 'Der Server ist nicht erreichbar.' : ex.message;
+    err.hidden = false;
+    btn.disabled = false;
+    btn.textContent = 'Anmelden';
+  }
+});
+
+/* Start: Gibt es eine Server-API neben der App? */
+async function initServer() {
+  if (location.protocol === 'file:') return;
+  let st = null;
+  try {
+    const r = await api('status');
+    st = r.json;
+  } catch {
+    if (syncState.server) setSyncStatus('offline'); // Server bekannt, aber gerade nicht erreichbar: lokal weiterarbeiten
+    return;
+  }
+  if (!st || st.app !== 'projekttracker') {
+    if (syncState.server) { syncState.server = false; saveSyncState(); render(); }
+    return;
+  }
+  server.info = st;
+  server.checked = true;
+  if (!syncState.server) { syncState.server = true; saveSyncState(); }
+  server.authed = !!st.authenticated && !st.dbError;
+  if (!server.authed) { render(); return; }
+  document.body.classList.remove('locked');
+  render();
+  await pull();
+}
+
+/** Server-Abgleich beim Zurückkehren, regelmäßig und wenn die Verbindung wiederkommt. */
+function syncSoon() {
+  if (!isServerMode() || !server.authed) return;
+  if (syncState.dirty) push(); else pull();
+}
+document.addEventListener('visibilitychange', () => {
+  if (!isServerMode()) return;
+  if (document.visibilityState === 'hidden') { if (syncState.dirty) push({ keepalive: true }); }
+  else syncSoon();
+});
+window.addEventListener('online', syncSoon);
+window.addEventListener('focus', () => { if (Date.now() - (server.lastFocusSync || 0) > 5000) { server.lastFocusSync = Date.now(); syncSoon(); } });
+setInterval(() => { if (document.visibilityState === 'visible') syncSoon(); }, 30 * 1000);
+
+async function showHistory() {
+  const dlg = $('#modal');
+  dlg.classList.remove('wide');
+  dlg.innerHTML = `<div class="form detail-view"><h2>🕘 Frühere Stände</h2><p class="muted">Wird geladen …</p>
+    <div class="form-actions"><button type="button" class="btn primary" data-close>Schließen</button></div></div>`;
+  const close = () => { dlg.close(); unlockScroll(); };
+  dlg.querySelector('[data-close]').addEventListener('click', close);
+  lockScroll();
+  dlg.showModal();
+  try {
+    const r = await api('history');
+    if (r.status === 401) { close(); lostAuth(); return; }
+    if (!r.ok) throw new Error(r.json?.message || `Fehler ${r.status}`);
+    const items = r.json.items || [];
+    dlg.querySelector('.detail-view').innerHTML = `<h2>🕘 Frühere Stände</h2>
+      <p class="small muted" style="margin:0">Der Server hebt die letzten 50 Speicherstände auf und zusätzlich den letzten Stand jedes Tages der vergangenen 60 Tage.
+      Beim Wiederherstellen wird der gewählte Stand zum aktuellen – auf allen Geräten.</p>
+      ${items.length ? `<ul class="list">${items.map((it, i) => `<li><div class="grow"><div class="title">${esc(fmtDateTime(it.savedAt))}${i === 0 ? ' <span class="badge aktiv">aktuell</span>' : ''}</div>
+        <div class="meta">${esc(it.device || 'unbekanntes Gerät')} · Stand ${it.rev} · ${(it.size / 1024).toFixed(1)} KB</div></div>
+        ${i === 0 ? '' : `<button type="button" class="btn small" data-restore="${it.id}">Wiederherstellen</button>`}</li>`).join('')}</ul>`
+        : '<div class="empty">Noch keine gespeicherten Stände.</div>'}
+      <div class="form-actions"><button type="button" class="btn primary" data-close>Schließen</button></div>`;
+    dlg.querySelector('[data-close]').addEventListener('click', close);
+    dlg.querySelectorAll('[data-restore]').forEach((b) => b.addEventListener('click', async () => {
+      const it = items.find((x) => String(x.id) === b.dataset.restore);
+      if (!confirm(`Stand vom ${fmtDateTime(it.savedAt)} wiederherstellen?\n\nDer aktuelle Stand bleibt im Verlauf erhalten.`)) return;
+      b.disabled = true;
+      const res = await api('history', { params: `&id=${encodeURIComponent(it.id)}` });
+      if (!res.ok) { toast(res.json?.message || 'Wiederherstellen fehlgeschlagen.', 'error'); b.disabled = false; return; }
+      data = normalize(res.json.data);
+      close();
+      commit();
+      toast('Stand wiederhergestellt ✔');
+    }));
+  } catch (e) {
+    dlg.querySelector('.detail-view p').textContent = e instanceof TypeError ? 'Der Server ist nicht erreichbar.' : e.message;
+  }
+}
+
+Object.assign(actions, {
+  syncNow() {
+    if (!server.authed) { initServer(); return; }
+    if (syncState.dirty) push(); else pull().then(() => { if (server.status === 'ok') toast('☁️ Alles aktuell.'); });
+  },
+  showHistory() { showHistory(); },
+  async logout() {
+    if (!confirm('Auf diesem Gerät abmelden?\n\nDie Daten bleiben auf dem Server und werden von diesem Gerät entfernt.')) return;
+    if (syncState.dirty) await push();
+    if (syncState.dirty && !confirm('Einige Änderungen konnten noch nicht gespeichert werden und gehen beim Abmelden verloren. Trotzdem abmelden?')) return;
+    try { await api('logout', { method: 'POST', body: {} }); } catch { /* trotzdem lokal abmelden */ }
+    data = structuredClone(DEFAULT_DATA);
+    try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(SYNC_BASE_KEY); } catch { /* ignorieren */ }
+    syncState = { server: true, rev: 0, dirty: false, lastSync: 0 };
+    saveSyncState();
+    server.authed = false;
+    location.hash = '#/';
+    render();
+  },
+});
+
+/** Inhalt des Bereichs „Datensicherung“ im Server-Modus. */
+function renderServerBackupSettings(size) {
+  const st = { ok: '✅ Alles gespeichert', pending: '⏳ Wird gleich gespeichert', saving: '⏳ Wird gespeichert', offline: '📴 Offline – wird nachgeholt', error: '⚠️ Fehler', idle: '…' }[server.status] || '…';
+  return `<p class="small muted">Alle Änderungen werden <b>automatisch auf deinem Server</b> gespeichert und auf deinen anderen Geräten übernommen.
+    Exportieren und Importieren ist nicht mehr nötig. Eine Kopie (${(size / 1024).toFixed(1)} KB) bleibt in diesem Browser, damit du auch ohne Verbindung weiterarbeiten kannst.</p>
+    <dl class="kv" style="margin-bottom:16px">
+      <dt>Status</dt><dd>${st}${server.error ? ` <span class="small muted">(${esc(server.error)})</span>` : ''}</dd>
+      <dt>Zuletzt abgeglichen</dt><dd>${esc(fmtDateTime(syncState.lastSync))}</dd>
+      <dt>Dieses Gerät</dt><dd>${esc(deviceLabel())}</dd>
+    </dl>
+    <div class="btn-row">
+      <button class="btn primary" data-action="syncNow">🔄 Jetzt abgleichen</button>
+      <button class="btn" data-action="showHistory">🕘 Frühere Stände</button>
+      <button class="btn" data-action="logout">Abmelden</button>
+    </div>
+    <h3 style="margin-top:20px">Zusätzliche Sicherung</h3>
+    <div class="btn-row">
+      <button class="btn" data-action="exportData">⬇ Backup exportieren (JSON)</button>
+      <button class="btn" data-action="exportCsv">⬇ Zeit & Investitionen als CSV</button>
+      <button class="btn" data-action="importData">⬆ Backup importieren</button>
+    </div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
+    <h3>Gefahrenzone</h3>
+    <button class="btn danger" data-action="resetData">Alle Daten löschen</button>`;
+}
+
 render();
+initServer();

@@ -1,0 +1,11 @@
+# Projekttracker – Schutz für Apache-Webserver
+Options -Indexes
+
+# Konfiguration, Skripte und Repository-Dateien nicht ausliefern
+<FilesMatch "^(config\.php|config\.sample\.php|bump-version\.sh|Dockerfile|docker-compose\.yml|\.gitignore)$">
+  Require all denied
+</FilesMatch>
+RedirectMatch 404 /\.git
+
+# Daten-Ordner (SQLite) sperren
+RedirectMatch 404 /data/

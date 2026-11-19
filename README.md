@@ -51,7 +51,11 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 
 ## Daten & mehrere Geräte
 
-Alle Daten liegen im `localStorage` des Browsers, also nur auf dem jeweiligen Gerät.
+Es gibt zwei Wege:
+- **Eigener Server (empfohlen):** Alle Änderungen werden automatisch in einer Datenbank gespeichert, und alle Geräte sind immer auf demselben Stand. Siehe [Eigener Server](#eigener-server-automatische-speicherung).
+- **Ohne Server** (z. B. GitHub Pages oder lokale Datei): wie unten beschrieben, per Sicherungsdatei.
+
+Ohne Server liegen alle Daten im `localStorage` des Browsers, also nur auf dem jeweiligen Gerät.
 Zwischen Geräten wechselst du über eine **Sicherungsdatei** in deinem Cloud-Speicher (**iCloud Drive, OneDrive, Google Drive, Dropbox**) oder ohne Cloud per AirDrop, USB-Stick oder E-Mail:
 
 > **Beim Aufhören sichern (💾), beim Anfangen importieren.**
@@ -73,9 +77,54 @@ Außerdem kannst du Zeiten und Investitionen als **CSV** exportieren (z. B. für
 Damit du den Tracker auf iPhone und iPad öffnen kannst, muss er eine Internetadresse haben, z. B. über **GitHub Pages**. Bei einem privaten Repository ist dafür GitHub Pro nötig. Alternativ machst du das Repository öffentlich oder lädst den Ordner bei einem kostenlosen Dienst wie Netlify oder Cloudflare Pages hoch.
 Deine Projektdaten sind dabei **nicht** öffentlich, sie bleiben im Browser des jeweiligen Geräts.
 
+## Eigener Server (automatische Speicherung)
+
+Liegt der Tracker auf einem Server mit PHP, speichert er alle Änderungen **automatisch** in einer Datenbank. Exportieren und Importieren entfällt.
+
+So funktioniert es:
+- Die App erkennt `api.php` neben `index.html` von selbst. Ohne sie (z. B. auf GitHub Pages) läuft alles wie bisher.
+- **Anmeldung mit Passwort**, einmal pro Gerät. Das Gerät bleibt ein Jahr angemeldet (einstellbar).
+- Jede Änderung wird nach etwa einer Sekunde gespeichert. Der Knopf in der Navigation zeigt ☁️ *Gespeichert*, *Speichert…* oder 📴 *Offline*.
+- Andere Geräte holen sich Änderungen beim Öffnen, beim Zurückkehren in die App und alle 30 Sekunden.
+- **Offline** arbeitest du normal weiter. Die Änderungen werden übertragen, sobald der Server wieder erreichbar ist.
+- Wurde zwischenzeitlich auf zwei Geräten gearbeitet, werden die Änderungen **automatisch zusammengeführt**: neue, geänderte und gelöschte Einträge beider Geräte bleiben erhalten. Nur wenn genau dasselbe Feld auf beiden Geräten geändert wurde, gewinnt das Gerät, das zuletzt speichert.
+- **Frühere Stände** (Einstellungen › Server-Speicherung): Der Server behält die letzten 50 Speicherstände und den letzten Stand jedes Tages der vergangenen 60 Tage. Jeder davon lässt sich wiederherstellen.
+- Bei der ersten Anmeldung auf einem Gerät, das schon Daten hat, fragt die App, ob sie diese mit den Server-Daten **zusammenführen** oder die Server-Daten verwenden soll. Das erste Gerät lädt seine Daten automatisch hoch.
+
+### Variante A: Webhosting mit PHP (z. B. dein Webspace)
+
+Voraussetzung: PHP 8.1 oder neuer (bei fast allen Webhostern Standard).
+
+1. Alle Dateien des Repositorys in einen Ordner auf dem Webspace hochladen, z. B. `https://deine-domain.de/tracker/`.
+2. `config.sample.php` als `config.php` speichern und ein **langes Passwort** eintragen.
+3. Die Adresse aufrufen und anmelden.
+
+Ohne weitere Angaben speichert der Tracker in einer **SQLite-Datei** (`data/tracker.sqlite`). Du musst dafür nichts einrichten. Der Ordner `data/` muss für PHP beschreibbar sein und ist per `.htaccess` gesperrt.
+Für **MySQL/MariaDB** trägst du die Zugangsdaten in `config.php` ein (`db_dsn`, `db_user`, `db_pass`). Die Tabellen legt der Tracker selbst an.
+
+Statt des Klartext-Passworts kannst du einen Hash hinterlegen:
+```bash
+php -r 'echo password_hash("dein-passwort", PASSWORD_DEFAULT), PHP_EOL;'
+```
+
+### Variante B: Docker (VPS, Heimserver, NAS)
+
+```bash
+TRACKER_PASSWORD='dein-langes-passwort' docker compose up -d
+```
+
+Der Tracker läuft dann auf Port 8080, die Daten liegen im Docker-Volume `tracker-data`. Für MariaDB statt SQLite gibt es in `docker-compose.yml` einen auskommentierten Abschnitt.
+
+### Wichtig
+
+- **HTTPS verwenden**, sobald der Tracker über das Internet erreichbar ist. Bei Webhostern geht das meist per Klick (Let's Encrypt). Bei Docker schaltest du einen Reverse-Proxy wie Caddy, Traefik oder den Proxy deines NAS davor. Ohne HTTPS zeigt die Anmeldeseite eine Warnung.
+- Nach zu vielen falschen Passwörtern (10 in 15 Minuten) wird die Anmeldung für diese IP-Adresse kurz gesperrt.
+- **Backup des Servers:** Sichere gelegentlich den Ordner `data/` bzw. das Docker-Volume oder die Datenbank. Zusätzlich funktioniert der JSON-Export in den Einstellungen weiterhin.
+- Beim Abmelden werden die Daten von diesem Gerät entfernt. Auf dem Server bleiben sie erhalten.
+
 ## Technik
 
-Reines HTML, CSS und JavaScript (`index.html`, `styles.css`, `app.js`) ohne Abhängigkeiten oder Build-Schritt.
+Reines HTML, CSS und JavaScript (`index.html`, `styles.css`, `app.js`) ohne Abhängigkeiten oder Build-Schritt. Optional `api.php` (PHP 8.1+, PDO mit SQLite oder MySQL/MariaDB) für die Server-Speicherung.
 
 ### Updates & Cache
 
