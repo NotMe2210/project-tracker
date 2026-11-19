@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.19-4';
+const APP_VERSION = '2026.11.19-6';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2369,6 +2369,7 @@ const actions = {
   setProjectStatus({ id, status }) {
     const p = getProject(id);
     const wasDone = p.status === 'abgeschlossen';
+    noteStatusChange(p.status, status);
     p.status = status;
     commit();
     if (!wasDone && status === 'abgeschlossen') celebrateProject(p);
@@ -2517,6 +2518,7 @@ const actions = {
   startTimer({ id }) {
     if (data.timer && !confirm(tr('Es läuft bereits ein Timer. Diesen verwerfen und neu starten?'))) return;
     data.timer = { projectId: id, start: Date.now() };
+    noteTimerStart();
     commit();
     toast(tr('▶ Timer für „{name}“ gestartet. Los geht’s!', { name: getProject(id).name }));
   },
@@ -2555,6 +2557,7 @@ const actions = {
     const now = Date.now();
     data.timer = { projectId: id, start: now, mode: 'pomodoro', phase: 'work', phaseStart: now,
       phaseEnd: now + pomoCfg().work * 60000, count: 0, focusMs: 0, pausedAt: null };
+    noteTimerStart();
     commit();
     toast(tr('🍅 Pomodoro für „{name}“ – {m} Minuten volle Konzentration!', { name: getProject(id).name, m: pomoCfg().work }));
   },
@@ -2728,6 +2731,7 @@ function projectForm(p) {
         toast(tr('Projekt angelegt. Lege gleich den ersten Schritt als Aufgabe fest!'));
       } else {
         const wasDone = p.status === 'abgeschlossen';
+        noteStatusChange(p.status, v.status);
         Object.assign(p, v);
         commit();
         if (!wasDone && p.status === 'abgeschlossen') celebrateProject(p);
@@ -2902,6 +2906,7 @@ function tickPomodoro() {
       t.focusMs += t.phaseEnd - t.phaseStart;
       t.count += 1;
       data.counters.pomodoros = (data.counters.pomodoros || 0) + 1;
+      if (t.count >= 8 && !t.marathon) { t.marathon = true; countEvent('pomoMarathon'); }
       startBreak(t, t.phaseEnd, true);
       signalMsg = t.phase === 'long'
         ? [tr('🍅 {n} Pomodoros geschafft!', { n: t.count }), tr('Zeit für eine lange Pause ({m} Min).', { m: pomoCfg().long })]
@@ -3272,11 +3277,31 @@ function hasRevivedProject() {
     return ds.some((d, i) => i > 0 && daysBetween(ds[i - 1], d) >= 14);
   });
 }
-function weekGoalEverHit() {
+/** Anzahl Wochen (letzte 52) mit erreichtem Wochenziel und ob einmal das Doppelte geschafft wurde */
+function weekGoalHistory() {
   const g = weeklyGoal().minutes;
-  if (!g) return false;
-  for (let i = -51; i <= 0; i++) if (weekMinutes(i) >= g) return true;
-  return false;
+  let hit = 0, double = false;
+  if (g) for (let i = -51; i <= 0; i++) { const m = weekMinutes(i); if (m >= g) hit++; if (m >= 2 * g) double = true; }
+  return { hit, double };
+}
+/** Zeit an Samstag und Sonntag desselben Wochenendes erfasst? */
+function hadWeekend() {
+  const days = new Set(data.timeEntries.filter((e) => e.minutes > 0).map((e) => e.date));
+  return [...days].some((d) => parseISO(d).getDay() === 6 && days.has(toISO(addDays(parseISO(d), 1))));
+}
+/** Zählt Ereignisse für geheime Erfolge (Werte werden beim Abgleich mehrerer Geräte addiert) */
+function countEvent(key) {
+  data.counters[key] = (data.counters[key] || 0) + 1;
+}
+/** Uhrzeit beim Starten eines Timers merken (Nachteule / Früher Vogel) */
+function noteTimerStart() {
+  const h = new Date().getHours();
+  if (h >= 22 || h < 4) countEvent('nightStarts');
+  if (h >= 5 && h < 7) countEvent('earlyStarts');
+}
+/** Statuswechsel merken (Phönix: pausiert → aktiv) */
+function noteStatusChange(from, to) {
+  if (from === 'pausiert' && to === 'aktiv') countEvent('reactivated');
 }
 
 const ACHIEVEMENTS = [
@@ -3298,9 +3323,36 @@ const ACHIEVEMENTS = [
   { id: 'project_done', icon: '🎉', get name() { return tr('Geschafft'); }, get desc() { return tr('Ein Projekt abgeschlossen'); }, goal: 1, val: (x) => x.projectsDone },
   { id: 'revived', icon: '🌱', get name() { return tr('Wiederbelebt'); }, get desc() { return tr('Ein Projekt nach 14+ Tagen Pause weitergeführt'); }, goal: 1, val: (x) => x.revived },
   { id: 'week_goal', icon: '🎯', get name() { return tr('Wochenziel'); }, get desc() { return tr('Ein Wochenziel erreicht'); }, goal: 1, val: (x) => x.weekGoal },
+  // Weitere Erfolge
+  { id: 'hours_250', icon: '🏔️', get name() { return tr('Gipfelstürmer'); }, get desc() { return tr('250 Stunden erfasst'); }, goal: 250, val: (x) => x.hours },
+  { id: 'streak_14', icon: '📆', get name() { return tr('Zwei Wochen am Stück'); }, get desc() { return tr('14 Tage in Folge aktiv'); }, goal: 14, val: (x) => x.streak },
+  { id: 'active_50', icon: '🗓️', get name() { return tr('Dranbleiber'); }, get desc() { return tr('An 50 verschiedenen Tagen aktiv'); }, goal: 50, val: (x) => x.activeDays },
+  { id: 'pomo_100', icon: '🏭', get name() { return tr('Tomatenimperium'); }, get desc() { return tr('100 Pomodoros abgeschlossen'); }, goal: 100, val: (x) => x.pomodoros },
+  { id: 'tasks_100', icon: '🦾', get name() { return tr('Unermüdlich'); }, get desc() { return tr('100 Aufgaben erledigt'); }, goal: 100, val: (x) => x.tasks },
+  { id: 'subtasks_25', icon: '🧩', get name() { return tr('Kleinkram-Profi'); }, get desc() { return tr('25 Unterpunkte abgehakt'); }, goal: 25, val: (x) => x.subtasks },
+  { id: 'milestone_10', icon: '🧭', get name() { return tr('Kartograf'); }, get desc() { return tr('10 Meilensteine erreicht'); }, goal: 10, val: (x) => x.milestones },
+  { id: 'projects_5', icon: '🗃️', get name() { return tr('Projektsammler'); }, get desc() { return tr('5 Projekte angelegt'); }, goal: 5, val: (x) => x.projects },
+  { id: 'projects_done_3', icon: '🎖️', get name() { return tr('Vollender'); }, get desc() { return tr('3 Projekte abgeschlossen'); }, goal: 3, val: (x) => x.projectsDone },
+  { id: 'notes_10', icon: '📓', get name() { return tr('Chronist'); }, get desc() { return tr('10 Notizen im Logbuch'); }, goal: 10, val: (x) => x.notes },
+  { id: 'invest_1', icon: '💶', get name() { return tr('Investor'); }, get desc() { return tr('Erste Investition erfasst'); }, goal: 1, val: (x) => x.investments },
+  { id: 'week_goal_4', icon: '📈', get name() { return tr('Beständig'); }, get desc() { return tr('In 4 Wochen das Wochenziel erreicht'); }, goal: 4, val: (x) => x.weekGoals },
+  // Geheime Erfolge – Name und Bedingung werden erst beim Erreichen verraten
+  { id: 's_night', icon: '🦉', get name() { return tr('Nachteule'); }, get desc() { return tr('Einen Timer zwischen 22 und 4 Uhr gestartet'); }, goal: 1, val: (x) => x.nightStarts, secret: true },
+  { id: 's_early', icon: '🐦', get name() { return tr('Früher Vogel'); }, get desc() { return tr('Einen Timer zwischen 5 und 7 Uhr gestartet'); }, goal: 1, val: (x) => x.earlyStarts, secret: true },
+  { id: 's_weekend', icon: '🏖️', get name() { return tr('Wochenendkrieger'); }, get desc() { return tr('An Samstag und Sonntag desselben Wochenendes Zeit erfasst'); }, goal: 1, val: (x) => x.weekend, secret: true },
+  { id: 's_marathon', icon: '🏃', get name() { return tr('Sitzfleisch'); }, get desc() { return tr('Einen Zeiteintrag mit mindestens 4 Stunden erfasst'); }, goal: 1, val: (x) => x.longSession, secret: true },
+  { id: 's_pomo8', icon: '🥫', get name() { return tr('Tomaten-Marathon'); }, get desc() { return tr('8 Pomodoros in einer Sitzung geschafft'); }, goal: 1, val: (x) => x.pomoMarathon, secret: true },
+  { id: 's_ontime', icon: '🚂', get name() { return tr('Pünktlich wie die Eisenbahn'); }, get desc() { return tr('3 Meilensteine bis zum Zieldatum erreicht'); }, goal: 3, val: (x) => x.onTime, secret: true },
+  { id: 's_double', icon: '🌠', get name() { return tr('Übererfüllt'); }, get desc() { return tr('In einer Woche das doppelte Wochenziel geschafft'); }, goal: 1, val: (x) => x.doubleGoal, secret: true },
+  { id: 's_phoenix', icon: '🌅', get name() { return tr('Phönix aus der Asche'); }, get desc() { return tr('Ein pausiertes Projekt wieder aktiviert'); }, goal: 1, val: (x) => x.reactivated, secret: true },
+  { id: 's_perfect', icon: '💎', get name() { return tr('Perfektionist'); }, get desc() { return tr('Alle (mindestens 5) Aufgaben eines Projekts erledigt'); }, goal: 1, val: (x) => x.perfectProject, secret: true },
+  { id: 's_holiday', icon: '🎄', get name() { return tr('Feiertagsfleiß'); }, get desc() { return tr('An Heiligabend, den Weihnachtstagen oder Neujahr aktiv gewesen'); }, goal: 1, val: (x) => x.holiday, secret: true },
 ];
 
 function achievementStats() {
+  const weeks = weekGoalHistory();
+  const days = dayMap();
+  const c = data.counters || {};
   return {
     projects: data.projects.length,
     hours: sum(data.timeEntries, (e) => e.minutes) / 60,
@@ -3310,7 +3362,22 @@ function achievementStats() {
     milestones: data.milestones.filter((m) => m.done).length,
     projectsDone: data.projects.filter((p) => p.status === 'abgeschlossen').length,
     revived: hasRevivedProject() ? 1 : 0,
-    weekGoal: weekGoalEverHit() ? 1 : 0,
+    weekGoal: Math.min(1, weeks.hit),
+    weekGoals: weeks.hit,
+    activeDays: Object.keys(days).length,
+    subtasks: sum(data.tasks, (t) => (t.subtasks || []).filter((st) => st.done).length),
+    notes: data.notes.length,
+    investments: data.investments.length,
+    nightStarts: c.nightStarts || 0,
+    earlyStarts: c.earlyStarts || 0,
+    weekend: hadWeekend() ? 1 : 0,
+    longSession: data.timeEntries.some((e) => e.minutes >= 240) ? 1 : 0,
+    pomoMarathon: c.pomoMarathon || 0,
+    onTime: data.milestones.filter((m) => m.done && m.dueDate && m.doneAt && m.doneAt <= m.dueDate).length,
+    doubleGoal: weeks.double ? 1 : 0,
+    reactivated: c.reactivated || 0,
+    perfectProject: data.projects.some((p) => { const ts = data.tasks.filter((t) => t.projectId === p.id); return ts.length >= 5 && ts.every((t) => t.done); }) ? 1 : 0,
+    holiday: Object.keys(days).some((d) => ['12-24', '12-25', '12-26', '01-01'].includes(d.slice(5))) ? 1 : 0,
   };
 }
 
@@ -3325,9 +3392,11 @@ function checkAchievements() {
   const fresh = earned.filter((id) => !data.achievements[id]);
   fresh.forEach((id) => (data.achievements[id] = todayISO()));
   if (fresh.length) {
-    const first = ACHIEVEMENTS.find((a) => a.id === fresh[0]);
+    // Geheime Erfolge zuerst nennen – die Überraschung ist das Schönste
+    const list = fresh.map((id) => ACHIEVEMENTS.find((a) => a.id === id)).sort((a, b) => Number(!!b.secret) - Number(!!a.secret));
+    const first = list[0];
     setTimeout(() => {
-      toast(tr('🏅 Erfolg freigeschaltet: {name}', { name: `${first.icon} ${first.name}` }) + (fresh.length > 1 ? ` ${tr('(+{n} weitere)', { n: fresh.length - 1 })}` : ''));
+      toast((first.secret ? tr('🤫 Geheimer Erfolg entdeckt: {name}', { name: `${first.icon} ${first.name}` }) : tr('🏅 Erfolg freigeschaltet: {name}', { name: `${first.icon} ${first.name}` })) + (fresh.length > 1 ? ` ${tr('(+{n} weitere)', { n: fresh.length - 1 })}` : ''));
       confetti();
     }, 300);
   }
@@ -3337,18 +3406,30 @@ function checkAchievements() {
 function renderAchievements() {
   const x = achievementStats();
   const got = data.achievements || {};
-  const n = ACHIEVEMENTS.filter((a) => got[a.id]).length;
-  const badges = ACHIEVEMENTS.map((a) => {
+  const visible = ACHIEVEMENTS.filter((a) => !a.secret);
+  const secrets = ACHIEVEMENTS.filter((a) => a.secret);
+  const n = visible.filter((a) => got[a.id]).length;
+  const nSecret = secrets.filter((a) => got[a.id]).length;
+  // Reihenfolge: erreichte zuerst (links), dann nach Fortschritt absteigend, noch nicht begonnene danach,
+  // noch nicht entdeckte geheime Erfolge ganz rechts
+  const progressOf = (a) => (got[a.id] ? 2 : a.secret ? -1 : Math.min(1, Math.max(0, a.val(x) / a.goal)));
+  const sorted = ACHIEVEMENTS.map((a, i) => ({ a, i, p: progressOf(a) })).sort((m, k) => k.p - m.p || m.i - k.i).map((m) => m.a);
+  const badges = sorted.map((a) => {
     const done = !!got[a.id];
+    if (a.secret && !done) {
+      const tip = `<b>🔒 ${tr('Geheimer Erfolg')}</b><span class="tip-sub">${tr('Wird verraten, sobald du ihn erreichst. Probier Neues aus!')}</span>`;
+      return `<div class="badge-tile secret locked" tabindex="0" data-tip="${esc(tip)}">
+        <span class="badge-icon">🔒</span><span class="badge-name">???</span></div>`;
+    }
     const v = Math.min(a.goal, a.val(x));
     const tip = `<b>${a.icon} ${esc(a.name)}</b><span class="tip-sub">${esc(a.desc)}</span>${done ? `<span class="tip-sub">✔ ${tr('erreicht am {date}', { date: fmtDate(got[a.id]) })}</span>` : `<span class="tip-sub">${tr('Fortschritt: {v} / {goal}', { v: fmtNum(Math.floor(v * 10) / 10), goal: a.goal })}</span>`}`;
-    return `<div class="badge-tile ${done ? 'earned' : 'locked'}" tabindex="0" data-tip="${esc(tip)}">
+    return `<div class="badge-tile ${done ? 'earned' : 'locked'}${a.secret ? ' secret' : ''}" tabindex="0" data-tip="${esc(a.secret ? `${tip}<span class="tip-sub">🤫 ${tr('Geheimer Erfolg')}</span>` : tip)}">
       <span class="badge-icon">${a.icon}</span><span class="badge-name">${esc(a.name)}</span>
       ${done ? '' : `<span class="badge-prog"><span style="width:${(v / a.goal) * 100}%"></span></span>`}
     </div>`;
   }).join('');
   return `<section class="card">
-    <div class="card-head"><h2>🏅 ${tr('Erfolge')}</h2><span class="small muted">${tr('{n} von {all}', { n, all: ACHIEVEMENTS.length })}</span></div>
+    <div class="card-head"><h2>🏅 ${tr('Erfolge')}</h2><span class="small muted">${tr('{n} von {all}', { n, all: visible.length })} · ${tr('🤫 {n} von {all} geheimen', { n: nSecret, all: secrets.length })}</span></div>
     <div class="badge-grid">${badges}</div>
   </section>`;
 }
@@ -3627,6 +3708,7 @@ document.addEventListener('change', (e) => {
   if (!el) return;
   const p = getProject(el.dataset.id);
   const wasDone = p.status === 'abgeschlossen';
+  noteStatusChange(p.status, el.value);
   p.status = el.value;
   commit();
   if (!wasDone && p.status === 'abgeschlossen') celebrateProject(p);

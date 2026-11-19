@@ -1031,3 +1031,11 @@ html.paused-open body { overflow: hidden; }
 @keyframes poFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes poPulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warn) 45%, transparent); } 50% { box-shadow: 0 0 0 12px transparent; } }
 @media (prefers-reduced-motion: reduce) { .pause-overlay, .po-icon { animation: none; } }
+
+/* Geheime Erfolge */
+.badge-tile.secret.locked { border-style: dashed; background: repeating-linear-gradient(135deg, transparent 0 8px, var(--surface-2) 8px 16px); }
+.badge-tile.secret.locked .badge-icon { filter: none; opacity: .7; }
+.badge-tile.secret.earned {
+  background: linear-gradient(135deg, var(--primary-soft), color-mix(in srgb, #f5b301 22%, var(--surface)));
+  border-color: color-mix(in srgb, #f5b301 60%, transparent);
+}
