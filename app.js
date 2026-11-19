@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.19-4';
+const APP_VERSION = '2026.11.19-5';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -3338,7 +3338,10 @@ function renderAchievements() {
   const x = achievementStats();
   const got = data.achievements || {};
   const n = ACHIEVEMENTS.filter((a) => got[a.id]).length;
-  const badges = ACHIEVEMENTS.map((a) => {
+  // Reihenfolge: erreichte zuerst (links), dann nach Fortschritt absteigend, noch nicht begonnene zuletzt (rechts)
+  const progressOf = (a) => (got[a.id] ? 2 : Math.min(1, Math.max(0, a.val(x) / a.goal)));
+  const sorted = ACHIEVEMENTS.map((a, i) => ({ a, i, p: progressOf(a) })).sort((m, k) => k.p - m.p || m.i - k.i).map((m) => m.a);
+  const badges = sorted.map((a) => {
     const done = !!got[a.id];
     const v = Math.min(a.goal, a.val(x));
     const tip = `<b>${a.icon} ${esc(a.name)}</b><span class="tip-sub">${esc(a.desc)}</span>${done ? `<span class="tip-sub">✔ ${tr('erreicht am {date}', { date: fmtDate(got[a.id]) })}</span>` : `<span class="tip-sub">${tr('Fortschritt: {v} / {goal}', { v: fmtNum(Math.floor(v * 10) / 10), goal: a.goal })}</span>`}`;
