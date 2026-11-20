@@ -1060,3 +1060,38 @@ html.paused-open body { overflow: hidden; }
 .csv-preview td:nth-child(4) { white-space: normal; min-width: 160px; }
 /* Scrollbereich im Dialog bekommt beim Öffnen den Fokus – ohne sichtbaren Rahmen */
 dialog .form:focus, dialog .form:focus-visible { outline: none; }
+
+/* ---------- Schalter in den Einstellungen ---------- */
+.switch-row { display: flex; align-items: flex-start; gap: 12px; padding: 4px 0 14px; cursor: pointer; position: relative; }
+.switch-row > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.switch-row input { position: absolute; opacity: 0; width: 44px; height: 26px; margin: 0; cursor: pointer; }
+.switch { flex: none; width: 44px; height: 26px; border-radius: 999px; background: var(--border); position: relative; transition: background .15s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s; }
+.switch-row input:checked + .switch { background: var(--primary); }
+.switch-row input:checked + .switch::after { transform: translateX(18px); }
+.switch-row input:focus-visible + .switch { outline: 2px solid var(--primary); outline-offset: 2px; }
+.is-off { opacity: .5; }
+
+/* ---------- Meilensteine: Aufgaben & Reihenfolge ---------- */
+.ms-sort { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.ms-tasks { margin-top: 6px; font-size: .88rem; }
+.ms-tasks > summary { cursor: pointer; color: var(--muted); width: fit-content; }
+.ms-tasks > summary:hover { color: var(--text); }
+.ms-tasks ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ms-tasks li { display: flex; align-items: center; gap: 8px; }
+.ms-tasks li.done .grow { text-decoration: line-through; color: var(--muted); }
+.ms-tasks .btn.icon.small { min-width: 28px; min-height: 28px; padding: 2px; }
+.actions .btn[disabled] { opacity: .3; pointer-events: none; }
+
+/* Zeitraum-Umschalter in den Stunden-Diagrammen */
+.card-head:has(.period-switch) { flex-wrap: wrap; gap: 8px; }
+.period-switch .seg-btn { padding: 4px 10px; font-size: .82rem; }
+
+/* Neuigkeiten */
+.cl-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.cl-entry > ul { margin: 6px 0 0; padding-left: 20px; }
+.cl-entry > ul li { margin-bottom: 4px; }
+.cl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cl-repo a { overflow-wrap: anywhere; }
+.app-version { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.switch-row .hint { color: var(--muted); font-size: .85rem; font-weight: 400; }

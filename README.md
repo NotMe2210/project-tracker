@@ -23,7 +23,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
   - 🍅 **Pomodoro-Timer**: 25 Min Fokus, 5 Min Pause, lange Pause nach jedem 4. Pomodoro (alles einstellbar). Mit Pausieren, Überspringen, Ton und Mitteilung. Beim Beenden wird die reine Fokuszeit als Zeiteintrag gespeichert.
   - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
 - 💶 **Investitionen** mit frei wählbarer Kategorie (Vorschläge oder eigene), Budgetvergleich und Aufteilung nach Kategorien
-- 🏁 **Meilensteine** mit Zieldatum. Aufgaben lassen sich einem Meilenstein zuordnen.
+- 🏁 **Meilensteine** mit Zieldatum und optional **„Erreicht am“** (zum Nachtragen früherer Etappen). Aufgaben lassen sich einem Meilenstein zuordnen und werden beim Meilenstein aufklappbar angezeigt, dort auch direkt abhakbar. Die Reihenfolge ist wählbar: **nach Zieldatum** oder in einer **eigenen Reihenfolge** (↑ ↓).
 - ✅ **Aufgaben** mit Priorität, Fälligkeitsdatum und Notiz
   - **Unterpunkte** zum Abhaken. Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.
 - 📝 **Logbuch** für Ideen, Entscheidungen und kleine Erfolge
@@ -45,11 +45,11 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - 👆 **Wischgesten** auf dem iPhone: Aufgabe nach rechts wischen = erledigt, nach links = Optionen
 - **Anpassbare Übersicht und Projektansicht** direkt auf der Seite (⚙️ Anpassen bzw. ✏️ Ansicht anpassen): Bereiche per **Drag-and-drop** am ⠿-Griff verschieben (Maus, Finger oder Pfeiltasten) mit sofortiger Vorschau, Breite ◧ Halb / ▭ Voll, ausblenden ✕, wieder einblenden, Kennzahlen-Kacheln wählen. Die Projektansicht gilt wahlweise **für alle Projekte** oder **nur für ein Projekt**. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche (gestapelt nach Projekt), letzte Aktivitäten, Projektkacheln, offene Aufgaben, Investitionen nach Kategorie.
 - Dashboard mit Wochenstunden, Wochenziel, Streak, offenen bzw. überfälligen Aufgaben und Investitionen
-- **„Braucht Aufmerksamkeit“**: aktive Projekte ohne Aktivität seit X Tagen werden gelb, ab 2·X Tagen rot markiert
+- **„Braucht Aufmerksamkeit“**: aktive Projekte ohne Aktivität seit X Tagen werden gelb, ab 2·X Tagen rot markiert. Die Erinnerungen lassen sich ausschalten, ebenso die Erfolge (Einstellungen).
 - **Motivationsbanner**: zeigt das am längsten ruhende Projekt mit deinem *Warum*, dem kleinsten nächsten Schritt und einem „Nur 25 Minuten“-Timer
 - **Nächste Schritte**: die wichtigste offene Aufgabe jedes aktiven Projekts
 - Aktivitäts-Heatmap (12 Wochen): Überfahren bzw. Antippen eines Tages zeigt, was an diesem Tag erledigt wurde (Zeiten, Aufgaben, Unterpunkte, Meilensteine, Investitionen, Notizen)
-- Stunden-pro-Woche-Diagramm je Projekt
+- Stunden-Diagramm (gesamt und je Projekt) wahlweise **pro Tag, Woche, Monat oder Jahr**
 - Konfetti und Erfolgsmeldungen, wenn du Meilensteine erreichst oder Projekte abschließt
 
 ## Daten & mehrere Geräte
@@ -164,3 +164,4 @@ Browser und GitHub Pages speichern Dateien zwischen. Damit Änderungen sicher an
 - `index.html` lädt Stylesheet und Skripte mit Versionsnummer (`?v=…`).
 - Die App fragt beim Öffnen `version.json` am Cache vorbei ab und zeigt bei einer neuen Version die Leiste **„Neue Version verfügbar – Jetzt aktualisieren“**. Die Daten bleiben dabei erhalten.
 - **Vor jeder Veröffentlichung** `./bump-version.sh` ausführen. Es erhöht die Versionsnummer in `index.html`, `app.js` und `version.json`.
+- Danach in `changelog.json` einen Eintrag mit der neuen Versionsnummer und den Änderungen (`de` und `en`) ergänzen. Nach dem Update zeigt der Tracker einmalig „Neu in Version …“ mit Link zum GitHub-Repository. In der Update-Leiste gibt es „Was ist neu?“, und unter *Einstellungen* die Liste aller Neuigkeiten.
