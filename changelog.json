@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.20-5",
+      "date": "2026-11-20",
+      "de": [
+        "Neue Symbole in der Navigation: 📊 Übersicht und 🗂️ Projekte"
+      ],
+      "en": [
+        "New navigation icons: 📊 Overview and 🗂️ Projects"
+      ]
+    },
+    {
       "version": "2026.11.20-4",
       "date": "2026-11-20",
       "de": [

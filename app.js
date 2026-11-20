@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.20-4';
+const APP_VERSION = '2026.11.20-5';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2276,7 +2276,7 @@ function renderSettings() {
       `<p class="small muted">${tr('Angepasst wird direkt auf der jeweiligen Seite: Bereiche am ⠿-Griff ziehen, Breite wählen, aus- und einblenden – mit sofortiger Vorschau. Für die Projektansicht wählst du beim Speichern, ob die Anordnung für <b>alle Projekte</b> oder <b>nur für ein Projekt</b> gilt.')}</p>
       <div class="btn-row">
         <button type="button" class="btn primary" data-action="customizeDashboard">🧩 ${tr('Übersicht anpassen')}</button>
-        ${data.projects.length ? `<button type="button" class="btn" data-action="customizeProject" data-id="${esc((data.projects.find((x) => x.status === 'aktiv') || data.projects[0]).id)}">📁 ${tr('Projektansicht anpassen')}</button>` : ''}
+        ${data.projects.length ? `<button type="button" class="btn" data-action="customizeProject" data-id="${esc((data.projects.find((x) => x.status === 'aktiv') || data.projects[0]).id)}">🗂️ ${tr('Projektansicht anpassen')}</button>` : ''}
       </div>
       ${data.projects.some((x) => x.layout) ? `<h3 style="margin-top:16px">${tr('Projekte mit eigener Anordnung')}</h3>
         <ul class="list">${data.projects.filter((x) => x.layout).map((x) => `<li><span class="dot-color" style="background:${esc(x.color)}"></span>
@@ -3671,7 +3671,7 @@ function projectMenuHTML(p) {
     <button class="pop-item" data-action="addTime" data-id="${p.id}">⏱️ ${tr('Zeit erfassen')}</button>
     <button class="pop-item" data-action="addTask" data-id="${p.id}">✅ ${tr('Aufgabe anlegen')}</button>
     <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 ${tr('Notiz')}</button>
-    <button class="pop-item" data-action="goProject" data-id="${p.id}">📁 ${tr('Projekt öffnen')}</button>
+    <button class="pop-item" data-action="goProject" data-id="${p.id}">🗂️ ${tr('Projekt öffnen')}</button>
     <div class="pop-sep"></div>
     <div class="pop-label">${tr('Status')}</div>
     <div class="pop-chips">${STATUS.map((st) => `<button class="chip ${p.status === st.value ? 'active' : ''}" data-action="setProjectStatus" data-id="${p.id}" data-status="${st.value}">${st.label}</button>`).join('')}</div>`;
@@ -3745,8 +3745,8 @@ function paletteCommands() {
   const cmds = [];
   const add = (icon, label, run, hint = '') => cmds.push({ icon, label, run, hint, key: `${label} ${hint}`.toLocaleLowerCase('de') });
   const nav = tr('Navigation');
-  add('🏠', tr('Übersicht'), () => { location.hash = '#/'; }, nav);
-  add('📁', tr('Projekte'), () => { location.hash = '#/projekte'; }, nav);
+  add('📊', tr('Übersicht'), () => { location.hash = '#/'; }, nav);
+  add('🗂️', tr('Projekte'), () => { location.hash = '#/projekte'; }, nav);
   add('⚙️', tr('Einstellungen'), () => { location.hash = '#/einstellungen'; }, nav);
   add('➕', tr('Neues Projekt'), () => actions.newProject());
   add('⏱️', tr('Zeit erfassen'), () => actions.addTime({}));
@@ -3760,7 +3760,7 @@ function paletteCommands() {
   add('↔', tr('Seitenleiste ein-/ausklappen'), () => actions.toggleSidebar(), nav);
   const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
   [...data.projects].sort((a, b) => order[a.status] - order[b.status]).forEach((p) => {
-    add('📁', tr('Öffnen: {name}', { name: p.name }), () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
+    add('🗂️', tr('Öffnen: {name}', { name: p.name }), () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
     if (p.status !== 'abgeschlossen') {
       add('🍅', tr('Pomodoro: {name}', { name: p.name }), () => actions.startPomodoro({ id: p.id }), 'Timer');
       add('⏱️', tr('Zeit erfassen: {name}', { name: p.name }), () => actions.addTime({ id: p.id }));
