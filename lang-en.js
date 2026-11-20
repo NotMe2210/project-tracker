@@ -1001,4 +1001,8 @@ I18N.en = {
   "Bereiche am ⠿-Griff ziehen · Breite ¼ ½ 1/1 · ✕ ausblenden · Kennzahlen mit ✂ aufteilen. Die Vorschau zeigt sofort das neue Layout.": "Drag sections by the ⠿ handle · width ¼ ½ 1/1 · ✕ hide · split key figures with ✂. The preview shows the new layout right away.",
   "Willkommen bei Protrac": "Welcome to Protrac",
   "aktueller Monat": "current month",
+  "Dreiviertel": "Three quarters",
+  "Bereiche am ⠿-Griff ziehen · Breite ¼ ½ ¾ 1/1 · ✕ ausblenden · Kennzahlen mit ✂ aufteilen. Die Vorschau zeigt sofort das neue Layout.": "Drag sections by the ⠿ handle · width ¼ ½ ¾ 1/1 · ✕ hide · split key figures with ✂. The preview shows the new layout right away.",
+  "voll": "full",
+  "Bereiche am ⠿-Griff ziehen · Breite ¼ ½ ¾ voll · ✕ ausblenden · Kennzahlen mit ✂ aufteilen. Die Vorschau zeigt sofort das neue Layout.": "Drag sections by the ⠿ handle · width ¼ ½ ¾ full · ✕ hide · split key figures with ✂. The preview shows the new layout right away.",
 };

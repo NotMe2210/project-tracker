@@ -2,6 +2,26 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.20-8",
+      "date": "2026-11-20",
+      "de": [
+        "Breitenwahl beim Anpassen: „1/1“ heißt jetzt „voll“"
+      ],
+      "en": [
+        "Width options when customising: “1/1” is now called “full”"
+      ]
+    },
+    {
+      "version": "2026.11.20-7",
+      "date": "2026-11-20",
+      "de": [
+        "Neue Breite für Bereiche in Übersicht und Projektansicht: ¾ (Dreiviertel)"
+      ],
+      "en": [
+        "New width for sections in the overview and project view: ¾ (three quarters)"
+      ]
+    },
+    {
       "version": "2026.11.20-6",
       "date": "2026-11-20",
       "de": [
