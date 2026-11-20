@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.20-2';
+const APP_VERSION = '2026.11.20-3';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -807,7 +807,14 @@ const PROJECT_STATS = [
   { id: 'lastActive', get label() { return tr('Zuletzt aktiv'); }, visible: false },
 ];
 
-/** Gespeicherte Anordnung mit den bekannten Bausteinen abgleichen (neue Bausteine werden hinten angehängt). */
+/** Jede Kennzahl zusätzlich als eigener Baustein (Viertelbreite) – so lassen sich Kennzahlen frei verteilen */
+const statWidgetDefs = (statDefs, prefix) => statDefs.map((t) => ({
+  id: prefix + t.id, icon: '🔢', size: 'quarter', visible: false,
+  get label() { return tr('Kennzahl: {name}', { name: t.label }); },
+}));
+const DASH_DEFS = [...WIDGETS, ...statWidgetDefs(STAT_TILES, 'stat:')];
+const PROJECT_DEFS = [...PROJECT_WIDGETS, ...statWidgetDefs(PROJECT_STATS, 'pstat:')];
+
 /* ---------------------------- Anpassbare Layouts ------------------------- */
 /*
  * Gemeinsame Layout-Engine für Übersicht und Projektansicht.
@@ -816,50 +823,70 @@ const PROJECT_STATS = [
  */
 
 /** Gespeicherte Anordnung mit den bekannten Bausteinen abgleichen (neue Bausteine werden hinten angehängt). */
+/** Breite eines Bausteins: 'quarter' | 'half' | 'full' (ältere Daten kennen nur wide = voll/halb) */
+const sizeOf = (w) => (['quarter', 'half', 'full'].includes(w.size) ? w.size : w.wide ? 'full' : 'half');
+const SIZE_COLS = { quarter: 1, half: 2, full: 4 };
+const withSize = (id, visible, size) => ({ id, visible, size, wide: size === 'full' });
+
 function layoutConfig(saved, defs, statDefs) {
   saved = saved || {};
   const known = new Map(defs.map((w) => [w.id, w]));
   const widgets = [];
   for (const w of saved.widgets || []) {
     if (!known.has(w.id) || widgets.some((x) => x.id === w.id)) continue;
-    widgets.push({ id: w.id, visible: w.visible !== false, wide: !!w.wide });
+    widgets.push(withSize(w.id, w.visible !== false, sizeOf(w)));
   }
-  for (const w of defs) if (!widgets.some((x) => x.id === w.id)) widgets.push({ id: w.id, visible: saved.widgets ? false : w.visible, wide: w.wide });
+  for (const w of defs) if (!widgets.some((x) => x.id === w.id)) widgets.push(withSize(w.id, saved.widgets ? false : w.visible, sizeOf(w)));
   const stats = Array.isArray(saved.stats) ? saved.stats.filter((id) => statDefs.some((t) => t.id === id)) : statDefs.filter((t) => t.visible).map((t) => t.id);
   return { widgets, stats };
 }
 const defaultLayout = (defs, statDefs) => ({
-  widgets: defs.map((w) => ({ id: w.id, visible: w.visible, wide: w.wide })),
+  widgets: defs.map((w) => withSize(w.id, w.visible, sizeOf(w))),
   stats: statDefs.filter((t) => t.visible).map((t) => t.id),
 });
 
-const dashboardConfig = () => layoutConfig(data.settings.dashboard, WIDGETS, STAT_TILES);
-const defaultDashboardConfig = () => defaultLayout(WIDGETS, STAT_TILES);
-const projectLayoutFor = (p) => layoutConfig(p.layout || data.settings.projectLayout, PROJECT_WIDGETS, PROJECT_STATS);
+const dashboardConfig = () => layoutConfig(data.settings.dashboard, DASH_DEFS, STAT_TILES);
+const defaultDashboardConfig = () => defaultLayout(DASH_DEFS, STAT_TILES);
+const projectLayoutFor = (p) => layoutConfig(p.layout || data.settings.projectLayout, PROJECT_DEFS, PROJECT_STATS);
 
 /** Laufender Bearbeitungsmodus: { kind: 'dashboard' | 'project', pid, draft, scope, replaceOthers, tilesOpen } */
 let editState = null;
-const layoutDefs = (kind) => (kind === 'project' ? [PROJECT_WIDGETS, PROJECT_STATS] : [WIDGETS, STAT_TILES]);
+const layoutDefs = (kind) => (kind === 'project' ? [PROJECT_DEFS, PROJECT_STATS] : [DASH_DEFS, STAT_TILES]);
 
 /**
- * Halbe Bausteine stehen paarweise nebeneinander (gleich hoch); ein allein stehender halber
- * Baustein (vor einem breiten oder am Ende) nimmt die ganze Breite ein.
+ * Raster mit 4 Spalten: Viertel = 1, Halb = 2, Voll = 4. Bausteine füllen Zeile für Zeile (gleich hoch).
+ * Bleibt in einer Zeile Platz frei, wachsen die Bausteine: einer allein → volle Breite, zwei → je halb,
+ * sonst wird der letzte breiter. So entstehen keine Lücken.
  */
 function computeSpans(items) {
   const spans = new Map();
-  let pending = [];
-  const flush = () => { pending.forEach((id, i) => spans.set(id, pending.length % 2 && i === pending.length - 1 ? 'span2' : 'span1')); pending = []; };
+  let row = [], used = 0;
+  const flush = () => {
+    if (!row.length) return;
+    const free = 4 - used;
+    if (free > 0) {
+      if (row.length === 1) row[0].c = 4;
+      else if (row.length === 2) { row[0].c = 2; row[1].c = 2; }
+      else row[row.length - 1].c += free;
+    }
+    row.forEach((r) => spans.set(r.id, `s${r.c}`));
+    row = []; used = 0;
+  };
   for (const it of items) {
-    if (it.wide) { flush(); spans.set(it.id, 'span2'); } else pending.push(it.id);
+    const c = SIZE_COLS[sizeOf(it)];
+    if (used + c > 4) flush();
+    row.push({ id: it.id, c });
+    used += c;
+    if (used === 4) flush();
   }
   flush();
   return spans;
 }
 
 function relayoutGrid(grid) {
-  const items = [...grid.querySelectorAll(':scope > .w-item')].map((el) => ({ id: el.dataset.wid, wide: el.dataset.wide === '1', el }));
+  const items = [...grid.querySelectorAll(':scope > .w-item')].map((el) => ({ id: el.dataset.wid, size: el.dataset.size, el }));
   const spans = computeSpans(items);
-  items.forEach((it) => { it.el.classList.toggle('span2', spans.get(it.id) === 'span2'); it.el.classList.toggle('span1', spans.get(it.id) === 'span1'); });
+  items.forEach((it) => { it.el.classList.remove('s1', 's2', 's3', 's4'); it.el.classList.add(spans.get(it.id)); });
 }
 
 /** Rendert ein Layout; im Bearbeitungsmodus mit Werkzeugleiste je Baustein und Ablage für ausgeblendete. */
@@ -880,12 +907,14 @@ function renderLayoutGrid(cfg, defs, renderFn, { edit = false, statDefs = [] } =
     const tools = edit ? `<div class="w-tools">
         <button type="button" class="w-handle" data-drag aria-label="${tr('{name} verschieben', { name: esc(m.label) })}" title="${tr('Ziehen zum Verschieben (oder Pfeiltasten)')}">⠿</button>
         <span class="w-label">${m.icon} ${esc(m.label)}</span>
-        ${w.id === 'stats' ? `<button type="button" class="btn small ${editState?.tilesOpen ? 'active' : ''}" data-edit="tiles">${tr('Kacheln')}</button>` : ''}
-        <button type="button" class="btn small" data-edit="wide" data-wid="${w.id}" title="${tr('Breite umschalten')}">${w.wide ? tr('▭ Voll') : tr('◧ Halb')}</button>
+        ${w.id === 'stats' ? `<button type="button" class="btn small ${editState?.tilesOpen ? 'active' : ''}" data-edit="tiles">${tr('Kacheln')}</button>
+          <button type="button" class="btn small" data-edit="split" title="${tr('Jede Kennzahl als eigene Kachel – frei anordnen')}">✂ ${tr('Aufteilen')}</button>` : ''}
+        <span class="segmented size-pick" role="group" aria-label="${tr('Breite umschalten')}">${[['quarter', '¼', tr('Viertel')], ['half', '½', tr('Halb')], ['full', '1/1', tr('Voll')]].map(([v, l, name]) =>
+          `<button type="button" class="seg-btn ${sizeOf(w) === v ? 'active' : ''}" data-edit="size" data-size="${v}" data-wid="${w.id}" title="${name}" aria-pressed="${sizeOf(w) === v}">${l}</button>`).join('')}</span>
         <button type="button" class="btn small icon" data-edit="hide" data-wid="${w.id}" title="${tr('Ausblenden')}" aria-label="${tr('{name} ausblenden', { name: esc(m.label) })}">✕</button>
       </div>
       ${w.id === 'stats' && editState?.tilesOpen ? `<div class="w-tiles">${statDefs.map((t) => `<button type="button" class="chip ${cfg.stats.includes(t.id) ? 'active' : ''}" data-edit="stat" data-stat="${t.id}">${esc(t.label)}</button>`).join('')}</div>` : ''}` : '';
-    return `<div class="w-item ${spans.get(w.id)}" data-wid="${w.id}" data-wide="${w.wide ? 1 : 0}">${tools}${w.html}</div>`;
+    return `<div class="w-item ${spans.get(w.id)} size-${sizeOf(w)}" data-wid="${w.id}" data-size="${sizeOf(w)}">${tools}${w.html}</div>`;
   });
   const hidden = cfg.widgets.filter((w) => !w.visible);
   const tray = edit ? `<div class="w-tray">
@@ -901,7 +930,7 @@ function editBar() {
   const others = editState.kind === 'project' ? data.projects.filter((x) => x.layout && x.id !== editState.pid).length : 0;
   return `<div class="edit-bar">
     <div class="edit-bar-text"><b>✏️ ${editState.kind === 'project' ? tr('Projektansicht anpassen') : tr('Übersicht anpassen')}</b>
-      <span class="small muted">${tr('Bereiche am ⠿-Griff ziehen · Breite ◧/▭ · ✕ ausblenden. Die Vorschau zeigt sofort das neue Layout.')}</span></div>
+      <span class="small muted">${tr('Bereiche am ⠿-Griff ziehen · Breite ¼ ½ 1/1 · ✕ ausblenden · Kennzahlen mit ✂ aufteilen. Die Vorschau zeigt sofort das neue Layout.')}</span></div>
     ${p ? `<div class="edit-scope">
         <div class="segmented" role="radiogroup" aria-label="${tr('Gilt für')}">
           <label><input type="radio" name="editScope" value="all" data-edit-scope ${editState.scope === 'all' ? 'checked' : ''}>${tr('Für alle Projekte')}</label>
@@ -970,7 +999,19 @@ document.addEventListener('click', (e) => {
   const d = editState.draft;
   const w = d.widgets.find((x) => x.id === b.dataset.wid);
   switch (b.dataset.edit) {
-    case 'wide': w.wide = !w.wide; break;
+    case 'size': Object.assign(w, { size: b.dataset.size, wide: b.dataset.size === 'full' }); break;
+    case 'split': {
+      // Kennzahlen-Kachel in einzelne Viertel-Kacheln zerlegen (an derselben Stelle)
+      const prefix = editState.kind === 'project' ? 'pstat:' : 'stat:';
+      const ids = d.stats.map((x) => prefix + x);
+      const singles = ids.map((id) => withSize(id, true, 'quarter'));
+      d.widgets = d.widgets.filter((x) => !ids.includes(x.id));
+      const i = d.widgets.findIndex((x) => x.id === 'stats');
+      d.widgets[i] = { ...d.widgets[i], visible: false };
+      d.widgets.splice(i, 0, ...singles);
+      editState.tilesOpen = false;
+      break;
+    }
     case 'hide': w.visible = false; break;
     case 'show': {
       w.visible = true;
@@ -1089,7 +1130,7 @@ function renderDashboard() {
       <h1>${tr('Übersicht')}</h1>
       <button class="btn small" data-action="customizeDashboard">⚙️ ${tr('Anpassen')}</button>
     </div>`}
-    ${renderLayoutGrid(cfg, WIDGETS, (id) => renderWidget(id, ctx, cfg), { edit: editing, statDefs: STAT_TILES })}
+    ${renderLayoutGrid(cfg, DASH_DEFS, (id) => renderWidget(id, ctx, cfg), { edit: editing, statDefs: STAT_TILES })}
     ${anyVisible || editing ? '' : `<div class="card empty">${tr('Alle Bereiche sind ausgeblendet.')}<br><br><button class="btn primary" data-action="customizeDashboard">${tr('Übersicht anpassen')}</button></div>`}`;
 }
 
@@ -1117,6 +1158,10 @@ const card = (title, body, extraHead = '') => `<section class="card">
   <div class="card-head"><h2>${title}</h2>${extraHead}</div>${body}</section>`;
 
 function renderWidget(id, c, cfg) {
+  if (id.startsWith('stat:')) {
+    const html = statTile(id.slice(5), c);
+    return html ? `<div class="stats stats-single">${html}</div>` : '';
+  }
   switch (id) {
     case 'banner':
       return decorateBanner(renderBanner(c), c);
@@ -1146,10 +1191,18 @@ function renderWidget(id, c, cfg) {
         : `<div class="empty">${tr('Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉')}</div>`);
 
     case 'nextSteps': {
+      // Oben der nächste Schritt jedes aktiven Projekts, darunter alle weiteren offenen Aufgaben (scrollbar)
       const list = c.active.map((p) => c.stats.get(p.id).next).filter(Boolean)
         .sort((a, b) => (PRIO_ORDER[a.priority] ?? 1) - (PRIO_ORDER[b.priority] ?? 1));
-      return card(tr('👉 Nächste Schritte'), list.length ? `<ul class="list">${list.map((t) => taskItem(t, { showProject: true })).join('')}</ul>`
-        : `<div class="empty">${tr('Keine offenen Aufgaben in aktiven Projekten.<br>Lege für jedes Projekt einen konkreten nächsten Schritt fest.')}</div>`);
+      const activeIds = new Set(c.active.map((p) => p.id));
+      const more = sortTasks(c.openTasks.filter((t) => activeIds.has(t.projectId) && !list.includes(t)));
+      return card(tr('👉 Nächste Schritte'), list.length ? `<div class="scroll-list">
+          <ul class="list">${list.map((t) => taskItem(t, { showProject: true })).join('')}</ul>
+          ${more.length ? `<div class="list-divider small muted">${tr('Weitere offene Aufgaben ({n})', { n: more.length })}</div>
+            <ul class="list">${more.map((t) => taskItem(t, { showProject: true })).join('')}</ul>` : ''}
+        </div>`
+        : `<div class="empty">${tr('Keine offenen Aufgaben in aktiven Projekten.<br>Lege für jedes Projekt einen konkreten nächsten Schritt fest.')}</div>`,
+        list.length + more.length ? `<span class="small muted">${tr('{n} offen', { n: list.length + more.length })}</span>` : '');
     }
 
     case 'dueTasks': {
@@ -1346,7 +1399,7 @@ function heatmap(map) {
   const cells = [];
   for (let i = 0; i < 84; i++) {
     const iso = toISO(addDays(start, i));
-    if (iso > today) { cells.push('<span class="future"></span>'); continue; }
+    if (iso > today) { cells.push(`<span class="future" title="${tr('{date} – kommt noch', { date: fmtDate(iso) })}"></span>`); continue; }
     const d = map[iso];
     let lvl = 0;
     if (d) lvl = d.minutes >= 120 ? 4 : d.minutes >= 60 ? 3 : d.minutes >= 30 ? 2 : 1;
@@ -1748,23 +1801,15 @@ function projectOverview(p, s) {
       <span class="small muted">${p.layout ? tr('🎯 Eigene Anordnung für dieses Projekt') : ''}</span>
       <button class="btn small" data-action="customizeProject" data-id="${p.id}">✏️ ${tr('Ansicht anpassen')}</button>
     </div>`}
-    ${renderLayoutGrid(cfg, PROJECT_WIDGETS, (id) => renderProjectWidget(id, p, s, cfg), { edit: editing, statDefs: PROJECT_STATS })}`;
+    ${renderLayoutGrid(cfg, PROJECT_DEFS, (id) => renderProjectWidget(id, p, s, cfg), { edit: editing, statDefs: PROJECT_STATS })}`;
 }
 
-function renderProjectWidget(id, p, s, cfg) {
+/** Kennzahl-Kacheln eines Projekts */
+function projectStatTiles(p, s) {
   const hourGoal = Number(p.hourGoal) || 0;
   const budget = Number(p.budget) || 0;
-  switch (id) {
-    case 'why':
-      return p.why || p.goal ? `<section class="card">
-          ${p.why ? `<h3>💭 ${tr('Warum ist mir das wichtig?')}</h3><p class="why" style="font-size:1rem">${tr('„{why}“', { why: esc(p.why) })}</p>` : ''}
-          ${p.goal ? `<h3>🎯 ${tr('Ziel / Wann ist es fertig?')}</h3><p style="margin:0">${esc(p.goal)}</p>` : ''}
-        </section>`
-        : `<div class="callout">💡 ${tr('Tipp: Trage unter <a href="#" data-action="editProject" data-id="{id}">Bearbeiten</a> ein, <b>warum</b> dir das Projekt wichtig ist. Das wird dir angezeigt, wenn das Projekt einzuschlafen droht.', { id: p.id })}</div>`;
-
-    case 'stats': {
-      const wk = weekMinutes(0, p.id), wGoal = projectWeeklyMin(p);
-      const tiles = {
+  const wk = weekMinutes(0, p.id), wGoal = projectWeeklyMin(p);
+  return {
         progress: s.hasProgress ? `<div class="stat"><div class="label">${tr('Fortschritt')}</div><div class="value">${s.progress}%</div>${progressBar(s.progress, s.progress === 100 ? 'good' : '')}
           <div class="sub">${s.msTotal ? tr('{done}/{n} Meilensteine', { done: s.msDone, n: s.msTotal }) : tr('{done}/{n} Aufgaben', { done: s.tasksDone, n: s.tasksTotal })}</div></div>`
           : `<div class="stat"><div class="label">${tr('Fortschritt')}</div><div class="value muted">–</div><div class="sub">${tr('Lege Aufgaben oder Meilensteine an, um den Fortschritt zu sehen.')}</div></div>`,
@@ -1778,7 +1823,26 @@ function renderProjectWidget(id, p, s, cfg) {
         openTasks: `<div class="stat"><div class="label">${tr('Offene Aufgaben')}</div><div class="value">${s.tasksOpen}</div><div class="sub">${tr('{n} erledigt', { n: s.tasksDone })}</div></div>`,
         target: `<div class="stat"><div class="label">${tr('Zieltermin')}</div><div class="value" style="font-size:1.15rem">${p.targetDate ? fmtDate(p.targetDate) : '–'}</div><div class="sub">${p.targetDate ? fmtRelative(p.targetDate) : tr('kein Zieltermin')}</div></div>`,
         lastActive: `<div class="stat"><div class="label">${tr('Zuletzt aktiv')}</div><div class="value" style="font-size:1.15rem">${fmtRelative(s.last)}</div><div class="sub">${s.last ? fmtDate(s.last) : ''}</div></div>`,
-      };
+  };
+}
+
+function renderProjectWidget(id, p, s, cfg) {
+  if (id.startsWith('pstat:')) {
+    const key = id.slice(6);
+    if (key === 'target' && !p.targetDate && !editState) return '';
+    const html = projectStatTiles(p, s)[key];
+    return html ? `<div class="stats stats-single">${html}</div>` : '';
+  }
+  switch (id) {
+    case 'why':
+      return p.why || p.goal ? `<section class="card">
+          ${p.why ? `<h3>💭 ${tr('Warum ist mir das wichtig?')}</h3><p class="why" style="font-size:1rem">${tr('„{why}“', { why: esc(p.why) })}</p>` : ''}
+          ${p.goal ? `<h3>🎯 ${tr('Ziel / Wann ist es fertig?')}</h3><p style="margin:0">${esc(p.goal)}</p>` : ''}
+        </section>`
+        : `<div class="callout">💡 ${tr('Tipp: Trage unter <a href="#" data-action="editProject" data-id="{id}">Bearbeiten</a> ein, <b>warum</b> dir das Projekt wichtig ist. Das wird dir angezeigt, wenn das Projekt einzuschlafen droht.', { id: p.id })}</div>`;
+
+    case 'stats': {
+      const tiles = projectStatTiles(p, s);
       const shown = cfg.stats.filter((t) => tiles[t] && (t !== 'target' || p.targetDate || editState));
       return shown.length ? `<div class="stats">${shown.map((t) => tiles[t]).join('')}</div>` : '';
     }
