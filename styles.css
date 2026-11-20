@@ -1039,3 +1039,24 @@ html.paused-open body { overflow: hidden; }
   background: linear-gradient(135deg, var(--primary-soft), color-mix(in srgb, #f5b301 22%, var(--surface)));
   border-color: color-mix(in srgb, #f5b301 60%, transparent);
 }
+
+/* ---------- CSV-Import ---------- */
+.csv-import .csv-step1 { display: flex; flex-direction: column; gap: 14px; }
+.csv-pick { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.csv-file-btn { cursor: pointer; }
+.csv-text { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; min-height: 110px; }
+.csv-guide-box { border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; background: var(--surface-2); }
+.csv-guide-box > summary { cursor: pointer; font-weight: 600; }
+.csv-guide-box[open] > summary { margin-bottom: 8px; }
+.csv-guide table { font-size: .85rem; }
+.csv-guide td { vertical-align: top; }
+.csv-example { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: .8rem; overflow-x: auto; margin: 4px 0 8px; }
+.csv-summary { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+.csv-summary ul { margin: 4px 0 0; padding-left: 22px; }
+.csv-warn { color: var(--warn); }
+.csv-create { margin: 4px 0 12px; align-items: flex-start !important; }
+.csv-create > span { display: flex; flex-direction: column; gap: 2px; }
+.csv-preview td, .csv-preview th { white-space: nowrap; }
+.csv-preview td:nth-child(4) { white-space: normal; min-width: 160px; }
+/* Scrollbereich im Dialog bekommt beim Öffnen den Fokus – ohne sichtbaren Rahmen */
+dialog .form:focus, dialog .form:focus-visible { outline: none; }
