@@ -22,7 +22,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
   - **Pausieren** mit ⏸ neben „Stopp“. Solange der Timer pausiert ist, liegt ein Hinweis über dem ganzen Fenster, mit „Fortsetzen“ oder „Beenden & Zeit speichern“. So vergisst du das Weiterlaufenlassen nicht. Die Pausenzeit wird nicht mitgezählt.
   - 🍅 **Pomodoro-Timer**: 25 Min Fokus, 5 Min Pause, lange Pause nach jedem 4. Pomodoro (alles einstellbar). Mit Pausieren, Überspringen, Ton und Mitteilung. Beim Beenden wird die reine Fokuszeit als Zeiteintrag gespeichert.
   - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
-- 💶 **Investitionen** mit frei wählbarer Kategorie (Vorschläge oder eigene), Budgetvergleich und Aufteilung nach Kategorien
+- 💶 **Investitionen** mit frei wählbarer Kategorie (Vorschläge oder eigene), Budgetvergleich und Aufteilung nach Kategorien. In der Liste nach **Monaten gruppiert**: der aktuelle Monat ist aufgeklappt, ältere Monate zeigen eingeklappt ihre Summe.
 - 🏁 **Meilensteine** mit Zieldatum und optional **„Erreicht am“** (zum Nachtragen früherer Etappen). Aufgaben lassen sich einem Meilenstein zuordnen und werden beim Meilenstein aufklappbar angezeigt, dort auch direkt abhakbar. Die Reihenfolge ist wählbar: **nach Zieldatum** oder in einer **eigenen Reihenfolge** (↑ ↓).
 - ✅ **Aufgaben** mit Priorität, Fälligkeitsdatum und Notiz
   - **Unterpunkte** zum Abhaken. Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.

@@ -1146,3 +1146,21 @@ html.side-collapsed .brand .brand-mark { display: grid; }
   .brand-by { font-size: .64rem; }
 }
 .welcome .big:has(.brand-mark) { line-height: 1; margin-bottom: 14px; }
+
+/* Investitionen nach Monat */
+.inv-months { display: flex; flex-direction: column; gap: 8px; }
+.inv-month { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.inv-month > summary {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer; list-style: none; border-radius: 12px;
+}
+.inv-month > summary::-webkit-details-marker { display: none; }
+.inv-month > summary::before { content: "›"; color: var(--muted); font-size: 1.1rem; transition: transform .15s; width: 10px; }
+.inv-month[open] > summary::before { transform: rotate(90deg); }
+.inv-month > summary:hover { background: var(--surface-2); }
+.inv-month-name { flex: 1; font-weight: 600; min-width: 0; }
+.inv-month > summary .amount { font-weight: 700; }
+.inv-month > .list { padding: 0 14px 6px; border-top: 1px solid var(--border); }
+@media (max-width: 640px) { .inv-month > summary .small { display: none; } }
+/* Kartenkopf mit mehreren Knöpfen: Titel und Knöpfe dürfen umbrechen, Knöpfe bleiben nebeneinander */
+.card-head:has(> .btn-row) { flex-wrap: wrap; }
+.card-head > .btn-row { flex-wrap: nowrap; margin-left: auto; }

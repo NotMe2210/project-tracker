@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.20-5';
+const APP_VERSION = '2026.11.20-6';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -1969,15 +1969,7 @@ function projectInvestments(p) {
   return `<div class="grid-2">
     <section class="card">
       <div class="card-head"><h2>${tr('Investitionen')} · ${fmtEUR(total)}</h2><span class="btn-row"><button class="btn small" data-action="importCsv" data-id="${p.id}" title="${tr('Zeit & Investitionen aus CSV importieren')}">⬆ CSV</button><button class="btn primary small" data-action="addInvestment" data-id="${p.id}">${tr('+ Investition')}</button></span></div>
-      ${items.length ? `<ul class="list">${items.map((e) => `
-        <li>
-          <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || tr('Sonstiges'))}</span></div></div>
-          <span class="amount">${fmtEUR(e.amount)}</span>
-          <div class="actions">
-            <button class="btn ghost icon" data-action="editInvestment" data-id="${e.id}" title="${tr('Bearbeiten')}">✎</button>
-            <button class="btn ghost icon danger" data-action="deleteInvestment" data-id="${e.id}" title="${tr('Löschen')}">🗑</button>
-          </div>
-        </li>`).join('')}</ul>` : `<div class="empty">${tr('Noch keine Investitionen erfasst.')}</div>`}
+      ${items.length ? investmentMonths(p.id, items) : `<div class="empty">${tr('Noch keine Investitionen erfasst.')}</div>`}
     </section>
     <section class="card">
       <h2>${tr('Nach Kategorie')}</h2>
@@ -1986,6 +1978,38 @@ function projectInvestments(p) {
     </section>
   </div>`;
 }
+
+/* Investitionen nach Monat gruppiert: aktueller Monat aufgeklappt, ältere eingeklappt mit Monatssumme.
+   Selbst auf- oder zugeklappte Monate bleiben so, bis die Seite neu geladen wird. */
+const invMonthState = new Map(); // `${pid}|YYYY-MM` → true (offen) / false (zu)
+function investmentMonths(pid, items) {
+  const current = todayISO().slice(0, 7);
+  const groups = new Map();
+  items.forEach((e) => { const k = (e.date || '').slice(0, 7); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); });
+  return `<div class="inv-months">${[...groups.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([month, list]) => {
+    const key = `${pid}|${month}`;
+    const open = invMonthState.has(key) ? invMonthState.get(key) : month === current;
+    const name = month ? new Date(`${month}-01T00:00:00`).toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' }) : '–';
+    return `<details class="inv-month" data-inv-month="${esc(key)}" ${open ? 'open' : ''}>
+      <summary><span class="inv-month-name">${esc(name)}${month === current ? ` <span class="badge aktiv">${tr('aktueller Monat')}</span>` : ''}</span>
+        <span class="small muted">${trp(list.length, '{n} Investition', '{n} Investitionen')}</span>
+        <span class="amount">${fmtEUR(sum(list, (e) => e.amount))}</span></summary>
+      <ul class="list">${list.map((e) => `
+        <li>
+          <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || tr('Sonstiges'))}</span></div></div>
+          <span class="amount">${fmtEUR(e.amount)}</span>
+          <div class="actions">
+            <button class="btn ghost icon" data-action="editInvestment" data-id="${e.id}" title="${tr('Bearbeiten')}">✎</button>
+            <button class="btn ghost icon danger" data-action="deleteInvestment" data-id="${e.id}" title="${tr('Löschen')}">🗑</button>
+          </div>
+        </li>`).join('')}</ul>
+    </details>`;
+  }).join('')}</div>`;
+}
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (d instanceof HTMLDetailsElement && d.dataset.invMonth) invMonthState.set(d.dataset.invMonth, d.open);
+}, true);
 
 function projectNotes(p) {
   const notes = data.notes.filter((n) => n.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || '').localeCompare(a.createdAt || ''));

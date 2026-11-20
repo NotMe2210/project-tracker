@@ -1000,4 +1000,5 @@ I18N.en = {
   "{date} – kommt noch": "{date} – still to come",
   "Bereiche am ⠿-Griff ziehen · Breite ¼ ½ 1/1 · ✕ ausblenden · Kennzahlen mit ✂ aufteilen. Die Vorschau zeigt sofort das neue Layout.": "Drag sections by the ⠿ handle · width ¼ ½ 1/1 · ✕ hide · split key figures with ✂. The preview shows the new layout right away.",
   "Willkommen bei Protrac": "Welcome to Protrac",
+  "aktueller Monat": "current month",
 };

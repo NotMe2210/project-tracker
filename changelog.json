@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.20-6",
+      "date": "2026-11-20",
+      "de": [
+        "Investitionen eines Projekts nach Monaten gruppiert: aktueller Monat aufgeklappt, ältere Monate eingeklappt mit Monatssumme"
+      ],
+      "en": [
+        "A project’s investments grouped by month: current month expanded, older months collapsed with the monthly total"
+      ]
+    },
+    {
       "version": "2026.11.20-5",
       "date": "2026-11-20",
       "de": [
