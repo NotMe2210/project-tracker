@@ -1,6 +1,6 @@
-# 🚀 Projekttracker
+# Protrac by R3DO
 
-Ein persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben. Er soll dich außerdem motivieren, an deinen Projekten dranzubleiben.
+**Protrac** ist ein persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben. Er soll dich außerdem motivieren, an deinen Projekten dranzubleiben.
 
 Er läuft komplett im Browser, ohne Installation, Server oder Konto.
 
@@ -22,7 +22,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
   - **Pausieren** mit ⏸ neben „Stopp“. Solange der Timer pausiert ist, liegt ein Hinweis über dem ganzen Fenster, mit „Fortsetzen“ oder „Beenden & Zeit speichern“. So vergisst du das Weiterlaufenlassen nicht. Die Pausenzeit wird nicht mitgezählt.
   - 🍅 **Pomodoro-Timer**: 25 Min Fokus, 5 Min Pause, lange Pause nach jedem 4. Pomodoro (alles einstellbar). Mit Pausieren, Überspringen, Ton und Mitteilung. Beim Beenden wird die reine Fokuszeit als Zeiteintrag gespeichert.
   - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
-- 💶 **Investitionen** mit frei wählbarer Kategorie (Vorschläge oder eigene), Budgetvergleich und Aufteilung nach Kategorien
+- 💶 **Investitionen** mit frei wählbarer Kategorie (Vorschläge oder eigene), Budgetvergleich und Aufteilung nach Kategorien. In der Liste nach **Monaten gruppiert**: der aktuelle Monat ist aufgeklappt, ältere Monate zeigen eingeklappt ihre Summe.
 - 🏁 **Meilensteine** mit Zieldatum und optional **„Erreicht am“** (zum Nachtragen früherer Etappen). Aufgaben lassen sich einem Meilenstein zuordnen und werden beim Meilenstein aufklappbar angezeigt, dort auch direkt abhakbar. Die Reihenfolge ist wählbar: **nach Zieldatum** oder in einer **eigenen Reihenfolge** (↑ ↓).
 - ✅ **Aufgaben** mit Priorität, Fälligkeitsdatum und Notiz
   - **Unterpunkte** zum Abhaken. Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.
@@ -43,11 +43,11 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - 🤫 **10 geheime Erfolge:** Name und Bedingung bleiben verborgen (🔒 ???), bis du sie zufällig erreichst. Dann werden sie mit einer eigenen Meldung enthüllt und golden hervorgehoben.
 - 🔎 **Befehlspalette** am Computer mit ⌘K bzw. Strg+K: Seiten, Projekte, Pomodoro, Zeit, Aufgaben, Darstellung …
 - 👆 **Wischgesten** auf dem iPhone: Aufgabe nach rechts wischen = erledigt, nach links = Optionen
-- **Anpassbare Übersicht und Projektansicht** direkt auf der Seite (⚙️ Anpassen bzw. ✏️ Ansicht anpassen): Bereiche per **Drag-and-drop** am ⠿-Griff verschieben (Maus, Finger oder Pfeiltasten) mit sofortiger Vorschau, Breite ◧ Halb / ▭ Voll, ausblenden ✕, wieder einblenden, Kennzahlen-Kacheln wählen. Die Projektansicht gilt wahlweise **für alle Projekte** oder **nur für ein Projekt**. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche (gestapelt nach Projekt), letzte Aktivitäten, Projektkacheln, offene Aufgaben, Investitionen nach Kategorie.
+- **Anpassbare Übersicht und Projektansicht** direkt auf der Seite (⚙️ Anpassen bzw. ✏️ Ansicht anpassen): Bereiche per **Drag-and-drop** am ⠿-Griff verschieben (Maus, Finger oder Pfeiltasten) mit sofortiger Vorschau, Breite **¼ Viertel / ½ Halb / 1/1 Voll** (4-Spalten-Raster), ausblenden ✕, wieder einblenden, Kennzahlen-Kacheln wählen. **✂ Aufteilen** zerlegt die Kennzahlen in einzelne Kacheln, die sich frei anordnen lassen. Die Projektansicht gilt wahlweise **für alle Projekte** oder **nur für ein Projekt**. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche (gestapelt nach Projekt), letzte Aktivitäten, Projektkacheln, offene Aufgaben, Investitionen nach Kategorie.
 - Dashboard mit Wochenstunden, Wochenziel, Streak, offenen bzw. überfälligen Aufgaben und Investitionen
 - **„Braucht Aufmerksamkeit“**: aktive Projekte ohne Aktivität seit X Tagen werden gelb, ab 2·X Tagen rot markiert. Die Erinnerungen lassen sich ausschalten, ebenso die Erfolge (Einstellungen).
 - **Motivationsbanner**: zeigt das am längsten ruhende Projekt mit deinem *Warum*, dem kleinsten nächsten Schritt und einem „Nur 25 Minuten“-Timer
-- **Nächste Schritte**: die wichtigste offene Aufgabe jedes aktiven Projekts
+- **Nächste Schritte**: die wichtigste offene Aufgabe jedes aktiven Projekts, darunter alle weiteren offenen Aufgaben (scrollbar)
 - Aktivitäts-Heatmap (12 Wochen): Überfahren bzw. Antippen eines Tages zeigt, was an diesem Tag erledigt wurde (Zeiten, Aufgaben, Unterpunkte, Meilensteine, Investitionen, Notizen)
 - Stunden-Diagramm (gesamt und je Projekt) wahlweise **pro Tag, Woche, Monat oder Jahr**
 - Konfetti und Erfolgsmeldungen, wenn du Meilensteine erreichst oder Projekte abschließt

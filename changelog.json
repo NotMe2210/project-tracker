@@ -2,6 +2,52 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.20-6",
+      "date": "2026-11-20",
+      "de": [
+        "Investitionen eines Projekts nach Monaten gruppiert: aktueller Monat aufgeklappt, ältere Monate eingeklappt mit Monatssumme"
+      ],
+      "en": [
+        "A project’s investments grouped by month: current month expanded, older months collapsed with the monthly total"
+      ]
+    },
+    {
+      "version": "2026.11.20-5",
+      "date": "2026-11-20",
+      "de": [
+        "Neue Symbole in der Navigation: 📊 Übersicht und 🗂️ Projekte"
+      ],
+      "en": [
+        "New navigation icons: 📊 Overview and 🗂️ Projects"
+      ]
+    },
+    {
+      "version": "2026.11.20-4",
+      "date": "2026-11-20",
+      "de": [
+        "Neuer Name: Protrac by R3DO"
+      ],
+      "en": [
+        "New name: Protrac by R3DO"
+      ]
+    },
+    {
+      "version": "2026.11.20-3",
+      "date": "2026-11-20",
+      "de": [
+        "Übersicht und Projektansicht: Bereiche jetzt auch in Viertelbreite (¼ ½ 1/1)",
+        "Kennzahlen lassen sich mit „✂ Aufteilen“ in einzelne Kacheln zerlegen und frei anordnen",
+        "„Nächste Schritte“ zeigt zusätzlich alle weiteren offenen Aufgaben in einer scrollbaren Liste",
+        "„Aktivität (12 Wochen)“ zeigt die kommenden Tage der laufenden Woche ausgegraut"
+      ],
+      "en": [
+        "Overview and project view: sections can now also be quarter width (¼ ½ 1/1)",
+        "Key figures can be split into individual tiles with “✂ Split” and arranged freely",
+        "“Next steps” also shows all other open tasks in a scrollable list",
+        "“Activity (12 weeks)” shows the upcoming days of the current week greyed out"
+      ]
+    },
+    {
       "version": "2026.11.20-2",
       "date": "2026-11-20",
       "de": [
@@ -24,26 +70,50 @@
     {
       "version": "2026.11.20-1",
       "date": "2026-11-20",
-      "de": ["Zeiten & Investitionen aus CSV importieren – mit Anleitung, Vorlage und Vorschau"],
-      "en": ["Import time & investments from CSV – with guide, template and preview"]
+      "de": [
+        "Zeiten & Investitionen aus CSV importieren – mit Anleitung, Vorlage und Vorschau"
+      ],
+      "en": [
+        "Import time & investments from CSV – with guide, template and preview"
+      ]
     },
     {
       "version": "2026.11.19-6",
       "date": "2026-11-19",
-      "de": ["Erfolge sortiert nach Fortschritt", "12 neue Erfolge und 10 geheime Erfolge"],
-      "en": ["Achievements sorted by progress", "12 new achievements and 10 secret ones"]
+      "de": [
+        "Erfolge sortiert nach Fortschritt",
+        "12 neue Erfolge und 10 geheime Erfolge"
+      ],
+      "en": [
+        "Achievements sorted by progress",
+        "12 new achievements and 10 secret ones"
+      ]
     },
     {
       "version": "2026.11.19-4",
       "date": "2026-11-19",
-      "de": ["Eigener Server: automatische Speicherung in einer Datenbank", "Deutsch und Englisch, automatisch nach Gerätesprache", "Timer pausieren mit Hinweis über das ganze Fenster", "Korrekturen am Wochen-Diagramm und an den Einstellungen"],
-      "en": ["Own server: automatic storage in a database", "German and English, automatically by device language", "Pause the timer with a full-window notice", "Fixes for the weekly chart and the settings"]
+      "de": [
+        "Eigener Server: automatische Speicherung in einer Datenbank",
+        "Deutsch und Englisch, automatisch nach Gerätesprache",
+        "Timer pausieren mit Hinweis über das ganze Fenster",
+        "Korrekturen am Wochen-Diagramm und an den Einstellungen"
+      ],
+      "en": [
+        "Own server: automatic storage in a database",
+        "German and English, automatically by device language",
+        "Pause the timer with a full-window notice",
+        "Fixes for the weekly chart and the settings"
+      ]
     },
     {
       "version": "2026.11.16-9",
       "date": "2026-11-16",
-      "de": ["Animierter Motivationsbereich, interaktive Übersicht, Drag-and-drop-Layouts, Seitenleiste, Pomodoro-Timer, Erfolge und vieles mehr"],
-      "en": ["Animated motivation section, interactive overview, drag-and-drop layouts, sidebar, pomodoro timer, achievements and much more"]
+      "de": [
+        "Animierter Motivationsbereich, interaktive Übersicht, Drag-and-drop-Layouts, Seitenleiste, Pomodoro-Timer, Erfolge und vieles mehr"
+      ],
+      "en": [
+        "Animated motivation section, interactive overview, drag-and-drop layouts, sidebar, pomodoro timer, achievements and much more"
+      ]
     }
   ]
 }
