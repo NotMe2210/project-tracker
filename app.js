@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.20-7';
+const APP_VERSION = '2026.11.20-8';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -910,7 +910,7 @@ function renderLayoutGrid(cfg, defs, renderFn, { edit = false, statDefs = [] } =
         <span class="w-label">${m.icon} ${esc(m.label)}</span>
         ${w.id === 'stats' ? `<button type="button" class="btn small ${editState?.tilesOpen ? 'active' : ''}" data-edit="tiles">${tr('Kacheln')}</button>
           <button type="button" class="btn small" data-edit="split" title="${tr('Jede Kennzahl als eigene Kachel – frei anordnen')}">✂ ${tr('Aufteilen')}</button>` : ''}
-        <span class="segmented size-pick" role="group" aria-label="${tr('Breite umschalten')}">${[['quarter', '¼', tr('Viertel')], ['half', '½', tr('Halb')], ['threequarter', '¾', tr('Dreiviertel')], ['full', '1/1', tr('Voll')]].map(([v, l, name]) =>
+        <span class="segmented size-pick" role="group" aria-label="${tr('Breite umschalten')}">${[['quarter', '¼', tr('Viertel')], ['half', '½', tr('Halb')], ['threequarter', '¾', tr('Dreiviertel')], ['full', tr('voll'), tr('Voll')]].map(([v, l, name]) =>
           `<button type="button" class="seg-btn ${sizeOf(w) === v ? 'active' : ''}" data-edit="size" data-size="${v}" data-wid="${w.id}" title="${name}" aria-pressed="${sizeOf(w) === v}">${l}</button>`).join('')}</span>
         <button type="button" class="btn small icon" data-edit="hide" data-wid="${w.id}" title="${tr('Ausblenden')}" aria-label="${tr('{name} ausblenden', { name: esc(m.label) })}">✕</button>
       </div>
@@ -931,7 +931,7 @@ function editBar() {
   const others = editState.kind === 'project' ? data.projects.filter((x) => x.layout && x.id !== editState.pid).length : 0;
   return `<div class="edit-bar">
     <div class="edit-bar-text"><b>✏️ ${editState.kind === 'project' ? tr('Projektansicht anpassen') : tr('Übersicht anpassen')}</b>
-      <span class="small muted">${tr('Bereiche am ⠿-Griff ziehen · Breite ¼ ½ ¾ 1/1 · ✕ ausblenden · Kennzahlen mit ✂ aufteilen. Die Vorschau zeigt sofort das neue Layout.')}</span></div>
+      <span class="small muted">${tr('Bereiche am ⠿-Griff ziehen · Breite ¼ ½ ¾ voll · ✕ ausblenden · Kennzahlen mit ✂ aufteilen. Die Vorschau zeigt sofort das neue Layout.')}</span></div>
     ${p ? `<div class="edit-scope">
         <div class="segmented" role="radiogroup" aria-label="${tr('Gilt für')}">
           <label><input type="radio" name="editScope" value="all" data-edit-scope ${editState.scope === 'all' ? 'checked' : ''}>${tr('Für alle Projekte')}</label>
