@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.20-6';
+const APP_VERSION = '2026.11.20-7';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -825,8 +825,8 @@ const PROJECT_DEFS = [...PROJECT_WIDGETS, ...statWidgetDefs(PROJECT_STATS, 'psta
 
 /** Gespeicherte Anordnung mit den bekannten Bausteinen abgleichen (neue Bausteine werden hinten angehängt). */
 /** Breite eines Bausteins: 'quarter' | 'half' | 'full' (ältere Daten kennen nur wide = voll/halb) */
-const sizeOf = (w) => (['quarter', 'half', 'full'].includes(w.size) ? w.size : w.wide ? 'full' : 'half');
-const SIZE_COLS = { quarter: 1, half: 2, full: 4 };
+const sizeOf = (w) => (['quarter', 'half', 'threequarter', 'full'].includes(w.size) ? w.size : w.wide ? 'full' : 'half');
+const SIZE_COLS = { quarter: 1, half: 2, threequarter: 3, full: 4 };
 const withSize = (id, visible, size) => ({ id, visible, size, wide: size === 'full' });
 
 function layoutConfig(saved, defs, statDefs) {
@@ -855,7 +855,7 @@ let editState = null;
 const layoutDefs = (kind) => (kind === 'project' ? [PROJECT_DEFS, PROJECT_STATS] : [DASH_DEFS, STAT_TILES]);
 
 /**
- * Raster mit 4 Spalten: Viertel = 1, Halb = 2, Voll = 4. Bausteine füllen Zeile für Zeile (gleich hoch).
+ * Raster mit 4 Spalten: Viertel = 1, Halb = 2, Dreiviertel = 3, Voll = 4. Bausteine füllen Zeile für Zeile (gleich hoch).
  * Bleibt in einer Zeile Platz frei, wachsen die Bausteine: einer allein → volle Breite, zwei → je halb,
  * sonst wird der letzte breiter. So entstehen keine Lücken.
  */
@@ -910,7 +910,7 @@ function renderLayoutGrid(cfg, defs, renderFn, { edit = false, statDefs = [] } =
         <span class="w-label">${m.icon} ${esc(m.label)}</span>
         ${w.id === 'stats' ? `<button type="button" class="btn small ${editState?.tilesOpen ? 'active' : ''}" data-edit="tiles">${tr('Kacheln')}</button>
           <button type="button" class="btn small" data-edit="split" title="${tr('Jede Kennzahl als eigene Kachel – frei anordnen')}">✂ ${tr('Aufteilen')}</button>` : ''}
-        <span class="segmented size-pick" role="group" aria-label="${tr('Breite umschalten')}">${[['quarter', '¼', tr('Viertel')], ['half', '½', tr('Halb')], ['full', '1/1', tr('Voll')]].map(([v, l, name]) =>
+        <span class="segmented size-pick" role="group" aria-label="${tr('Breite umschalten')}">${[['quarter', '¼', tr('Viertel')], ['half', '½', tr('Halb')], ['threequarter', '¾', tr('Dreiviertel')], ['full', '1/1', tr('Voll')]].map(([v, l, name]) =>
           `<button type="button" class="seg-btn ${sizeOf(w) === v ? 'active' : ''}" data-edit="size" data-size="${v}" data-wid="${w.id}" title="${name}" aria-pressed="${sizeOf(w) === v}">${l}</button>`).join('')}</span>
         <button type="button" class="btn small icon" data-edit="hide" data-wid="${w.id}" title="${tr('Ausblenden')}" aria-label="${tr('{name} ausblenden', { name: esc(m.label) })}">✕</button>
       </div>
@@ -931,7 +931,7 @@ function editBar() {
   const others = editState.kind === 'project' ? data.projects.filter((x) => x.layout && x.id !== editState.pid).length : 0;
   return `<div class="edit-bar">
     <div class="edit-bar-text"><b>✏️ ${editState.kind === 'project' ? tr('Projektansicht anpassen') : tr('Übersicht anpassen')}</b>
-      <span class="small muted">${tr('Bereiche am ⠿-Griff ziehen · Breite ¼ ½ 1/1 · ✕ ausblenden · Kennzahlen mit ✂ aufteilen. Die Vorschau zeigt sofort das neue Layout.')}</span></div>
+      <span class="small muted">${tr('Bereiche am ⠿-Griff ziehen · Breite ¼ ½ ¾ 1/1 · ✕ ausblenden · Kennzahlen mit ✂ aufteilen. Die Vorschau zeigt sofort das neue Layout.')}</span></div>
     ${p ? `<div class="edit-scope">
         <div class="segmented" role="radiogroup" aria-label="${tr('Gilt für')}">
           <label><input type="radio" name="editScope" value="all" data-edit-scope ${editState.scope === 'all' ? 'checked' : ''}>${tr('Für alle Projekte')}</label>

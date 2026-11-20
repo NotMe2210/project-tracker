@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.20-7",
+      "date": "2026-11-20",
+      "de": [
+        "Neue Breite für Bereiche in Übersicht und Projektansicht: ¾ (Dreiviertel)"
+      ],
+      "en": [
+        "New width for sections in the overview and project view: ¾ (three quarters)"
+      ]
+    },
+    {
       "version": "2026.11.20-6",
       "date": "2026-11-20",
       "de": [
