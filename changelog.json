@@ -1,0 +1,49 @@
+{
+  "repo": "https://github.com/NotMe2210/project-tracker",
+  "entries": [
+    {
+      "version": "2026.11.20-2",
+      "date": "2026-11-20",
+      "de": [
+        "Neuigkeiten nach jedem Update – mit Link zum Projekt auf GitHub",
+        "Projektliste startet mit dem Filter „Alle“",
+        "Stunden-Diagramm wahlweise pro Tag, Woche, Monat oder Jahr",
+        "Erinnerungen bei eingeschlafenen Projekten und Erfolge lassen sich ausschalten",
+        "Meilensteine zeigen ihre zugeordneten Aufgaben (aufklappbar, direkt abhakbar)",
+        "Meilensteine: „Erreicht am“ nachtragen und eigene Reihenfolge unabhängig vom Zieldatum"
+      ],
+      "en": [
+        "Release notes after every update – with a link to the project on GitHub",
+        "The project list starts with the “All” filter",
+        "Hours chart per day, week, month or year",
+        "Reminders for sleeping projects and achievements can be turned off",
+        "Milestones show their assigned tasks (expandable, can be ticked off directly)",
+        "Milestones: add a “reached on” date afterwards and use a custom order independent of the target date"
+      ]
+    },
+    {
+      "version": "2026.11.20-1",
+      "date": "2026-11-20",
+      "de": ["Zeiten & Investitionen aus CSV importieren – mit Anleitung, Vorlage und Vorschau"],
+      "en": ["Import time & investments from CSV – with guide, template and preview"]
+    },
+    {
+      "version": "2026.11.19-6",
+      "date": "2026-11-19",
+      "de": ["Erfolge sortiert nach Fortschritt", "12 neue Erfolge und 10 geheime Erfolge"],
+      "en": ["Achievements sorted by progress", "12 new achievements and 10 secret ones"]
+    },
+    {
+      "version": "2026.11.19-4",
+      "date": "2026-11-19",
+      "de": ["Eigener Server: automatische Speicherung in einer Datenbank", "Deutsch und Englisch, automatisch nach Gerätesprache", "Timer pausieren mit Hinweis über das ganze Fenster", "Korrekturen am Wochen-Diagramm und an den Einstellungen"],
+      "en": ["Own server: automatic storage in a database", "German and English, automatically by device language", "Pause the timer with a full-window notice", "Fixes for the weekly chart and the settings"]
+    },
+    {
+      "version": "2026.11.16-9",
+      "date": "2026-11-16",
+      "de": ["Animierter Motivationsbereich, interaktive Übersicht, Drag-and-drop-Layouts, Seitenleiste, Pomodoro-Timer, Erfolge und vieles mehr"],
+      "en": ["Animated motivation section, interactive overview, drag-and-drop layouts, sidebar, pomodoro timer, achievements and much more"]
+    }
+  ]
+}
