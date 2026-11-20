@@ -1,6 +1,6 @@
-# 🚀 Projekttracker
+# Protrac by R3DO
 
-Ein persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben. Er soll dich außerdem motivieren, an deinen Projekten dranzubleiben.
+**Protrac** ist ein persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben. Er soll dich außerdem motivieren, an deinen Projekten dranzubleiben.
 
 Er läuft komplett im Browser, ohne Installation, Server oder Konto.
 

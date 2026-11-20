@@ -5,12 +5,13 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.20-3';
+const APP_VERSION = '2026.11.20-4';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
 const SYNC_BASE_KEY = 'projekttracker.server.base'; // letzter gemeinsamer Stand mit dem Server
 const API_URL = 'api.php';
+const BRAND = 'Protrac by R3DO'; // Name der App (Titel, Fenster), wird nicht übersetzt
 
 const DEFAULT_DATA = {
   version: 1,
@@ -1110,8 +1111,8 @@ document.addEventListener('keydown', (e) => {
 function renderDashboard() {
   if (!data.projects.length) {
     return `<div class="card welcome">
-      <div class="big">🚀</div>
-      <h1>${tr('Willkommen bei deinem Projekttracker')}</h1>
+      <div class="big" aria-hidden="true"><span class="brand-mark">P</span></div>
+      <h1>${tr('Willkommen bei Protrac')}</h1>
       <p>${tr('Erfasse Zeit, Investitionen, Meilensteine und Aufgaben deiner Projekte. Der Tracker zeigt dir, welche Projekte Aufmerksamkeit brauchen, damit nichts einschläft.')}</p>
       <div class="btn-row">
         <button class="btn primary" data-action="newProject">${tr('Erstes Projekt anlegen')}</button>
@@ -3262,7 +3263,7 @@ $('#modal').addEventListener('close', () => setTimeout(() => { if (data.timer) r
 setInterval(() => {
   tickPomodoro();
   if (data.timer) renderTimer();
-  else if (document.title !== tr('Projekttracker')) document.title = tr('Projekttracker');
+  else if (document.title !== BRAND) document.title = BRAND;
 }, 1000);
 // Beim Zurückkehren zur App sofort nachziehen (Handy pausiert Timer im Hintergrund)
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { tickPomodoro(); if (data.timer) renderTimer(true); } });
@@ -4418,8 +4419,8 @@ function renderLockScreen() {
   const problem = info.dbError ? tr('Die Datenbank ist nicht erreichbar. Prüfe die Einstellungen in config.php.')
     : info.configured === false ? tr('Auf dem Server ist noch kein Passwort festgelegt. Lege die Datei config.php an (Vorlage: config.sample.php).') : '';
   $('#app').innerHTML = `<div class="lock-wrap"><form class="card lock-card form" data-form="login">
-    <div class="lock-logo">🚀</div>
-    <h1>${tr('Projekttracker')}</h1>
+    <div class="lock-logo" aria-hidden="true"><span class="brand-mark">P</span></div>
+    <h1 class="lock-brand">Protrac<span class="brand-by">by R3DO</span></h1>
     <p class="muted">${tr('Deine Daten liegen auf deinem Server und sind auf allen Geräten automatisch aktuell. Melde dich einmal pro Gerät an.')}</p>
     ${problem ? `<div class="lock-msg error">⚠️ ${esc(problem)}</div>` : `
     ${info.secure === false ? `<div class="lock-msg warn">🔓 ${tr('Die Verbindung ist <b>nicht verschlüsselt</b> (kein HTTPS). Richte HTTPS ein, bevor du den Tracker über das Internet nutzt.')}</div>` : ''}
@@ -4989,7 +4990,7 @@ function applyLanguage() {
   document.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = tr(el.dataset.i18nTitle); });
   document.querySelectorAll('[data-i18n-aria]').forEach((el) => { el.setAttribute('aria-label', tr(el.dataset.i18nAria)); });
   document.querySelector('meta[name="description"]')?.setAttribute('content', tr('Persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben – mit Motivationshilfen.'));
-  if (!data.timer) document.title = tr('Projekttracker');
+  if (!data.timer) document.title = BRAND;
   applyShortcutHint();
   updateSideToggle();
 }

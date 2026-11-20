@@ -3,25 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Projekttracker</title>
+  <title>Protrac by R3DO</title>
   <meta name="description" content="Persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben – mit Motivationshilfen.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Projekte">
+  <meta name="apple-mobile-web-app-title" content="Protrac">
   <meta name="theme-color" content="#4f46e5">
   <script>
     // Eingeklappte Seitenleiste sofort anwenden (vermeidet Flackern beim Laden)
     try { if (localStorage.getItem('projekttracker.ui.sidebar') === 'collapsed') document.documentElement.classList.add('side-collapsed'); } catch (e) {}
   </script>
-  <link rel="stylesheet" href="styles.css?v=2026.11.20-3">
+  <link rel="stylesheet" href="styles.css?v=2026.11.20-4">
 </head>
 <body>
   <header class="topbar">
     <div class="side-head">
-      <a class="brand" href="#/" title="Projekttracker" data-i18n-title="Projekttracker">🚀 <span data-i18n="Projekttracker">Projekttracker</span></a>
+      <a class="brand" href="#/" title="Protrac by R3DO" aria-label="Protrac by R3DO"><span class="brand-mark" aria-hidden="true">P</span><span class="brand-text"><span class="brand-name">Protrac</span><span class="brand-by">by R3DO</span></span></a>
       <button id="side-toggle" class="side-toggle" type="button" data-action="toggleSidebar" title="Seitenleiste einklappen" aria-label="Seitenleiste einklappen">«</button>
     </div>
     <nav class="nav">
@@ -44,8 +44,8 @@
   <dialog id="modal"></dialog>
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
-  <script src="i18n.js?v=2026.11.20-3"></script>
-  <script src="lang-en.js?v=2026.11.20-3"></script>
-  <script src="app.js?v=2026.11.20-3"></script>
+  <script src="i18n.js?v=2026.11.20-4"></script>
+  <script src="lang-en.js?v=2026.11.20-4"></script>
+  <script src="app.js?v=2026.11.20-4"></script>
 </body>
 </html>

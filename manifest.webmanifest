@@ -1,6 +1,6 @@
 {
-  "name": "Projekttracker",
-  "short_name": "Projekte",
+  "name": "Protrac by R3DO",
+  "short_name": "Protrac",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
