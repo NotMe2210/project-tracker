@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.19-6';
+const APP_VERSION = '2026.11.20-1';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -1808,7 +1808,7 @@ function projectTime(p) {
   const entries = data.timeEntries.filter((e) => e.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date));
   const total = sum(entries, (e) => e.minutes);
   return `<section class="card">
-    <div class="card-head"><h2>${tr('Zeiteinträge')} · ${fmtHours(total)}</h2><button class="btn primary small" data-action="addTime" data-id="${p.id}">${tr('+ Zeit')}</button></div>
+    <div class="card-head"><h2>${tr('Zeiteinträge')} · ${fmtHours(total)}</h2><span class="btn-row"><button class="btn small" data-action="importCsv" data-id="${p.id}" title="${tr('Zeit & Investitionen aus CSV importieren')}">⬆ CSV</button><button class="btn primary small" data-action="addTime" data-id="${p.id}">${tr('+ Zeit')}</button></span></div>
     ${entries.length ? `<ul class="list">${entries.map((e) => `
       <li>
         <div class="grow">
@@ -1832,7 +1832,7 @@ function projectInvestments(p) {
   const budget = Number(p.budget) || 0;
   return `<div class="grid-2">
     <section class="card">
-      <div class="card-head"><h2>${tr('Investitionen')} · ${fmtEUR(total)}</h2><button class="btn primary small" data-action="addInvestment" data-id="${p.id}">${tr('+ Investition')}</button></div>
+      <div class="card-head"><h2>${tr('Investitionen')} · ${fmtEUR(total)}</h2><span class="btn-row"><button class="btn small" data-action="importCsv" data-id="${p.id}" title="${tr('Zeit & Investitionen aus CSV importieren')}">⬆ CSV</button><button class="btn primary small" data-action="addInvestment" data-id="${p.id}">${tr('+ Investition')}</button></span></div>
       ${items.length ? `<ul class="list">${items.map((e) => `
         <li>
           <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || tr('Sonstiges'))}</span></div></div>
@@ -2163,6 +2163,7 @@ function renderSettings() {
       <div class="btn-row">
         <button class="btn primary" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
         <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
+        <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
         <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
       </div>
       <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
@@ -3559,6 +3560,7 @@ function paletteCommands() {
   if (data.timer) add('■', data.timer.mode === 'pomodoro' ? tr('Pomodoro beenden') : tr('Timer stoppen'), () => actions.stopTimer());
   add('💾', tr('Sicherung exportieren'), () => actions.exportData(), 'Backup');
   add('⬆', tr('Sicherung importieren'), () => actions.importData(), 'Backup');
+  add('📄', tr('Zeit & Investitionen aus CSV importieren'), () => actions.importCsv(), 'CSV Excel Import');
   add('🧩', tr('Übersicht anpassen'), () => actions.customizeDashboard(), 'Layout');
   THEMES.forEach(([v, l]) => add(l.split(' ')[0], tr('Darstellung: {theme}', { theme: tr(l).replace(/^\S+\s/, '') }), () => { data.settings.theme = v; commit(); }, tr('Theme Hell Dunkel')));
   LANGUAGES.forEach(([code, name]) => add('🌐', tr('Sprache: {lang}', { lang: name }), () => { data.settings.language = code; commit(); }, 'Language Sprache'));
@@ -4363,12 +4365,324 @@ function renderServerBackupSettings(size) {
     <div class="btn-row">
       <button class="btn" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
       <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
+        <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
       <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
     </div>
     <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
     <h3>${tr('Gefahrenzone')}</h3>
     <button class="btn danger" data-action="resetData">${tr('Alle Daten löschen')}</button>`;
 }
+
+/* ------------------------------------------------------------------------
+   CSV-Import für Zeiten & Investitionen
+   Spalten werden über die Überschrift erkannt (Deutsch/Englisch, Reihenfolge egal),
+   Trennzeichen automatisch (Semikolon, Komma, Tabulator). Eigene Exporte lassen sich
+   wieder importieren – bereits vorhandene Einträge werden übersprungen.
+   ------------------------------------------------------------------------ */
+
+/** CSV-Text in Zeilen/Zellen zerlegen (Anführungszeichen, "" und Zeilenumbrüche in Zellen) */
+function parseCsv(text) {
+  text = String(text || '').replace(/^﻿/, '');
+  const firstLine = text.split(/\r?\n/).find((l) => l.trim()) || '';
+  const counts = { ';': 0, ',': 0, '\t': 0 };
+  let inQ = false;
+  for (const ch of firstLine) { if (ch === '"') inQ = !inQ; else if (!inQ && ch in counts) counts[ch]++; }
+  const sep = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][1] ? Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0] : ';';
+  const rows = [];
+  let row = [], cell = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === sep) { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((c) => c.trim() !== ''));
+}
+
+// Erkannte Spaltenüberschriften (klein, ohne Sonderzeichen)
+const CSV_COLUMNS = {
+  type: ['typ', 'type', 'art', 'kind'],
+  date: ['datum', 'date', 'tag', 'day'],
+  project: ['projekt', 'project', 'projektname', 'projectname'],
+  title: ['titel', 'title', 'wofur', 'wofuer', 'what', 'for'],
+  description: ['beschreibung', 'description', 'notiz', 'note', 'notes', 'details', 'kommentar', 'comment'],
+  category: ['kategorie', 'category'],
+  minutes: ['minuten', 'minutes', 'min', 'mins'],
+  hours: ['stunden', 'hours', 'std', 'h', 'hrs'],
+  duration: ['dauer', 'duration', 'zeit', 'time'],
+  amount: ['betrag', 'betrageur', 'amount', 'amounteur', 'kosten', 'cost', 'costs', 'preis', 'price', 'eur', 'euro'],
+};
+const csvKey = (h) => String(h || '').toLowerCase().replace(/ä/g, 'a').replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ß/g, 'ss').replace(/\(.*?\)|[^a-z]/g, '');
+
+/** Datum in vielen Schreibweisen → YYYY-MM-DD (oder null) */
+function parseDateFlexible(s) {
+  s = String(s || '').trim();
+  let y, m, d, x;
+  if ((x = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) [, y, m, d] = x;
+  else if ((x = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/))) [, d, m, y] = x;
+  else if ((x = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/))) {
+    let a = +x[1], b = +x[2];
+    const us = /^en-US/i.test(LOCALE);
+    if (a > 12) [d, m] = [a, b]; else if (b > 12) [m, d] = [a, b]; else [d, m] = us ? [b, a] : [a, b];
+    y = x[3];
+  } else return null;
+  y = +y; if (y < 100) y += 2000;
+  const iso = `${y}-${pad(+m)}-${pad(+d)}`;
+  const dt = parseISO(iso);
+  return Number.isNaN(dt.getTime()) || toISO(dt) !== iso ? null : iso;
+}
+
+/** Analysiert die CSV und liefert Vorschau: neue Einträge, Duplikate, Fehler, neue Projekte */
+function analyzeCsv(text, defaultProjectId) {
+  const rows = parseCsv(text);
+  if (rows.length < 2) return { error: tr('Keine Daten gefunden. Die erste Zeile muss die Spaltenüberschriften enthalten, darunter mindestens eine Zeile mit Daten.') };
+  const head = rows[0].map(csvKey);
+  const col = {};
+  for (const [k, names] of Object.entries(CSV_COLUMNS)) { const i = head.findIndex((h) => names.includes(h)); if (i >= 0) col[k] = i; }
+  if (col.date === undefined) return { error: tr('Die Spalte „Datum“ fehlt. Prüfe die Überschriften in der ersten Zeile.') };
+  if (col.project === undefined && !defaultProjectId) return { error: tr('Die Spalte „Projekt“ fehlt. Prüfe die Überschriften in der ersten Zeile.') };
+  if ([col.minutes, col.hours, col.duration, col.amount].every((v) => v === undefined)) return { error: tr('Es fehlt eine Spalte für die Dauer (Dauer, Minuten oder Stunden) bzw. den Betrag.') };
+
+  const byName = new Map(data.projects.map((p) => [p.name.trim().toLowerCase(), p]));
+  const existing = new Set([
+    ...data.timeEntries.map((e) => `t|${e.projectId}|${e.date}|${e.minutes}|${entryTitle(e).trim().toLowerCase()}`),
+    ...data.investments.map((e) => `i|${e.projectId}|${e.date}|${Number(e.amount).toFixed(2)}|${String(e.description || '').trim().toLowerCase()}`),
+  ]);
+  const get = (r, k) => (col[k] === undefined ? '' : String(r[col[k]] ?? '').trim());
+  const out = { times: [], investments: [], duplicates: 0, issues: [], newProjects: new Map(), total: rows.length - 1 };
+  const timeWords = ['zeit', 'time', 'zeiteintrag', 'timeentry', 'arbeitszeit'];
+  const invWords = ['investition', 'investment', 'ausgabe', 'expense', 'kosten', 'cost'];
+
+  rows.slice(1).forEach((r, idx) => {
+    const line = idx + 2;
+    const problem = (msg) => out.issues.push(tr('Zeile {n}: {msg}', { n: line, msg }));
+    // Typ: aus der Spalte oder anhand der gefüllten Felder
+    const typeRaw = csvKey(get(r, 'type'));
+    const hasAmount = get(r, 'amount') !== '';
+    const hasDuration = ['minutes', 'hours', 'duration'].some((k) => get(r, k) !== '');
+    let kind = timeWords.includes(typeRaw) ? 'time' : invWords.includes(typeRaw) ? 'inv' : null;
+    if (!kind) kind = hasAmount && !hasDuration ? 'inv' : hasDuration ? 'time' : null;
+    if (!kind) return problem(tr('weder Dauer noch Betrag angegeben'));
+    const date = parseDateFlexible(get(r, 'date'));
+    if (!date) return problem(tr('Datum „{v}“ nicht erkannt', { v: get(r, 'date') }));
+    // Projekt
+    const pname = get(r, 'project');
+    let pid = null;
+    if (pname) {
+      const p = byName.get(pname.toLowerCase());
+      if (p) pid = p.id;
+      else { const key = pname.toLowerCase(); if (!out.newProjects.has(key)) out.newProjects.set(key, pname); pid = `new:${key}`; }
+    } else if (defaultProjectId) pid = defaultProjectId;
+    else return problem(tr('kein Projekt angegeben'));
+    const title = get(r, 'title');
+    const description = get(r, 'description');
+
+    if (kind === 'time') {
+      let minutes = null;
+      if (get(r, 'minutes') !== '') { const v = parseAmount(get(r, 'minutes')); minutes = Number.isFinite(v) ? Math.round(v) : null; }
+      else if (get(r, 'hours') !== '') { const v = parseAmount(get(r, 'hours')); minutes = Number.isFinite(v) ? Math.round(v * 60) : null; }
+      else if (get(r, 'duration') !== '') minutes = parseDuration(get(r, 'duration'));
+      if (!minutes || minutes <= 0) return problem(tr('Dauer nicht erkannt'));
+      const auto = !title || title === autoTimeTitle(date);
+      const entry = { projectId: pid, date, minutes, title: auto ? autoTimeTitle(date) : title, autoTitle: auto, description };
+      if (existing.has(`t|${pid}|${date}|${minutes}|${entry.title.toLowerCase()}`)) { out.duplicates++; return; }
+      out.times.push({ ...entry, line });
+    } else {
+      const amount = parseAmount(get(r, 'amount'));
+      if (amount === null || !Number.isFinite(amount)) return problem(tr('Betrag „{v}“ nicht erkannt', { v: get(r, 'amount') }));
+      const what = title || description || tr('Investition');
+      const entry = { projectId: pid, date, amount, description: what, category: get(r, 'category') };
+      if (existing.has(`i|${pid}|${date}|${amount.toFixed(2)}|${what.toLowerCase()}`)) { out.duplicates++; return; }
+      out.investments.push({ ...entry, line });
+    }
+  });
+  return out;
+}
+
+/** Vorlage mit Überschriften und zwei Beispielzeilen */
+function csvTemplate() {
+  const sep = LANG === 'de' ? ';' : ',';
+  const q = (s) => (/[",;\n]/.test(String(s)) ? `"${String(s).replace(/"/g, '""')}"` : String(s));
+  const p = data.projects.find((x) => x.status === 'aktiv')?.name || tr('Mein Projekt');
+  const rows = [
+    [tr('Typ'), tr('Datum'), tr('Projekt'), tr('Titel'), tr('Beschreibung'), tr('Kategorie'), tr('Dauer'), tr('Betrag (EUR)')],
+    [tr('Zeit'), todayISO(), p, tr('Konzept geschrieben'), tr('Erste Ideen gesammelt'), '', '1:30', ''],
+    [tr('Investition'), todayISO(), p, tr('Fachbuch'), '', tr('Weiterbildung'), '', `29${DEC()}90`],
+  ];
+  return '﻿' + rows.map((r) => r.map(q).join(sep)).join('\r\n');
+}
+
+function csvGuideHTML() {
+  const sep = LANG === 'de' ? ';' : ',';
+  const ex = [
+    [tr('Typ'), tr('Datum'), tr('Projekt'), tr('Titel'), tr('Dauer'), tr('Betrag (EUR)'), tr('Kategorie')],
+    [tr('Zeit'), '2026-11-20', tr('Mein Projekt'), tr('Konzept geschrieben'), '1:30', '', ''],
+    [tr('Investition'), '2026-11-18', tr('Mein Projekt'), tr('Fachbuch'), '', `29${DEC()}90`, tr('Weiterbildung')],
+  ].map((r) => r.join(sep)).join('\n');
+  const row = (name, alias, desc, req) => `<tr><td><b>${name}</b>${alias ? `<div class="small muted">${alias}</div>` : ''}</td><td>${desc}</td><td>${req}</td></tr>`;
+  return `<div class="help csv-guide">
+    <ul>
+      <li>${tr('Die <b>erste Zeile</b> enthält die Spaltenüberschriften, jede weitere Zeile ist ein Eintrag. Die Reihenfolge der Spalten ist egal, nicht benötigte Spalten werden ignoriert.')}</li>
+      <li>${tr('Als Trennzeichen gehen <b>Semikolon, Komma oder Tabulator</b> – der Tracker erkennt es selbst. Überschriften auf Deutsch oder Englisch.')}</li>
+    </ul>
+    <div class="table-wrap"><table class="csv-cols">
+      <thead><tr><th>${tr('Spalte')}</th><th>${tr('Inhalt')}</th><th>${tr('Pflicht?')}</th></tr></thead>
+      <tbody>
+        ${row(tr('Typ'), 'Type', tr('„Zeit“ oder „Investition“. Fehlt die Spalte, wird es an Dauer bzw. Betrag erkannt.'), tr('nein'))}
+        ${row(tr('Datum'), 'Date', tr('z. B. 2026-11-20, 20.11.2026 oder 20/11/2026'), tr('ja'))}
+        ${row(tr('Projekt'), 'Project', tr('Name des Projekts. Unbekannte Projekte können beim Import angelegt werden.'), tr('ja*'))}
+        ${row(tr('Dauer'), tr('oder Minuten / Stunden'), tr('Für Zeiten: 1:30, 90 min oder 1,5 (Stunden)'), tr('für Zeiten'))}
+        ${row(tr('Betrag (EUR)'), 'Amount', tr('Für Investitionen: 49,99 oder 49.99'), tr('für Investitionen'))}
+        ${row(tr('Titel'), 'Title', tr('Titel des Zeiteintrags bzw. „Wofür?“ der Investition. Leer = Wochentag und Datum.'), tr('nein'))}
+        ${row(tr('Beschreibung'), 'Description', tr('Details zum Eintrag'), tr('nein'))}
+        ${row(tr('Kategorie'), 'Category', tr('Kategorie der Investition, leer = „Sonstiges“'), tr('nein'))}
+      </tbody>
+    </table></div>
+    <p class="small muted">${tr('* Beim Import auf einer Projektseite darf die Spalte „Projekt“ fehlen – dann gehört alles zu diesem Projekt.')}</p>
+    <div class="field-label">${tr('Beispiel')}</div>
+    <pre class="csv-example">${esc(ex)}</pre>
+    <h3>${tr('So geht’s')}</h3>
+    <ol>
+      <li>${tr('<b>Excel / Numbers:</b> Tabelle mit den Spalten oben anlegen und als <i>CSV (UTF-8)</i> speichern bzw. exportieren – oder die Zellen inklusive Überschrift kopieren und unten einfügen.')}</li>
+      <li>${tr('Datei auswählen oder Text einfügen und auf <b>Prüfen</b> tippen.')}</li>
+      <li>${tr('In der Vorschau siehst du, was importiert wird. Erst mit <b>Importieren</b> werden die Einträge übernommen.')}</li>
+    </ol>
+    <p class="small muted">${tr('Tipp: Eine CSV aus „Zeit & Investitionen als CSV“ lässt sich wieder importieren. Bereits vorhandene Einträge werden erkannt und übersprungen.')}</p>
+    <button type="button" class="btn small" data-csv-template>⬇ ${tr('Vorlage herunterladen')}</button>
+  </div>`;
+}
+
+/** Import-Dialog: Schritt 1 Datei/Text, Schritt 2 Vorschau */
+function openCsvImport(defaultProjectId) {
+  const dlg = $('#modal');
+  const proj = defaultProjectId ? getProject(defaultProjectId) : null;
+  dlg.classList.add('wide');
+  dlg.innerHTML = `<div class="form detail-view csv-import">
+    <h2>⬆ ${tr('Zeiten & Investitionen importieren')}</h2>
+    <p class="small muted" style="margin:0">${proj ? tr('Einträge ohne Projektangabe werden „{name}“ zugeordnet.', { name: esc(proj.name) }) : tr('Importiere Zeiteinträge und Investitionen aus einer CSV-Datei, z. B. aus Excel, Numbers oder einem früheren Export.')}</p>
+    <div class="csv-step1">
+      <div class="csv-pick">
+        <label class="btn primary csv-file-btn">📄 ${tr('CSV-Datei auswählen')}<input type="file" accept=".csv,.txt,text/csv,text/plain" hidden></label>
+        <span class="small muted csv-file-name"></span>
+      </div>
+      <label>${tr('… oder Inhalt einfügen (z. B. aus Excel kopiert)')}
+        <textarea class="csv-text" rows="5" spellcheck="false" placeholder="${esc(tr('Typ;Datum;Projekt;Titel;Dauer;Betrag (EUR)'))}"></textarea></label>
+      <details class="csv-guide-box" ${data.timeEntries.length + data.investments.length ? '' : 'open'}>
+        <summary>📋 ${tr('Anleitung: So muss die CSV aufgebaut sein')}</summary>
+        ${csvGuideHTML()}
+      </details>
+    </div>
+    <div class="csv-step2" hidden></div>
+    <div class="form-error"></div>
+    <div class="form-actions">
+      <button type="button" class="btn" data-csv="cancel">${tr('Abbrechen')}</button>
+      <button type="button" class="btn" data-csv="back" hidden>${tr('Zurück')}</button>
+      <button type="button" class="btn primary" data-csv="check">${tr('Prüfen')}</button>
+      <button type="button" class="btn primary" data-csv="import" hidden>${tr('Importieren')}</button>
+    </div>
+  </div>`;
+  const box = dlg.querySelector('.csv-import');
+  const ta = box.querySelector('.csv-text');
+  const err = box.querySelector('.form-error');
+  const btn = (k) => box.querySelector(`[data-csv="${k}"]`);
+  let result = null;
+  const close = () => { dlg.close(); unlockScroll(); };
+  const step = (n) => {
+    box.querySelector('.csv-step1').hidden = n !== 1;
+    box.querySelector('.csv-step2').hidden = n !== 2;
+    btn('check').hidden = n !== 1; btn('back').hidden = n !== 2; btn('import').hidden = n !== 2;
+    err.textContent = '';
+  };
+  box.querySelector('input[type=file]').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const buf = await file.arrayBuffer();
+    let text = new TextDecoder('utf-8').decode(buf);
+    if (text.includes('�')) text = new TextDecoder('windows-1252').decode(buf); // ältere Excel-Exporte
+    ta.value = text;
+    box.querySelector('.csv-file-name').textContent = file.name;
+    btn('check').click();
+  });
+  box.addEventListener('click', (e) => { if (e.target.closest('[data-csv-template]')) download(`${tr('projekttracker-vorlage')}.csv`, csvTemplate(), 'text/csv'); });
+  btn('cancel').addEventListener('click', close);
+  btn('back').addEventListener('click', () => step(1));
+  btn('check').addEventListener('click', () => {
+    if (!ta.value.trim()) { err.textContent = tr('Bitte eine Datei auswählen oder Inhalt einfügen.'); return; }
+    result = analyzeCsv(ta.value, defaultProjectId);
+    if (result.error) { err.textContent = result.error; return; }
+    renderCsvPreview(box.querySelector('.csv-step2'), result);
+    step(2);
+    const n = result.times.length + result.investments.length;
+    btn('import').disabled = !n;
+    btn('import').textContent = n ? trp(n, '{n} Eintrag importieren', '{n} Einträge importieren') : tr('Nichts zu importieren');
+  });
+  btn('import').addEventListener('click', () => {
+    const create = box.querySelector('[data-csv-create]')?.checked !== false;
+    const ids = {};
+    let skipped = 0;
+    const resolve = (pid) => {
+      if (!pid.startsWith('new:')) return pid;
+      if (!create) return null;
+      if (!ids[pid]) {
+        const name = result.newProjects.get(pid.slice(4));
+        const np = { id: uid(), createdAt: todayISO(), name, status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
+        data.projects.push(np);
+        ids[pid] = np.id;
+      }
+      return ids[pid];
+    };
+    let nt = 0, ni = 0;
+    result.times.forEach(({ line, ...e }) => { const pid = resolve(e.projectId); if (!pid) { skipped++; return; } data.timeEntries.push({ id: uid(), ...e, projectId: pid }); nt++; });
+    result.investments.forEach(({ line, ...e }) => {
+      const pid = resolve(e.projectId); if (!pid) { skipped++; return; }
+      data.investments.push({ id: uid(), ...e, projectId: pid, category: normalizeCategory(e.category) }); ni++;
+    });
+    close();
+    commit();
+    toast(tr('✔ Importiert: {t} Zeiteinträge, {i} Investitionen', { t: nt, i: ni }) + (skipped ? ` · ${tr('{n} ohne Projekt übersprungen', { n: skipped })}` : ''));
+  });
+  lockScroll();
+  dlg.showModal();
+  if (!matchMedia('(hover: none)').matches) ta.focus();
+}
+
+function renderCsvPreview(el, r) {
+  const name = (pid) => (pid.startsWith('new:') ? r.newProjects.get(pid.slice(4)) : getProject(pid)?.name || '–');
+  const sample = [...r.times.map((x) => ({ ...x, kind: 'time' })), ...r.investments.map((x) => ({ ...x, kind: 'inv' }))]
+    .sort((a, b) => a.line - b.line).slice(0, 8);
+  const newList = [...r.newProjects.values()];
+  el.innerHTML = `
+    <ul class="csv-summary">
+      <li>⏱️ <b>${trp(r.times.length, '{n} Zeiteintrag', '{n} Zeiteinträge')}</b>${r.times.length ? ` · ${fmtHours(sum(r.times, (x) => x.minutes))}` : ''}</li>
+      <li>💶 <b>${trp(r.investments.length, '{n} Investition', '{n} Investitionen')}</b>${r.investments.length ? ` · ${fmtEUR(sum(r.investments, (x) => x.amount))}` : ''}</li>
+      ${r.duplicates ? `<li>♻️ ${trp(r.duplicates, '{n} Eintrag ist schon vorhanden und wird übersprungen', '{n} Einträge sind schon vorhanden und werden übersprungen')}</li>` : ''}
+      ${r.issues.length ? `<li class="csv-warn">⚠️ ${trp(r.issues.length, '{n} Zeile kann nicht gelesen werden', '{n} Zeilen können nicht gelesen werden')}
+        <ul class="small">${r.issues.slice(0, 6).map((m) => `<li>${esc(m)}</li>`).join('')}${r.issues.length > 6 ? `<li>${tr('… und {n} weitere', { n: r.issues.length - 6 })}</li>` : ''}</ul></li>` : ''}
+    </ul>
+    ${newList.length ? `<label class="check-row csv-create"><input type="checkbox" data-csv-create checked>
+      <span>${trp(newList.length, 'Neues Projekt anlegen: {names}', 'Neue Projekte anlegen: {names}', { names: esc(newList.join(', ')) })}
+      <span class="small muted">${tr('Ohne Haken werden diese Einträge übersprungen.')}</span></span></label>` : ''}
+    ${sample.length ? `<div class="field-label">${tr('Vorschau')}</div>
+    <div class="table-wrap"><table class="csv-preview">
+      <thead><tr><th>${tr('Zeile')}</th><th>${tr('Datum')}</th><th>${tr('Projekt')}</th><th>${tr('Eintrag')}</th><th class="num">${tr('Dauer / Betrag')}</th></tr></thead>
+      <tbody>${sample.map((x) => `<tr><td class="muted">${x.line}</td><td>${fmtDate(x.date)}</td><td>${esc(name(x.projectId))}${x.projectId.startsWith('new:') ? ` <span class="badge">${tr('neu')}</span>` : ''}</td>
+        <td>${x.kind === 'time' ? `⏱️ ${esc(x.title)}` : `💶 ${esc(x.description)}${x.category ? ` <span class="badge">${esc(x.category)}</span>` : ''}`}</td>
+        <td class="num">${x.kind === 'time' ? fmtDuration(x.minutes) : fmtEUR(x.amount)}</td></tr>`).join('')}</tbody>
+    </table></div>
+    ${r.times.length + r.investments.length > sample.length ? `<p class="small muted">${tr('… und {n} weitere', { n: r.times.length + r.investments.length - sample.length })}</p>` : ''}` : ''}`;
+}
+
+Object.assign(actions, {
+  importCsv({ id } = {}) { openCsvImport(id && getProject(id) ? id : null); },
+});
 
 /* ------------------------------------------------------------------------
    Sprache: automatisch (Gerät) oder fest aus den Einstellungen

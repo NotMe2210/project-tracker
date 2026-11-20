@@ -75,6 +75,25 @@ Wichtig für iPhone und iPad: Füge den Tracker über *Teilen › Zum Home-Bilds
 
 Außerdem kannst du Zeiten und Investitionen als **CSV** exportieren (z. B. für Excel).
 
+### Zeiten & Investitionen aus CSV importieren
+
+Unter *Einstellungen › Datensicherung* (bzw. *Server-Speicherung*), in den Projekt-Reitern *Zeit* und *Investitionen* (⬆ CSV) oder über die Befehlspalette. Eine Anleitung und eine Vorlage zum Herunterladen gibt es direkt im Import-Dialog.
+
+- Die erste Zeile enthält die Spaltenüberschriften (Deutsch oder Englisch, Reihenfolge egal). Als Trennzeichen gehen Semikolon, Komma oder Tabulator, sie werden automatisch erkannt.
+- Spalten:
+
+  | Spalte | Inhalt | Pflicht |
+  |---|---|---|
+  | Typ | „Zeit“ oder „Investition“ | nein, wird sonst an Dauer bzw. Betrag erkannt |
+  | Datum | `2026-11-20`, `20.11.2026` oder `20/11/2026` | ja |
+  | Projekt | Projektname; unbekannte Projekte können angelegt werden | ja, außer beim Import auf einer Projektseite |
+  | Dauer / Minuten / Stunden | `1:30`, `90 min`, `1,5` | für Zeiten |
+  | Betrag (EUR) | `49,99` oder `49.99` | für Investitionen |
+  | Titel, Beschreibung, Kategorie | frei | nein |
+
+- Datei auswählen oder Zellen aus Excel bzw. Numbers kopieren und einfügen. Die **Vorschau** zeigt, was importiert wird, welche Zeilen fehlerhaft sind und welche Projekte neu angelegt werden.
+- Ein eigener CSV-Export lässt sich wieder importieren. Bereits vorhandene Einträge werden erkannt und übersprungen.
+
 ## Online stellen
 
 Damit du den Tracker auf iPhone und iPad öffnen kannst, muss er eine Internetadresse haben, z. B. über **GitHub Pages**. Bei einem privaten Repository ist dafür GitHub Pro nötig. Alternativ machst du das Repository öffentlich oder lädst den Ordner bei einem kostenlosen Dienst wie Netlify oder Cloudflare Pages hoch.
