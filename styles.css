@@ -1351,3 +1351,9 @@ div.doc-chips { margin-top: 6px; }
 .week-ach { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .week-ach .chip { cursor: default; }
 @media (max-width: 640px) { .week-stats { grid-template-columns: 1fr 1fr; } }
+
+/* ---- Zeit auf Aufgaben ---- */
+.progress.bad > span { background: var(--bad); }
+.badge.time { font-variant-numeric: tabular-nums; }
+.badge.time.over { background: var(--bad-soft); color: var(--bad); }
+.task .actions .timer-on { color: var(--bad); }

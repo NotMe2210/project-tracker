@@ -1639,6 +1639,18 @@ function celebrateTask(t) {
   if (!left) confetti();
 }
 
+/** Auf eine Aufgabe gebuchte Minuten */
+function taskMinutes(id) { return sum(data.timeEntries.filter((e) => e.taskId === id), (e) => e.minutes); }
+const fmtHM = (m) => `${Math.floor(m / 60)}:${pad(Math.round(m % 60))}`;
+/** Badge „⏱ gebucht / geschätzt“ – rot, wenn die Schätzung überschritten ist */
+function taskTimeBadge(t) {
+  const spent = taskMinutes(t.id), est = t.estimate || 0;
+  if (!spent && !est) return '';
+  const over = est && spent > est;
+  const title = est ? tr('{spent} gebucht von {est} geschätzt', { spent: fmtDuration(spent), est: fmtDuration(est) }) : tr('{spent} gebucht', { spent: fmtDuration(spent) });
+  return `<span class="badge time ${over ? 'over' : ''}" title="${title}">⏱ ${fmtHM(spent)}${est ? ` / ${fmtHM(est)}` : ''}</span>`;
+}
+
 function taskItem(t, { showProject = false } = {}) {
   const p = getProject(t.projectId);
   const ms = t.milestoneId ? data.milestones.find((m) => m.id === t.milestoneId) : null;
@@ -1655,6 +1667,7 @@ function taskItem(t, { showProject = false } = {}) {
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/aufgaben">${esc(p.name)}</a></span>` : ''}
         <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
         ${!t.done && t.status === 'doing' ? `<span class="badge doing">▶ ${tr('In Arbeit')}</span>` : ''}
+        ${taskTimeBadge(t)}
         ${assigneeBadges(t.assignees)}
         ${taskPlanBadges(t)}
         ${t.done ? `<span>${tr('erledigt {when}', { when: fmtRelative(t.doneAt) })}</span>` : dueBadge(t.dueDate)}
@@ -1670,6 +1683,9 @@ function taskItem(t, { showProject = false } = {}) {
       ${t.done || showProject ? '' : `<button class="btn ghost small add-sub" data-action="addSubtask" data-id="${t.id}">${tr('+ Unterpunkt')}</button>`}
     </div>
     <div class="actions">
+      ${t.done ? '' : data.timer?.taskId === t.id
+        ? `<button class="btn ghost icon timer-on" data-action="stopTimer" title="${tr('Timer stoppen')}">■</button>`
+        : `<button class="btn ghost icon" data-action="startTimer" data-id="${t.projectId}" data-task="${t.id}" title="${tr('Timer für diese Aufgabe starten')}">▶</button>`}
       <button class="btn ghost icon" data-action="addDoc" data-id="${t.projectId}" data-task="${t.id}" title="${tr('Dokument verknüpfen')}">📎</button>
       <button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button>
       <button class="btn ghost icon danger" data-action="deleteTask" data-id="${t.id}" title="${tr('Löschen')}">🗑</button>
@@ -2018,16 +2034,21 @@ function projectMilestones(p) {
   </section>`;
 }
 
+function entryTaskLabel(e) {
+  const tk = e.taskId && data.tasks.find((t) => t.id === e.taskId);
+  return tk && tk.title !== e.title ? `<span>☑ ${esc(tk.title)}</span>` : '';
+}
+
 function projectTime(p) {
   const entries = data.timeEntries.filter((e) => e.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date));
   const total = sum(entries, (e) => e.minutes);
-  return `<section class="card">
+  return `${taskTimeCard(p, total)}<section class="card">
     <div class="card-head"><h2>${tr('Zeiteinträge')} · ${fmtHours(total)}</h2><span class="btn-row"><button class="btn small" data-action="importCsv" data-id="${p.id}" title="${tr('Zeit & Investitionen aus CSV importieren')}">⬆ CSV</button><button class="btn primary small" data-action="addTime" data-id="${p.id}">${tr('+ Zeit')}</button></span></div>
     ${entries.length ? `<ul class="list">${entries.map((e) => `
       <li>
         <div class="grow">
           <div class="title">${esc(entryTitle(e))}</div>
-          <div class="meta"><span class="amount">⏱️ ${fmtDuration(e.minutes)}</span>${e.autoTitle ? '' : `<span>${esc(autoTimeTitle(e.date))}</span>`}</div>
+          <div class="meta"><span class="amount">⏱️ ${fmtDuration(e.minutes)}</span>${e.autoTitle ? '' : `<span>${esc(autoTimeTitle(e.date))}</span>`}${entryTaskLabel(e)}</div>
           ${e.description ? `<div class="entry-desc">${esc(e.description)}</div>` : ''}
         </div>
         <div class="actions">
@@ -2035,6 +2056,24 @@ function projectTime(p) {
           <button class="btn ghost icon danger" data-action="deleteTime" data-id="${e.id}" title="${tr('Löschen')}">🗑</button>
         </div>
       </li>`).join('')}</ul>` : `<div class="empty">${tr('Noch keine Zeit erfasst. Starte den Timer oder trage Zeit manuell ein.')}</div>`}
+  </section>`;
+}
+
+/** Schätzung vs. Ist je Aufgabe */
+function taskTimeCard(p, total) {
+  const rows = sortTasks(data.tasks.filter((t) => t.projectId === p.id)).map((t) => ({ t, spent: taskMinutes(t.id), est: t.estimate || 0 })).filter((x) => x.spent || x.est);
+  if (!rows.length) return '';
+  const booked = sum(rows, (x) => x.spent), est = sum(rows, (x) => x.est);
+  const doneRows = rows.filter((x) => x.t.done && x.est && x.spent);
+  const ratio = doneRows.length ? sum(doneRows, (x) => x.spent) / sum(doneRows, (x) => x.est) : 0;
+  return `<section class="card">
+    <h2>⏱ ${tr('Schätzung vs. Ist')}</h2>
+    <p class="small muted" style="margin-top:0">${tr('{booked} auf Aufgaben gebucht ({pct} % der Projektzeit), {est} geschätzt.', { booked: fmtHours(booked), pct: total ? Math.round((booked / total) * 100) : 0, est: fmtHours(est) })}
+      ${ratio ? (ratio > 1.1 ? tr('Erledigte Aufgaben dauerten im Schnitt {x} × so lange wie geschätzt.', { x: fmtNum(ratio, 1) }) : ratio < 0.9 ? tr('Erledigte Aufgaben gingen im Schnitt schneller als geschätzt ({x} ×).', { x: fmtNum(ratio, 1) }) : tr('Deine Schätzungen treffen ziemlich genau. 🎯')) : ''}</p>
+    <ul class="list">${rows.map(({ t, spent, est }) => `<li class="${t.done ? 'done' : ''}"><div class="grow">
+      <div class="row-between"><span class="title">${esc(t.title)}</span>${taskTimeBadge(t)}</div>
+      ${est ? `<div style="margin-top:6px">${progressBar(Math.min(100, (spent / est) * 100), spent > est ? 'bad' : t.done ? 'good' : '')}</div>` : ''}
+    </div></li>`).join('')}</ul>
   </section>`;
 }
 
@@ -2804,6 +2843,8 @@ const actions = {
     data.tasks = data.tasks.filter((t) => t.id !== id);
     data.tasks.forEach((t) => { if (t.dependsOn?.includes(id)) t.dependsOn = t.dependsOn.filter((x) => x !== id); });
     data.docs.forEach((d) => { if (d.taskId === id) d.taskId = null; }); // Dokument bleibt beim Projekt
+    data.timeEntries.forEach((e) => { if (e.taskId === id) e.taskId = null; }); // gebuchte Zeit bleibt beim Projekt
+    if (data.timer?.taskId === id) data.timer.taskId = null;
     commit();
   },
 
@@ -2848,9 +2889,10 @@ const actions = {
   },
 
   /* Zeit */
-  addTime({ id } = {}) {
+  addTime({ id, task } = {}) {
     if (!data.projects.length) return toast(tr('Lege zuerst ein Projekt an.'));
-    timeForm({ projectId: id || parseRoute().id });
+    const tk = task && data.tasks.find((x) => x.id === task);
+    timeForm({ projectId: id || parseRoute().id, taskId: tk?.id, title: tk?.title });
   },
   editTime({ id }) { timeForm(data.timeEntries.find((e) => e.id === id)); },
   deleteTime({ id }) {
@@ -2859,12 +2901,14 @@ const actions = {
     commit();
   },
 
-  startTimer({ id }) {
+  startTimer({ id, task }) {
     if (data.timer && !confirm(tr('Es läuft bereits ein Timer. Diesen verwerfen und neu starten?'))) return;
-    data.timer = { projectId: id, start: Date.now() };
+    const tk = task ? data.tasks.find((x) => x.id === task) : null;
+    data.timer = { projectId: id, start: Date.now(), taskId: tk?.id || null };
+    if (tk && !tk.done) tk.status = 'doing';
     noteTimerStart();
     commit();
-    toast(tr('▶ Timer für „{name}“ gestartet. Los geht’s!', { name: getProject(id).name }));
+    toast(tr('▶ Timer für „{name}“ gestartet. Los geht’s!', { name: tk ? tk.title : getProject(id).name }));
   },
   stopTimer() {
     const t = data.timer;
@@ -2873,11 +2917,12 @@ const actions = {
       const focus = pomoFocusMs(t);
       const minutes = Math.max(1, Math.round(focus / 60000));
       const title = t.count ? `${t.count} × Pomodoro` : 'Pomodoro';
-      return timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.start)), title,
+      return timeForm({ projectId: t.projectId, taskId: t.taskId, minutes, date: toISO(new Date(t.start)), title,
         description: t.count ? trp(t.count, '{n} Pomodoro à {m} Min', '{n} Pomodoros à {m} Min', { m: pomoCfg().work }) : '' }, { fromTimer: true });
     }
     const minutes = Math.max(1, Math.round(stopwatchMs(t) / 60000));
-    timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.startedAt || t.start)) }, { fromTimer: true });
+    const tk = t.taskId && data.tasks.find((x) => x.id === t.taskId);
+    timeForm({ projectId: t.projectId, taskId: t.taskId, minutes, date: toISO(new Date(t.startedAt || t.start)), title: tk ? tk.title : '' }, { fromTimer: true });
   },
   /** Pausieren bzw. Fortsetzen – Stoppuhr und Pomodoro */
   pauseTimer() {
@@ -2894,13 +2939,15 @@ const actions = {
     }
     save(); renderTimer(true);
   },
-  startPomodoro({ id }) {
+  startPomodoro({ id, task }) {
     if (data.timer && !confirm(tr('Es läuft bereits ein Timer. Diesen verwerfen und einen Pomodoro starten?'))) return;
     unlockAudio();
     requestNotifyPermission();
     const now = Date.now();
     data.timer = { projectId: id, start: now, mode: 'pomodoro', phase: 'work', phaseStart: now,
-      phaseEnd: now + pomoCfg().work * 60000, count: 0, focusMs: 0, pausedAt: null };
+      phaseEnd: now + pomoCfg().work * 60000, count: 0, focusMs: 0, pausedAt: null, taskId: task || null };
+    const tk = task && data.tasks.find((x) => x.id === task);
+    if (tk && !tk.done) tk.status = 'doing';
     noteTimerStart();
     commit();
     toast(tr('🍅 Pomodoro für „{name}“ – {m} Minuten volle Konzentration!', { name: getProject(id).name, m: pomoCfg().work }));
@@ -3100,6 +3147,8 @@ function taskForm(t) {
     fields.push({ name: 'milestoneId', label: tr('Meilenstein'), type: 'select', value: t.milestoneId || '', options: [{ value: '', label: tr('– keiner –') }, ...opts.map((m) => ({ value: m.id, label: m.title }))] });
   }
   if (data.people.length || data.teams.length) fields.push({ name: 'assignees', label: tr('Zuständig'), type: 'checks', options: assigneeOptions(pid), value: t.assignees || [] });
+  fields.push({ name: 'estimate', label: tr('Geschätzter Aufwand'), type: 'duration', half: true, placeholder: '2:00',
+    value: t.estimate ? fmtHM(t.estimate) : '', hint: t.id && taskMinutes(t.id) ? tr('Bisher gebucht: {d}', { d: fmtDuration(taskMinutes(t.id)) }) : tr('Arbeitszeit, z. B. 2:00 oder 90 min – wird mit der gebuchten Zeit verglichen') });
   // Planung (optional): Dauer, frühester Start, Vorgänger → Zeitplan & kritischer Pfad
   fields.push({ name: 'duration', label: tr('Dauer (Arbeitstage)'), type: 'number', value: t.duration, placeholder: '1', half: true,
     hint: tr('Für Zeitplan & kritischen Pfad – leer = 1 Tag') });
@@ -3115,6 +3164,7 @@ function taskForm(t) {
     fields,
     onSubmit(v) {
       v.milestoneId = v.milestoneId || null;
+      v.estimate = v.estimate || null;
       v.duration = v.duration ? Math.max(1, Math.round(v.duration)) : null;
       v.startAfter = v.startAfter || null;
       if (v.dependsOn && t.id && wouldCycle(t.id, v.dependsOn)) return tr('Diese Vorgänger würden eine Kreisabhängigkeit erzeugen (die Aufgaben warten gegenseitig aufeinander).');
@@ -3154,6 +3204,12 @@ function milestoneForm(m) {
   });
 }
 
+/** Aufgaben eines Projekts für das Zeitformular (offene zuerst, erledigte nur wenn schon gewählt) */
+function timeTaskOptions(pid, current) {
+  const tasks = sortTasks(data.tasks.filter((t) => t.projectId === pid && (!t.done || t.id === current)));
+  return [{ value: '', label: tr('– keine bestimmte –') }, ...tasks.map((t) => ({ value: t.id, label: `${t.done ? '✓ ' : ''}${t.title}` }))];
+}
+
 function timeForm(e, { fromTimer = false } = {}) {
   const isNew = !e.id;
   const opts = projectOptions();
@@ -3168,6 +3224,7 @@ function timeForm(e, { fromTimer = false } = {}) {
       { name: 'projectId', label: tr('Projekt'), type: 'select', options: opts, value: e.projectId },
       { name: 'date', label: tr('Datum'), type: 'date', value: e.date || todayISO(), required: true, half: true },
       { name: 'minutes', label: tr('Dauer'), type: 'duration', required: true, value: e.minutes ? `${Math.floor(e.minutes / 60)}:${pad(e.minutes % 60)}` : '', placeholder: '1:30', hint: tr('z. B. 1:30, 1,5 oder 45 min'), half: true },
+      { name: 'taskId', label: tr('Aufgabe'), type: 'select', options: timeTaskOptions(e.projectId || opts[0].value, e.taskId), value: e.taskId || '' },
       { name: 'title', label: tr('Titel'), value: e.autoTitle ? '' : e.title,
         placeholder: autoTimeTitle(e.date || todayISO()), hint: tr('Leer lassen = Wochentag und Datum werden als Titel verwendet.') },
       { name: 'description', label: tr('Beschreibung'), type: 'textarea', value: e.description,
@@ -3175,6 +3232,7 @@ function timeForm(e, { fromTimer = false } = {}) {
     ],
     submitLabel: tr('Speichern'),
     onSubmit(v) {
+      v.taskId = v.taskId || null;
       v.autoTitle = !v.title;
       if (v.autoTitle) v.title = autoTimeTitle(v.date);
       if (isNew) data.timeEntries.push({ id: uid(), ...v });
@@ -3187,6 +3245,11 @@ function timeForm(e, { fromTimer = false } = {}) {
   renderPauseOverlay(); // Pausen-Hinweis ausblenden, solange der Dialog offen ist
   // Platzhalter des Titels folgt dem gewählten Datum
   const dateInput = $('#f_date'), titleInput = $('#f_title');
+  // Aufgabenliste folgt dem gewählten Projekt
+  const projSel = $('#f_projectId'), taskSel = $('#f_taskId');
+  projSel?.addEventListener('change', () => {
+    taskSel.innerHTML = timeTaskOptions(projSel.value).map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+  });
   dateInput.addEventListener('input', () => { titleInput.placeholder = autoTimeTitle(dateInput.value); });
   if (fromTimer) {
     const actionsEl = $('#modal .form-actions');
@@ -3340,7 +3403,8 @@ function renderTimer(force = false) {
   const el = $('#timer-indicator');
   const t = data.timer;
   if (!t || !getProject(t.projectId)) { el.hidden = true; el.dataset.key = ''; renderPauseOverlay(); return; }
-  const name = getProject(t.projectId).name;
+  const tk = t.taskId && data.tasks.find((x) => x.id === t.taskId);
+  const name = getProject(t.projectId).name + (tk ? ` · ${tk.title}` : '');
   const pomo = t.mode === 'pomodoro';
   const key = [t.projectId, t.mode, t.phase, !!t.pausedAt].join('|');
 
@@ -3922,7 +3986,9 @@ function taskMenuHTML(t) {
     <button class="pop-item" data-action="editTask" data-id="${t.id}">✎ ${tr('Bearbeiten')}</button>
     <button class="pop-item" data-action="addDoc" data-id="${t.projectId}" data-task="${t.id}">📎 ${tr('Dokument verknüpfen')}</button>
     ${t.done ? '' : `<button class="pop-item" data-action="addSubtask" data-id="${t.id}">＋ ${tr('Unterpunkt')}</button>`}
-    ${p ? `<button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 ${tr('Pomodoro für {name}', { name: esc(p.name) })}</button>` : ''}
+    ${p && !t.done ? `<button class="pop-item" data-action="startTimer" data-id="${p.id}" data-task="${t.id}">▶ ${tr('Timer für diese Aufgabe starten')}</button>
+      <button class="pop-item" data-action="startPomodoro" data-id="${p.id}" data-task="${t.id}">🍅 ${tr('Pomodoro für diese Aufgabe')}</button>` : ''}
+    <button class="pop-item" data-action="addTime" data-id="${t.projectId}" data-task="${t.id}">＋ ${tr('Zeit auf Aufgabe buchen')}</button>
     <div class="pop-sep"></div>
     <button class="pop-item danger" data-action="deleteTask" data-id="${t.id}">🗑 ${tr('Löschen')}</button>`;
 }
@@ -5535,6 +5601,7 @@ function kanbanCard(t) {
     <div class="meta">
       <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
       ${subs.length ? `<span class="badge">☑ ${subs.filter((s) => s.done).length}/${subs.length}</span>` : ''}
+      ${taskTimeBadge(t)}
       ${t.done ? `<span>${fmtRelative(t.doneAt)}</span>` : dueBadge(t.dueDate)}
       ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
       ${assigneeBadges(t.assignees)}
