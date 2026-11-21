@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-4';
+const APP_VERSION = '2026.11.21-5';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -779,6 +779,7 @@ const WIDGETS = [
   { id: 'weekProjects', get label() { return tr('Zeit diese Woche je Projekt'); }, icon: '⏱️', wide: false, visible: false },
   { id: 'weekChart', get label() { return tr('Stunden-Diagramm (alle Projekte)'); }, icon: '📊', wide: false, visible: false },
   { id: 'recent', get label() { return tr('Letzte Aktivitäten'); }, icon: '🕘', wide: false, visible: false },
+  { id: 'roadmap', get label() { return tr('Roadmap'); }, icon: '🗺️', wide: true, visible: true },
   { id: 'projectCards', get label() { return tr('Projektkacheln'); }, icon: '🗂️', wide: true, visible: false },
 ];
 
@@ -1294,6 +1295,12 @@ function renderWidget(id, c, cfg) {
       </table></div>`, `<button class="btn small" data-action="newProject">${tr('+ Projekt')}</button>`);
     }
 
+    case 'roadmap': {
+      const list = data.projects.filter((p) => p.status === 'aktiv' || p.status === 'pausiert');
+      if (!list.length) return '';
+      return card(`🗺️ ${tr('Roadmap')}`, roadmapChart(list, { compact: true }), `<a class="btn small" href="#/projekte" data-action="openRoadmap">${tr('Alle Projekte')}</a>`);
+    }
+
     case 'projectCards': {
       const list = data.projects.filter((p) => p.status === 'aktiv' || p.status === 'pausiert');
       return card(tr('🗂️ Projekte'), list.length ? `<div class="project-grid">${list.map((p) => projectCard(p, c.stats.get(p.id))).join('')}</div>`
@@ -1712,9 +1719,12 @@ function renderProjects() {
       <div class="segmented view-toggle" role="group" aria-label="${tr('Ansicht')}">
         <button type="button" class="seg-btn ${projectView === 'grid' ? 'active' : ''}" data-action="setProjectView" data-id="grid" aria-pressed="${projectView === 'grid'}" title="${tr('Kacheln')}">▦ <span>${tr('Kacheln')}</span></button>
         <button type="button" class="seg-btn ${projectView === 'list' ? 'active' : ''}" data-action="setProjectView" data-id="list" aria-pressed="${projectView === 'list'}" title="${tr('Liste')}">☰ <span>${tr('Liste')}</span></button>
+        <button type="button" class="seg-btn ${projectView === 'roadmap' ? 'active' : ''}" data-action="setProjectView" data-id="roadmap" aria-pressed="${projectView === 'roadmap'}" title="${tr('Roadmap')}">🗺️ <span>${tr('Roadmap')}</span></button>
       </div>
     </div>
-    ${list.length ? (projectView === 'list'
+    ${list.length ? (projectView === 'roadmap'
+      ? `<section class="card">${roadmapChart(list.map(({ p }) => p))}</section>`
+      : projectView === 'list'
       ? `<div class="project-rows">${list.map(({ p, s }) => projectRow(p, s)).join('')}</div>`
       : `<div class="project-grid">${list.map(({ p, s }) => projectCard(p, s)).join('')}</div>`)
       : `<div class="card empty">${tr('Keine Projekte in dieser Ansicht.')}<br><br><button class="btn primary" data-action="newProject">${tr('+ Neues Projekt')}</button></div>`}`;
@@ -2712,7 +2722,7 @@ const actions = {
 
   filterProjects({ id }) { projectFilter = id; render(); },
   setProjectView({ id }) {
-    projectView = id === 'list' ? 'list' : 'grid';
+    projectView = ['list', 'roadmap'].includes(id) ? id : 'grid';
     try { localStorage.setItem('projekttracker.ui.projectView', projectView); } catch { /* ignorieren */ }
     render();
   },
@@ -3937,6 +3947,7 @@ function paletteCommands() {
   add('💾', tr('Sicherung exportieren'), () => actions.exportData(), 'Backup');
   add('⬆', tr('Sicherung importieren'), () => actions.importData(), 'Backup');
   add('📄', tr('Zeit & Investitionen aus CSV importieren'), () => actions.importCsv(), 'CSV Excel Import');
+  add('🗺️', tr('Roadmap'), () => actions.openRoadmap(), tr('Zeitleiste Gantt Projekte'));
   add('🧩', tr('Übersicht anpassen'), () => actions.customizeDashboard(), 'Layout');
   THEMES.forEach(([v, l]) => add(l.split(' ')[0], tr('Darstellung: {theme}', { theme: tr(l).replace(/^\S+\s/, '') }), () => { data.settings.theme = v; commit(); }, tr('Theme Hell Dunkel')));
   LANGUAGES.forEach(([code, name]) => add('🌐', tr('Sprache: {lang}', { lang: name }), () => { data.settings.language = code; commit(); }, 'Language Sprache'));
@@ -5457,7 +5468,7 @@ function ganttChart(p, pl) {
   const zoomNames = { day: tr('Tage'), week: tr('Wochen'), month: tr('Monate') };
   return `<div class="gantt-wrap">
     <div class="gantt-tools">
-      <div class="segmented" role="group" aria-label= + I('Zoom', 'Zoom') + r>${Object.keys(GANTT_PX).map((z) => `<button type="button" class="seg-btn ${z === ganttZoom ? 'active' : ''}" data-action="setGanttZoom" data-id="${z}" aria-pressed="${z === ganttZoom}">${zoomNames[z]}</button>`).join('')}</div>
+      <div class="segmented" role="group" aria-label="${tr('Zoom')}">${Object.keys(GANTT_PX).map((z) => `<button type="button" class="seg-btn ${z === ganttZoom ? 'active' : ''}" data-action="setGanttZoom" data-id="${z}" aria-pressed="${z === ganttZoom}">${zoomNames[z]}</button>`).join('')}</div>
       <button type="button" class="btn small" data-action="ganttToday">${tr('Heute')}</button>
       <span class="g-legend small muted"><span class="g-key crit"></span>${tr('kritisch')} <span class="g-key"></span>${tr('geplant')} <span class="g-key slack"></span>${tr('Puffer')} <span class="g-key done"></span>${tr('erledigt')} ◆ ${tr('Meilenstein')}</span>
     </div>
@@ -5482,14 +5493,13 @@ function ganttChart(p, pl) {
 
 /** Scrollposition wiederherstellen bzw. beim ersten Öffnen zu „Heute“ springen */
 function restoreGanttScroll(forceToday = false) {
-  const el = document.querySelector('.gantt-scroll');
-  if (!el) return;
-  const pid = el.dataset.gantt;
-  const todayEl = el.querySelector('.g-today');
-  const labelW = el.querySelector('.g-label')?.offsetWidth || 0;
-  if (!forceToday && ganttScroll.has(`${pid}|${ganttZoom}`)) el.scrollLeft = ganttScroll.get(`${pid}|${ganttZoom}`);
-  else if (todayEl) el.scrollLeft = Math.max(0, todayEl.offsetLeft - 3 * Number(el.dataset.px) - 40);
-  el.addEventListener('scroll', () => ganttScroll.set(`${pid}|${ganttZoom}`, el.scrollLeft), { passive: true });
+  document.querySelectorAll('.gantt-scroll').forEach((el) => {
+    const key = `${el.dataset.gantt}|${el.dataset.px}`;
+    const todayEl = el.querySelector('.g-today');
+    if (!forceToday && ganttScroll.has(key)) el.scrollLeft = ganttScroll.get(key);
+    else if (todayEl) el.scrollLeft = Math.max(0, todayEl.offsetLeft - (el.dataset.gantt === 'roadmap' ? 14 : 3) * Number(el.dataset.px) - 40);
+    el.addEventListener('scroll', () => ganttScroll.set(key, el.scrollLeft), { passive: true });
+  });
 }
 
 /* Ziehen von Balken, Balkenende und Meilensteinen */
@@ -5575,6 +5585,108 @@ Object.assign(actions, {
     render();
   },
   ganttToday() { restoreGanttScroll(true); },
+});
+
+/* ---------------------------- Roadmap (alle Projekte) -------------------- */
+/* Eine Zeile je Projekt: Laufzeit (Beginn bis voraussichtliches Ende bzw. Zieltermin),
+   Fortschritt, Meilensteine (◆) und Zieltermin (⚑). Verspätete Projekte rot umrandet. */
+let roadmapZoom = (() => { try { const v = localStorage.getItem('projekttracker.ui.roadmapZoom'); return ['week', 'month'].includes(v) ? v : 'month'; } catch { return 'month'; } })();
+
+/** Zeitraum eines Projekts für die Roadmap */
+function projectSpan(p) {
+  const pl = planProject(p.id);
+  const s = projectStats(p);
+  const today = todayISO();
+  const starts = [p.createdAt ? String(p.createdAt).slice(0, 10) : today];
+  data.timeEntries.forEach((e) => { if (e.projectId === p.id) starts.push(e.date); });
+  pl.plan.forEach((x) => starts.push(x.es));
+  const ends = [];
+  if (pl.used && pl.openCount) ends.push(pl.end);
+  if (p.targetDate) ends.push(p.targetDate);
+  const ms = data.milestones.filter((m) => m.projectId === p.id);
+  ms.forEach((m) => { if (m.dueDate) ends.push(m.dueDate); if (m.doneAt) ends.push(m.doneAt); const f = pl.milestones.get(m.id); if (f) ends.push(f.forecast); });
+  const start = starts.reduce(minIso);
+  const openEnd = !ends.length;
+  const end = openEnd ? maxIso(today, start) : ends.reduce(maxIso);
+  const lateMs = ms.map((m) => ({ m, f: pl.milestones.get(m.id) })).filter((x) => x.f?.late > 0);
+  return { start, end, openEnd, ms, pl, progress: s.hasProgress ? s.progress : null, late: pl.projectLate, lateMs };
+}
+
+function roadmapChart(projects, { compact = false } = {}) {
+  const px = { week: 14, month: 4.5 }[roadmapZoom];
+  const today = todayISO();
+  const spans = projects.map((p) => ({ p, ...projectSpan(p) }));
+  if (!spans.length) return '';
+  let start = addDays(parseISO([today, ...spans.map((x) => x.start)].reduce(minIso)), -7);
+  const floor = addDays(parseISO(today), compact ? -30 : -120);
+  if (start < floor) start = floor; // sehr alte Projekte beginnen am linken Rand
+  start = roadmapZoom === 'month' ? new Date(start.getFullYear(), start.getMonth(), 1) : startOfWeek(start);
+  let end = addDays(parseISO([today, ...spans.map((x) => x.end)].reduce(maxIso)), 28);
+  const minDays = roadmapZoom === 'week' ? 84 : 180;
+  if (daysBetween(toISO(start), toISO(end)) < minDays) end = addDays(start, minDays);
+  const startIso = toISO(start);
+  const total = daysBetween(startIso, toISO(end)) + 1;
+  const W = Math.round(total * px);
+  const x = (iso) => Math.max(0, daysBetween(startIso, iso)) * px;
+
+  const months = [], weeks = [];
+  for (let i = 0; i < total; i++) {
+    const d = addDays(start, i);
+    if (i === 0 || d.getDate() === 1) months.push({ i, label: d.toLocaleDateString(LOCALE, { month: roadmapZoom === 'month' ? 'short' : 'long', year: 'numeric' }) });
+    if (roadmapZoom === 'week' && d.getDay() === 1) weeks.push(`<span class="g-day" style="left:${i * px}px;width:${7 * px}px">${fmtShortDate(toISO(d))}</span>`);
+  }
+  const monthHtml = months.map((mo, k) => `<span class="g-month" style="left:${mo.i * px}px;width:${((months[k + 1]?.i ?? total) - mo.i) * px}px">${esc(mo.label)}</span>`).join('');
+
+  const rows = spans.sort((a, b) => a.start.localeCompare(b.start)).map(({ p, start: s, end: e, openEnd, ms, progress, late, lateMs }) => {
+    const left = x(s), width = Math.max(px * 2, x(e) - left + px);
+    const problem = late > 0 || lateMs.length;
+    const tip = `${p.name} · ${fmtDate(s)} – ${openEnd ? tr('ohne Termin') : fmtDate(e)}${progress !== null ? ` · ${progress}%` : ''}${problem ? ` · ⚠️ ${tr('Termin gefährdet')}` : ''}`;
+    const link = `#/projekt/${p.id}/zeitplan`;
+    return `<div class="g-row rm-row"><a class="g-label rm-label" href="${link}" title="${esc(p.name)}"><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}${problem ? ' <span class="rm-warn">⚠️</span>' : ''}</a>
+      <div class="g-track" style="width:${W}px">
+        <a class="rm-bar ${openEnd ? 'open' : ''} ${problem ? 'late' : ''} ${p.status === 'pausiert' ? 'paused' : ''}" href="${link}" style="left:${left}px;width:${width}px;--pc:${esc(p.color)}" title="${esc(tip)}">
+          ${progress !== null ? `<span class="rm-progress" style="width:${progress}%"></span>` : ''}<span class="rm-text">${esc(p.name)}</span></a>
+        ${ms.map((m) => { const f = m.done ? null : planProject(p.id).milestones.get(m.id); const pos = m.done ? m.doneAt : m.dueDate || f?.forecast; if (!pos) return '';
+          return `<span class="g-diamond rm-ms ${m.done ? 'done' : f?.late > 0 ? 'late' : ''}" style="left:${x(pos) + px / 2}px" title="${esc(`🏁 ${m.title} · ${m.done ? tr('erreicht am {date}', { date: fmtDate(m.doneAt) }) : `${fmtDate(pos)}${f?.late > 0 ? ` · ${trp(f.late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät')}` : ''}`}`)}"></span>`; }).join('')}
+        ${p.targetDate ? `<span class="rm-target" style="left:${x(p.targetDate) + px}px" title="${esc(`${tr('Zieltermin')}: ${fmtDate(p.targetDate)}`)}">⚑</span>` : ''}
+      </div></div>`;
+  });
+  const H = rows.length * GANTT_ROW;
+  const warnings = spans.flatMap(({ p, late, lateMs }) => [
+    ...lateMs.map(({ m, f }) => ({ p, text: tr('Meilenstein „{title}“: {late}', { title: m.title, late: trp(f.late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät') }), n: f.late })),
+    ...(late > 0 ? [{ p, text: tr('Zieltermin {date}: {late}', { date: fmtDate(p.targetDate), late: trp(late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät') }), n: late }] : []),
+  ]).sort((a, b) => b.n - a.n);
+  return `<div class="gantt-wrap roadmap">
+    ${warnings.length ? `<ul class="rm-warnings">${warnings.slice(0, compact ? 3 : 10).map((w) => `<li>⚠️ <a href="#/projekt/${w.p.id}/zeitplan"><b>${esc(w.p.name)}</b></a> – ${esc(w.text)}</li>`).join('')}</ul>` : ''}
+    <div class="gantt-tools">
+      <div class="segmented" role="group" aria-label="${tr('Zoom')}">${['week', 'month'].map((z) => `<button type="button" class="seg-btn ${z === roadmapZoom ? 'active' : ''}" data-action="setRoadmapZoom" data-id="${z}" aria-pressed="${z === roadmapZoom}">${z === 'week' ? tr('Wochen') : tr('Monate')}</button>`).join('')}</div>
+      <button type="button" class="btn small" data-action="ganttToday">${tr('Heute')}</button>
+      ${compact ? '' : `<span class="g-legend small muted"><span class="g-key rm"></span>${tr('Laufzeit & Fortschritt')} ◆ ${tr('Meilenstein')} ⚑ ${tr('Zieltermin')} <span class="g-key crit"></span>${tr('Termin gefährdet')}</span>`}
+    </div>
+    <div class="gantt-scroll" data-gantt="roadmap" data-px="${px}">
+      <div class="gantt" style="--gw:${W}px">
+        <div class="g-row g-head"><div class="g-label"></div><div class="g-track" style="width:${W}px"><div class="g-months">${monthHtml}</div><div class="g-days">${weeks.join('')}</div></div></div>
+        <div class="g-body">
+          <div class="g-bg" style="height:${H}px;width:${W}px"><span class="g-today" style="left:${x(today) + px / 2}px" title="${tr('Heute')}"></span></div>
+          ${rows.join('')}
+        </div>
+      </div>
+    </div>
+    ${compact ? '' : `<p class="small muted g-hint">${tr('Laufzeit vom ersten Eintrag bzw. geplanten Start bis zum voraussichtlichen Ende oder Zieltermin. Projekte ohne Termin enden offen (gestrichelt). Antippen öffnet den Zeitplan des Projekts.')}</p>`}
+  </div>`;
+}
+
+Object.assign(actions, {
+  setRoadmapZoom({ id }) {
+    roadmapZoom = id === 'week' ? 'week' : 'month';
+    try { localStorage.setItem('projekttracker.ui.roadmapZoom', roadmapZoom); } catch { /* ignorieren */ }
+    render();
+  },
+  openRoadmap() {
+    projectView = 'roadmap';
+    try { localStorage.setItem('projekttracker.ui.projectView', 'roadmap'); } catch { /* ignorieren */ }
+    if (location.hash === '#/projekte') render(); else location.hash = '#/projekte';
+  },
 });
 
 /* ------------------------------------------------------------------------

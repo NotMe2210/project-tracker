@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-5",
+      "date": "2026-11-21",
+      "de": [
+        "🗺️ Roadmap über alle Projekte: Laufzeit, Fortschritt, Meilensteine und Zieltermine auf einer Zeitachse – als Ansicht auf der Projektseite und als Bereich der Übersicht",
+        "⚠️ Warnliste für gefährdete Meilensteine und Zieltermine aller Projekte"
+      ],
+      "en": [
+        "🗺️ Roadmap across all projects: duration, progress, milestones and target dates on one timeline – as a view on the projects page and as an overview section",
+        "⚠️ Warning list for milestones and target dates at risk across all projects"
+      ]
+    },
+    {
       "version": "2026.11.21-4",
       "date": "2026-11-21",
       "de": [

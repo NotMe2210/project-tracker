@@ -78,6 +78,15 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - **Warnungen:** Ein gefährdeter Meilenstein erscheint unter „Heute“, zum Beispiel „voraussichtlich 2 Arbeitstage zu spät“.
 - Wochenenden zählen standardmäßig nicht, das ist umstellbar. Kreisabhängigkeiten werden beim Speichern verhindert und im Zeitplan gemeldet.
 
+**🗺️ Roadmap über alle Projekte**
+- Dritte Ansicht auf der Projektseite (*Kacheln · Liste · Roadmap*) und als Bereich auf der Übersicht. Auch über die Befehlspalette erreichbar.
+- Eine Zeile je Projekt:
+  - Laufzeit vom ersten Eintrag bzw. geplanten Start bis zum voraussichtlichen Ende oder Zieltermin, mit Fortschritt
+  - ◆ Meilensteine (rot bei Verzug, grün erreicht) und ⚑ Zieltermin
+- Projekte ohne Termin enden offen (gestrichelt), pausierte erscheinen blass.
+- **Warnliste** oben: Welche Meilensteine und Zieltermine laut Zeitplan wie viele Arbeitstage zu spät sind. Gefährdete Projekte sind rot umrandet.
+- Zoom auf Wochen oder Monate. Ein Antippen öffnet den Zeitplan des Projekts. Die Statusfilter der Projektseite gelten auch hier.
+
 **📎 Dokumente**
 - Links zu Dateien und Seiten (iCloud, OneDrive, SharePoint, Google Drive/Docs, Dropbox, Notion, Figma …) im neuen Projekt-Reiter *Dokumente*, optional einer Aufgabe oder einem Meilenstein zugeordnet.
 - Gespeichert wird nur der Link, die Datei bleibt, wo sie ist.
