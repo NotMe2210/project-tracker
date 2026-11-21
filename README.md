@@ -23,6 +23,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 **Erfassen**
 - ⏱ **Zeit**: per Stoppuhr (läuft im Hintergrund weiter, auch nach einem Neuladen) oder manuell (`1:30`, `1,5`, `45 min`)
   - **Pausieren** mit ⏸ neben „Stopp“. Solange der Timer pausiert ist, liegt ein Hinweis über dem ganzen Fenster, mit „Fortsetzen“ oder „Beenden & Zeit speichern“. So vergisst du das Weiterlaufenlassen nicht. Die Pausenzeit wird nicht mitgezählt.
+  - 🔔 **Erinnerungston:** Solange ein Timer läuft, erinnert alle 15 Minuten ein kurzer, leiser Doppel-Ton daran (einstellbar: 5, 10, 15, 30, 60 Minuten oder aus, unter *Einstellungen › Timer & Pomodoro*). Pausen und Pomodoro-Pausen bleiben still; im Hintergrund kommt zusätzlich eine Mitteilung, wenn erlaubt. Auf iPhone/iPad hält Safari Webseiten im Hintergrund an, dort ertönt er nur bei geöffneter App.
   - 🍅 **Pomodoro-Timer**: 25 Min Fokus, 5 Min Pause, lange Pause nach jedem 4. Pomodoro (alles einstellbar). Mit Pausieren, Überspringen, Ton und Mitteilung. Beim Beenden wird die reine Fokuszeit als Zeiteintrag gespeichert.
   - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
 - ⚡ **Schnelleingabe** (Taste **N**, ⚡ in Seitenleiste bzw. Kopfzeile oder über die Befehlspalette): eine Zeile mit Live-Vorschau, bleibt für weitere Einträge offen.

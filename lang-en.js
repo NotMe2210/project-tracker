@@ -1413,4 +1413,12 @@ I18N.en = {
   "Projektansicht": "Project view",
   "Leer starten und selbst gestalten": "Start empty and design it myself",
   "Bestimmt, welche Bereiche im Reiter „Übersicht“ des neuen Projekts erscheinen.": "Decides which sections appear in the new project’s “Overview” tab.",
+  "⏱ Timer läuft noch": "⏱ Timer still running",
+  "Erinnerungston, solange ein Timer läuft": "Reminder sound while a timer is running",
+  "alle {n} Minuten": "every {n} minutes",
+  "Ein kurzer, leiser Doppel-Ton erinnert dich, dass Stoppuhr oder Pomodoro-Fokus noch laufen. Während einer Pause bleibt er still.": "A short, quiet double beep reminds you that the stopwatch or Pomodoro focus is still running. It stays silent during a pause.",
+  "Erinnerungston testen": "Test reminder sound",
+  "Timer & Pomodoro": "Timer & Pomodoro",
+  "Erinnerungston alle {n} Min": "reminder every {n} min",
+  "kein Erinnerungston": "no reminder sound",
 };

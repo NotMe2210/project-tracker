@@ -1437,3 +1437,8 @@ div.doc-chips { margin-top: 6px; }
 .layout-intro .li-steps { margin: 16px 0 10px; padding-left: 22px; display: grid; gap: 6px; }
 .layout-intro .li-steps li::marker { color: var(--primary); font-weight: 700; }
 .layout-intro .btn-row { margin-top: 12px; }
+
+/* ---- Erinnerungston: Timer-Anzeige pulsiert kurz mit ---- */
+.timer-indicator.ping { animation: timer-ping 1.2s ease-out; }
+@keyframes timer-ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+@media (prefers-reduced-motion: reduce) { .timer-indicator.ping { animation: none; } }

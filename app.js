@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-13';
+const APP_VERSION = '2026.11.21-14';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -31,6 +31,7 @@ const DEFAULT_DATA = {
     pomoLong: 15, // lange Pause
     pomoEvery: 4, // lange Pause nach jedem n-ten Pomodoro
     pomoSound: true,
+    timerBeep: 15, // Erinnerungston alle … Minuten, solange ein Timer läuft (0 = aus)
     pomoNotify: true,
     language: 'auto', // 'auto' = Gerätesprache, sonst Sprachcode (de, en …)
     remindersOn: true, // Erinnerungen bei eingeschlafenen Projekten
@@ -2522,12 +2523,16 @@ function renderPomodoroSettings() {
         <label>${tr('Lange Pause (Minuten)')}<input type="number" min="1" max="120" step="1" name="pomoLong" value="${cfg.long}"></label>
         <label>${tr('Lange Pause nach … Pomodoros')}<input type="number" min="1" max="12" step="1" name="pomoEvery" value="${cfg.every}"></label>
       </div>
+      <label>${tr('Erinnerungston, solange ein Timer läuft')}
+        <select name="timerBeep">${[0, 5, 10, 15, 30, 60].map((n) => `<option value="${n}" ${timerBeepMin() === n ? 'selected' : ''}>${n ? tr('alle {n} Minuten', { n }) : tr('Aus')}</option>`).join('')}</select></label>
+      <div class="hint" style="margin-top:-6px">${tr('Ein kurzer, leiser Doppel-Ton erinnert dich, dass Stoppuhr oder Pomodoro-Fokus noch laufen. Während einer Pause bleibt er still.')}</div>
       <label class="check-row"><input type="checkbox" name="pomoSound" ${st.pomoSound !== false ? 'checked' : ''}> ${tr('Ton am Ende von Fokus und Pause')}</label>
       <label class="check-row"><input type="checkbox" name="pomoNotify" ${st.pomoNotify !== false ? 'checked' : ''}> ${tr('Mitteilung anzeigen, wenn der Tracker im Hintergrund ist')}</label>
       <div class="hint">${permText}
         ${perm === 'default' ? ` <button type="button" class="btn small" data-action="askNotify">${tr('Mitteilungen erlauben')}</button>` : ''}</div>
       <div class="hint">${tr('Hinweis: Auf iPhone und iPad hält Safari Webseiten im Hintergrund an. Das Signal kommt dort, sobald du den Tracker wieder öffnest – die Zeit stimmt trotzdem.')}</div>
       <div class="form-actions">
+        <button type="button" class="btn" data-action="testTimerBeep">⏱ ${tr('Erinnerungston testen')}</button>
         <button type="button" class="btn" data-action="testChime">🔔 ${tr('Ton testen')}</button>
         <button class="btn primary" type="submit">${tr('Speichern')}</button>
       </div>
@@ -2599,8 +2604,8 @@ function renderSettings() {
 
     ${settingsSection('wochenziel', '🎯', tr('Wochenziel'), weeklyGoalSummary(), renderWeeklyGoalSettings())}
 
-    ${settingsSection('pomodoro', '🍅', tr('Pomodoro-Timer'),
-      tr('{w} Min Fokus · {s} / {l} Min Pause · lange Pause nach {e}', { w: pomoCfg().work, s: pomoCfg().short, l: pomoCfg().long, e: pomoCfg().every }),
+    ${settingsSection('pomodoro', '🍅', tr('Timer & Pomodoro'),
+      `${tr('{w} Min Fokus · {s} / {l} Min Pause · lange Pause nach {e}', { w: pomoCfg().work, s: pomoCfg().short, l: pomoCfg().long, e: pomoCfg().every })} · ${timerBeepMin() ? tr('Erinnerungston alle {n} Min', { n: timerBeepMin() }) : tr('kein Erinnerungston')}`,
       renderPomodoroSettings())}
 
     ${settingsSection('erinnerungen', '😴', tr('Erinnerungen bei eingeschlafenen Projekten'),
@@ -2961,6 +2966,7 @@ const actions = {
     if (!('Notification' in window)) return;
     Notification.requestPermission().then(() => render()).catch(() => {});
   },
+  testTimerBeep() { unlockAudio(); setTimeout(playTimerBeep, 50); },
   testChime() { unlockAudio(); playChime(); if (data.settings.pomoSound === false) toast(tr('Der Ton ist ausgeschaltet.')); },
   editProject({ id }) { projectForm(getProject(id)); },
 
@@ -3092,6 +3098,7 @@ const actions = {
   startTimer({ id, task }) {
     if (data.timer && !confirm(tr('Es läuft bereits ein Timer. Diesen verwerfen und neu starten?'))) return;
     const tk = task ? data.tasks.find((x) => x.id === task) : null;
+    unlockAudio(); // Start ist eine Nutzeraktion – danach darf der Erinnerungston spielen
     data.timer = { projectId: id, start: Date.now(), taskId: tk?.id || null };
     if (tk && !tk.done) tk.status = 'doing';
     noteTimerStart();
@@ -3622,6 +3629,51 @@ function playChime() {
     });
   } catch { /* ignorieren */ }
 }
+/** Kurzer, leiser Doppel-Ton: „Timer läuft noch“ – bewusst anders als der Pomodoro-Gong */
+function playTimerBeep() {
+  if (!audioCtx) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    [0, 0.18].forEach((dt) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      const t0 = audioCtx.currentTime + dt;
+      o.type = 'triangle'; o.frequency.value = 660;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.14);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t0); o.stop(t0 + 0.16);
+    });
+  } catch { /* ignorieren */ }
+}
+const timerBeepMin = () => { const v = Number(data.settings.timerBeep ?? 15); return v > 0 ? v : 0; };
+/* Gezählt wird nur laufende Zeit (nicht pausiert, beim Pomodoro nur Fokus). */
+const timerBeep = { key: null, acc: 0, last: 0 };
+function tickTimerBeep() {
+  const t = data.timer, now = Date.now();
+  const dt = timerBeep.last ? Math.min(now - timerBeep.last, 90000) : 0; // im Hintergrund gedrosselte Takte begrenzen
+  timerBeep.last = now;
+  const running = t && !t.pausedAt && (t.mode !== 'pomodoro' || t.phase === 'work');
+  const key = t ? `${t.projectId}|${t.startedAt || t.start}|${t.mode || ''}` : null;
+  if (key !== timerBeep.key) { timerBeep.key = key; timerBeep.acc = 0; return; }
+  const every = timerBeepMin();
+  if (!running || !every) return;
+  timerBeep.acc += dt;
+  if (timerBeep.acc < every * 60000) return;
+  timerBeep.acc = 0;
+  if (t.mode === 'pomodoro' && t.phaseEnd - now < 60000) return; // gleich kommt ohnehin der Pomodoro-Gong
+  playTimerBeep();
+  const el = $('#timer-indicator');
+  el?.classList.add('ping');
+  setTimeout(() => el?.classList.remove('ping'), 1200);
+  const min = Math.round((t.mode === 'pomodoro' ? Date.now() - t.phaseStart : stopwatchMs(t)) / 60000);
+  if (data.settings.pomoNotify !== false && 'Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+    try { new Notification(tr('⏱ Timer läuft noch'), { body: `${getProject(t.projectId)?.name || ''} · ${fmtDuration(min)}`, icon: 'icon-180.png', tag: 'timer-beep', silent: true }); } catch { /* ignorieren */ }
+  }
+}
+// Nach einem Neuladen ist Audio erst nach einer Berührung erlaubt – dann freischalten, wenn ein Timer läuft
+document.addEventListener('pointerdown', () => { if (data.timer && !audioCtx) unlockAudio(); }, true);
+
 function requestNotifyPermission() {
   if (data.settings.pomoNotify === false || !('Notification' in window)) return;
   if (Notification.permission === 'default') Notification.requestPermission().catch(() => {});
@@ -3747,6 +3799,7 @@ function renderPauseOverlay() {
 $('#modal').addEventListener('close', () => setTimeout(() => { if (data.timer) renderTimer(true); }, 0));
 setInterval(() => {
   tickPomodoro();
+  tickTimerBeep();
   if (data.timer) renderTimer();
   else if (document.title !== BRAND) document.title = BRAND;
 }, 1000);
@@ -4670,6 +4723,7 @@ document.addEventListener('submit', (e) => {
     pomoWork: Number(fd.get('pomoWork')), pomoShort: Number(fd.get('pomoShort')),
     pomoLong: Number(fd.get('pomoLong')), pomoEvery: Number(fd.get('pomoEvery')),
     pomoSound: fd.get('pomoSound') === 'on', pomoNotify: fd.get('pomoNotify') === 'on',
+    timerBeep: Number(fd.get('timerBeep')) || 0,
   });
   Object.assign(data.settings, { pomoWork: pomoCfg().work, pomoShort: pomoCfg().short, pomoLong: pomoCfg().long, pomoEvery: pomoCfg().every });
   if (data.settings.pomoNotify) requestNotifyPermission();

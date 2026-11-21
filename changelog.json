@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-14",
+      "date": "2026-11-21",
+      "de": [
+        "🔔 Erinnerungston: Solange Stoppuhr oder Pomodoro-Fokus laufen, erklingt alle 15 Minuten ein kurzer, leiser Doppel-Ton (einstellbar 5–60 Min oder aus, unter Einstellungen › Timer & Pomodoro)"
+      ],
+      "en": [
+        "🔔 Reminder sound: while the stopwatch or Pomodoro focus is running, a short, quiet double beep plays every 15 minutes (5–60 min or off, under Settings › Timer & Pomodoro)"
+      ]
+    },
+    {
       "version": "2026.11.21-13",
       "date": "2026-11-21",
       "de": [
