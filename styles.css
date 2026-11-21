@@ -1401,3 +1401,29 @@ div.doc-chips { margin-top: 6px; }
 .welcome-import h2 { font-size: 1.05rem; margin: 0 0 6px; }
 .welcome-import p { font-size: .92rem; margin-bottom: 14px; }
 .welcome-import code { font-size: .82rem; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+
+/* ---- Gantt auf Touch-Geräten: Scrollen erlaubt, Ziehen erst nach Gedrückthalten ---- */
+@media (hover: none) {
+  .g-bar, .g-diamond { touch-action: pan-x pan-y; -webkit-touch-callout: none; }
+}
+.g-bar.armed, .g-diamond.armed { outline: 2px solid var(--text); outline-offset: 2px; box-shadow: 0 6px 16px rgba(0, 0, 0, .25); }
+.g-bar.armed { transform: translateY(-1px); }
+
+/* ---- Zeitplan-Tabellen auf kleinen Bildschirmen: kompakt, ohne seitliches Scrollen ---- */
+@media (max-width: 640px) {
+  .table-wrap:has(> .plan-table) { overflow: visible; }
+  .plan-table, .plan-table tbody, .plan-table tr, .plan-table td { display: block; width: auto; }
+  .plan-table thead { display: none; }
+  .plan-table tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; position: relative; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .plan-table td { padding: 0; border: 0; text-align: left !important; font-size: .85rem; color: var(--muted); }
+  .plan-table td[data-label]::before { content: attr(data-label) " "; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; opacity: .8; }
+  .plan-table td.pt-title { flex: 1 0 100%; font-size: .95rem; color: var(--text); padding-right: 44px; }
+  .plan-table tr.crit td.pt-title { box-shadow: none; }
+  .plan-table tr.crit { box-shadow: inset 3px 0 0 var(--bad); padding-left: 10px; background: color-mix(in srgb, var(--bad) 7%, transparent); }
+  .plan-table tr.crit td { background: none; }
+  .plan-table td.pt-deps { flex-basis: 100%; }
+  .plan-table td.pt-edit { position: absolute; top: 4px; right: 0; }
+  .plan-table td.pt-status { margin-left: auto; }
+  .plan-table .crit-why { max-width: none; }
+  .plan-table td.pt-empty { display: none; }
+}

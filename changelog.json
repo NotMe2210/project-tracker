@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-11",
+      "date": "2026-11-21",
+      "de": [
+        "👆 Gantt auf dem Smartphone: Balken erst nach kurzem Gedrückthalten verschieben – normales Scrollen verändert nichts mehr",
+        "📱 Zeitplan-Tabellen (Meilensteine, Aufgaben) auf kleinen Bildschirmen kompakt untereinander statt seitlich scrollbar"
+      ],
+      "en": [
+        "👆 Gantt on phones: press and hold a bar before dragging it – normal scrolling no longer changes anything",
+        "📱 Schedule tables (milestones, tasks) are compact and stacked on small screens instead of scrolling sideways"
+      ]
+    },
+    {
       "version": "2026.11.21-10",
       "date": "2026-11-21",
       "de": [

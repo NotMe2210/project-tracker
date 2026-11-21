@@ -1395,4 +1395,5 @@ I18N.en = {
   "Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>projekttracker-backup-….json</code>), z. B. aus {svc}. Auch verschlüsselte Sicherungen funktionieren.": "Bring your projects over from another device: choose the latest backup (<code>projekttracker-backup-….json</code>), e.g. from {svc}. Encrypted backups work too.",
   "Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>projekttracker-backup-….json</code>). Auch verschlüsselte Sicherungen funktionieren.": "Bring your projects over from another device: choose the latest backup (<code>projekttracker-backup-….json</code>). Encrypted backups work too.",
   "Wie geht das?": "How does it work?",
+  "Gedrückt halten und ziehen = Start verschieben · am rechten Rand = Dauer ändern · ◆ = Zieldatum · antippen = bearbeiten. Nachfolger rücken automatisch mit.": "Press and hold, then drag = move start · at the right edge = change duration · ◆ = target date · tap = edit. Successors move along automatically.",
 };

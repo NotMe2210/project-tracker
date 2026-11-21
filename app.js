@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-10';
+const APP_VERSION = '2026.11.21-11';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -5873,7 +5873,7 @@ function projectSchedule(p) {
       : !x ? `<span class="muted small">${tr('keine offenen Aufgaben zugeordnet')}</span>`
       : x.late > 0 ? `<span class="badge overdue">⚠️ ${trp(x.late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät')}</span>`
       : `<span class="badge aktiv">${tr('im Plan')}</span>`;
-    return `<tr><td>🏁 ${esc(m.title)}</td><td>${m.dueDate ? fmtDate(m.dueDate) : '–'}</td><td>${x ? fmtDate(x.forecast) : '–'}</td><td>${status}</td></tr>`;
+    return `<tr><td class="pt-title">🏁 ${esc(m.title)}</td><td data-label="${tr('Zieldatum')}">${m.dueDate ? fmtDate(m.dueDate) : '–'}</td><td class="${x ? '' : 'pt-empty'}" data-label="${tr('Prognose')}">${x ? fmtDate(x.forecast) : '–'}</td><td class="pt-status">${status}</td></tr>`;
   }).join('');
   return `<section class="card">
     <div class="card-head"><h2>🗓 ${tr('Zeitplan')}</h2><span class="btn-row"><button class="btn small" data-action="exportIcs" data-id="${p.id}" title="${tr('Termine als Kalender-Datei (.ics)')}">📅 ${tr('Kalender')}</button><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
@@ -5886,13 +5886,13 @@ function projectSchedule(p) {
     <div class="table-wrap"><table class="plan-table">
       <thead><tr><th>${tr('Aufgabe')}</th><th class="num">${tr('Dauer')}</th><th>${tr('Start')}</th><th>${tr('Ende')}</th><th class="num">${tr('Puffer')}</th><th>${tr('Vorgänger')}</th><th></th></tr></thead>
       <tbody>${rows.map((t) => { const x = pl.plan.get(t.id); return `<tr class="${t.done ? 'done' : x.critical ? 'crit' : ''}">
-        <td>${t.done ? '✓ ' : x.critical ? '🔴 ' : ''}${esc(t.title)}${t.milestoneId ? `<div class="small muted">🏁 ${esc(data.milestones.find((m) => m.id === t.milestoneId)?.title || '')}</div>` : ''}
+        <td class="pt-title">${t.done ? '✓ ' : x.critical ? '🔴 ' : ''}${esc(t.title)}${t.milestoneId ? `<div class="small muted">🏁 ${esc(data.milestones.find((m) => m.id === t.milestoneId)?.title || '')}</div>` : ''}
           ${!t.done && x.critical ? `<div class="small crit-why">${esc(critReason(x))}</div>` : ''}</td>
-        <td class="num">${trp(x.dur, '{n} Tag', '{n} Tage')}</td>
-        <td>${fmtDate(x.es)}</td><td>${t.done ? tr('erledigt {when}', { when: fmtDate(t.doneAt) }) : fmtDate(x.ef)}</td>
-        <td class="num" title="${t.done ? '' : esc(critReason(x))}">${t.done ? '–' : x.critical ? `<b>${x.slack}</b>` : x.slack}</td>
-        <td class="small">${(t.dependsOn || []).map(title).join(', ') || '–'}</td>
-        <td><button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button></td></tr>`; }).join('')}</tbody>
+        <td class="num" data-label="${tr('Dauer')}">${trp(x.dur, '{n} Tag', '{n} Tage')}</td>
+        <td data-label="${tr('Start')}">${fmtDate(x.es)}</td><td data-label="${tr('Ende')}">${t.done ? tr('erledigt {when}', { when: fmtDate(t.doneAt) }) : fmtDate(x.ef)}</td>
+        <td class="num" data-label="${tr('Puffer')}" title="${t.done ? '' : esc(critReason(x))}">${t.done ? '–' : x.critical ? `<b>${x.slack}</b>` : x.slack}</td>
+        <td class="small pt-deps ${(t.dependsOn || []).length ? '' : 'pt-empty'}" data-label="${tr('Vorgänger')}">${(t.dependsOn || []).map(title).join(', ') || '–'}</td>
+        <td class="pt-edit"><button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button></td></tr>`; }).join('')}</tbody>
     </table></div>
     ${pl.used ? '' : `<div class="callout">💡 ${tr('Noch keine Planungsdaten: Öffne eine Aufgabe und trage Dauer und Vorgänger ein. Bis dahin gilt jede Aufgabe als 1 Tag ab heute.')}</div>`}
   </section>`;
@@ -6675,7 +6675,9 @@ function ganttChart(p, pl) {
         </div>
       </div>
     </div>
-    <p class="small muted g-hint">${tr('Balken ziehen = Start verschieben · rechten Rand ziehen = Dauer ändern · ◆ ziehen = Zieldatum · antippen = bearbeiten. Nachfolger rücken automatisch mit.')}</p>
+    <p class="small muted g-hint">${window.matchMedia('(hover: none)').matches
+      ? tr('Gedrückt halten und ziehen = Start verschieben · am rechten Rand = Dauer ändern · ◆ = Zieldatum · antippen = bearbeiten. Nachfolger rücken automatisch mit.')
+      : tr('Balken ziehen = Start verschieben · rechten Rand ziehen = Dauer ändern · ◆ ziehen = Zieldatum · antippen = bearbeiten. Nachfolger rücken automatisch mit.')}</p>
   </div>`;
 }
 
@@ -6691,18 +6693,42 @@ function restoreGanttScroll(forceToday = false) {
 }
 
 /* Ziehen von Balken, Balkenende und Meilensteinen */
+/* Maus: sofort ziehen. Finger: erst nach kurzem Gedrückthalten (GANTT_HOLD ms) – so verschiebt
+   normales Scrollen auf dem Smartphone nichts mehr. Bewegt sich der Finger vorher, ist es Scrollen. */
+const GANTT_HOLD = 380;
 let gDrag = null;
 document.addEventListener('pointerdown', (e) => {
   const bar = e.target.closest('[data-gtask], [data-gms]');
   if (!bar || e.button > 0) return;
   const px = Number(bar.closest('.gantt-scroll').dataset.px);
-  gDrag = { el: bar, px, x0: e.clientX, moved: false, mode: bar.dataset.gms ? 'ms' : e.target.closest('.g-handle') ? 'resize' : 'move',
+  const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
+  gDrag = { el: bar, px, x0: e.clientX, y0: e.clientY, moved: false, touch, armed: !touch, pointerId: e.pointerId,
+    mode: bar.dataset.gms ? 'ms' : e.target.closest('.g-handle') ? 'resize' : 'move',
     left: parseFloat(bar.style.left), width: parseFloat(bar.style.width) || 0, id: bar.dataset.gtask || bar.dataset.gms };
+  if (touch) {
+    gDrag.timer = setTimeout(() => {
+      if (!gDrag || gDrag.el !== bar) return;
+      gDrag.armed = true;
+      gDrag.x0 = gDrag.lastX ?? gDrag.x0;
+      bar.classList.add('armed');
+      bar.setPointerCapture?.(gDrag.pointerId);
+      navigator.vibrate?.(12);
+    }, GANTT_HOLD);
+    return; // nicht preventDefault – sonst ließe sich die Seite nicht scrollen
+  }
   bar.setPointerCapture?.(e.pointerId);
   e.preventDefault();
 });
+// Solange ein Balken „gegriffen“ ist, darf der Finger die Seite nicht scrollen
+document.addEventListener('touchmove', (e) => { if (gDrag?.armed && gDrag.touch) e.preventDefault(); }, { passive: false });
 document.addEventListener('pointermove', (e) => {
   if (!gDrag) return;
+  if (!gDrag.armed) {
+    gDrag.lastX = e.clientX;
+    // vor dem Greifen bewegt = Scrollen → kein Ziehen, kein Antippen
+    if (Math.hypot(e.clientX - gDrag.x0, e.clientY - gDrag.y0) > 8) { clearTimeout(gDrag.timer); gDrag = null; }
+    return;
+  }
   const dx = e.clientX - gDrag.x0;
   if (!gDrag.moved && Math.abs(dx) < 4) return;
   gDrag.moved = true;
@@ -6715,14 +6741,25 @@ document.addEventListener('pointermove', (e) => {
 });
 function endGanttDrag() {
   if (!gDrag) return;
-  const { mode, id, moved, days } = gDrag;
+  const { mode, id, moved, days, timer, el } = gDrag;
+  clearTimeout(timer);
+  el.classList.remove('armed');
   gDrag = null;
   if (!moved) return mode === 'ms' ? actions.editMilestone({ id }) : actions.editTask({ id });
   if (!days) return render();
   applyGanttChange(mode, id, days);
 }
 document.addEventListener('pointerup', endGanttDrag);
-document.addEventListener('pointercancel', () => { if (gDrag) { gDrag = null; render(); } });
+document.addEventListener('pointercancel', () => {
+  if (!gDrag) return;
+  const { moved, timer, el } = gDrag;
+  clearTimeout(timer);
+  el.classList.remove('armed');
+  gDrag = null;
+  if (moved) render(); // nur zurücksetzen, wenn schon etwas verschoben war
+});
+// Langes Drücken soll kein Kontextmenü / keine Textauswahl öffnen
+document.addEventListener('contextmenu', (e) => { if (e.target.closest?.('[data-gtask], [data-gms]')) e.preventDefault(); });
 // Tastatur: Pfeile verschieben, Umschalt+Pfeile ändern die Dauer, Enter bearbeitet
 document.addEventListener('keydown', (e) => {
   const bar = e.target.closest?.('[data-gtask], [data-gms]');
