@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-11';
+const APP_VERSION = '2026.11.21-12';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -1155,8 +1155,8 @@ function renderDashboard() {
       <div class="welcome-import">
         <h2>${tr('Schon mit Protrac gearbeitet?')}</h2>
         <p>${syncService().cloud
-          ? tr('Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>projekttracker-backup-….json</code>), z. B. aus {svc}. Auch verschlüsselte Sicherungen funktionieren.', { svc: esc(syncService().name) })
-          : tr('Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>projekttracker-backup-….json</code>). Auch verschlüsselte Sicherungen funktionieren.')}</p>
+          ? tr('Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>protrac-backup-….json</code>), z. B. aus {svc}. Auch verschlüsselte Sicherungen funktionieren.', { svc: esc(syncService().name) })
+          : tr('Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>protrac-backup-….json</code>). Auch verschlüsselte Sicherungen funktionieren.')}</p>
         <div class="btn-row">
           <button class="btn" data-action="importData">⬆ ${tr('Sicherung importieren')}</button>
           ${isServerMode() ? '' : `<a class="btn ghost" href="#/einstellungen" data-open-section="sync">${tr('Wie geht das?')}</a>`}
@@ -3151,7 +3151,7 @@ const actions = {
   exportData() {
     const now = new Date();
     const stamp = `${toISO(now)}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
-    download(`projekttracker-backup-${stamp}.json`, JSON.stringify({ ...data, exportedAt: now.toISOString() }, null, 2), 'application/json');
+    download(`protrac-backup-${stamp}.json`, JSON.stringify({ ...data, exportedAt: now.toISOString() }, null, 2), 'application/json');
     meta.lastExport = Date.now();
     saveMeta();
     render();
@@ -3179,7 +3179,7 @@ const actions = {
     data.timeEntries.forEach((e) => rows.push([tr('Zeit'), e.date, name(e.projectId), entryTitle(e), e.description, '', e.minutes, dec(e.minutes / 60), ''].map(q).join(sep)));
     data.investments.forEach((e) => rows.push([tr('Investition'), e.date, name(e.projectId), e.description, '', e.category, '', '', dec(e.amount)].map(q).join(sep)));
     (data.incomes || []).forEach((e) => rows.push([tr('Einnahme'), e.date, name(e.projectId), e.description, '', e.category, '', '', dec(-e.amount)].map(q).join(sep)));
-    download(`projekttracker-${todayISO()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv');
+    download(`protrac-${todayISO()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv');
   },
   importData() {
     const input = document.createElement('input');
@@ -5512,7 +5512,7 @@ function openCsvImport(defaultProjectId) {
     box.querySelector('.csv-file-name').textContent = file.name;
     btn('check').click();
   });
-  box.addEventListener('click', (e) => { if (e.target.closest('[data-csv-template]')) download(`${tr('projekttracker-vorlage')}.csv`, csvTemplate(), 'text/csv'); });
+  box.addEventListener('click', (e) => { if (e.target.closest('[data-csv-template]')) download(`${tr('protrac-vorlage')}.csv`, csvTemplate(), 'text/csv'); });
   btn('cancel').addEventListener('click', close);
   btn('back').addEventListener('click', () => step(1));
   btn('check').addEventListener('click', () => {
@@ -6090,7 +6090,7 @@ async function exportEncrypted(pw) {
     const now = new Date();
     const stamp = `${toISO(now)}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
     const box = await encryptText(JSON.stringify({ ...data, exportedAt: now.toISOString() }), pw);
-    download(`projekttracker-backup-${stamp}.protrac.json`, JSON.stringify(box), 'application/json');
+    download(`protrac-backup-${stamp}-${tr('verschluesselt')}.json`, JSON.stringify(box), 'application/json');
     meta.lastExport = Date.now();
     saveMeta();
     render();

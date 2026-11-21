@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-12",
+      "date": "2026-11-21",
+      "de": [
+        "💾 Sicherungen heißen jetzt protrac-backup-….json (verschlüsselt: …-verschluesselt.json), CSV-Exporte protrac-….csv – ältere Sicherungen lassen sich weiterhin importieren"
+      ],
+      "en": [
+        "💾 Backups are now named protrac-backup-….json (encrypted: …-encrypted.json), CSV exports protrac-….csv – older backups can still be imported"
+      ]
+    },
+    {
       "version": "2026.11.21-11",
       "date": "2026-11-21",
       "de": [
