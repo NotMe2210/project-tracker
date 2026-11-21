@@ -2208,7 +2208,35 @@ function renderWeeklyGoalSettings() {
     </form>`;
 }
 
-const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'pomodoro', 'erinnerungen', 'erfolge', 'sicherung', 'sync'];
+const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'pomodoro', 'erinnerungen', 'erfolge', 'team', 'app', 'sicherung', 'sync'];
+
+/* ---------------------------- Installierbare App (PWA) -------------------- */
+let installPrompt = null; // von Chrome/Edge angebotene Installation
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; if (parseRoute().view === 'einstellungen') render(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; toast(tr('📲 Protrac wurde als App installiert.')); });
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+// Service Worker: offline nutzbar & installierbar (nur über https bzw. localhost, nicht als lokale Datei)
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
+  navigator.serviceWorker.register('sw.js').catch(() => { /* ohne Service Worker läuft alles wie bisher */ });
+}
+
+function renderAppSettings() {
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const mac = !ios && /Macintosh/.test(ua);
+  const steps = [
+    ['📱', 'iPhone & iPad', tr('In Safari auf <i>Teilen</i> tippen › <i>Zum Home-Bildschirm</i>. Danach Protrac immer über das Symbol öffnen.'), ios],
+    ['💻', 'Mac (Safari)', tr('Menü <i>Ablage</i> › <i>Zum Dock hinzufügen</i> (ab macOS Sonoma).'), mac],
+    ['🖥️', 'Windows (Edge) & Chrome', tr('In der Adressleiste auf das Symbol <i>App installieren</i> klicken oder Menü ⋯ › <i>Apps</i> › <i>Diese Website als App installieren</i>.'), !ios && !mac],
+    ['🤖', 'Android (Chrome)', tr('Menü ⋮ › <i>App installieren</i> bzw. <i>Zum Startbildschirm hinzufügen</i>.'), /Android/.test(ua)],
+  ];
+  return `<p class="small muted">${tr('Protrac lässt sich wie eine App installieren: mit eigenem Fenster ohne Browserleiste, eigenem Symbol und Start auch ohne Internetverbindung. Es ist dieselbe Version wie im Browser – Updates kommen automatisch, deine Daten bleiben, wo sie sind. Die Browserversion kannst du weiterhin parallel nutzen.')}</p>
+    ${isStandalone() ? `<div class="callout next">✅ ${tr('Du nutzt Protrac gerade als installierte App.')}</div>`
+      : installPrompt ? `<div class="btn-row" style="margin-bottom:12px"><button class="btn primary" data-action="installApp">📲 ${tr('Jetzt als App installieren')}</button></div>` : ''}
+    <ul class="app-steps">${steps.map(([ico, name, text, mine]) => `<li class="${mine ? 'mine' : ''}"><span>${ico}</span><div><b>${name}</b>${mine ? ` <span class="badge aktiv">${tr('dieses Gerät')}</span>` : ''}<div class="small muted">${text}</div></div></li>`).join('')}</ul>
+    <p class="small muted">${tr('Hinweis: Jede installierte App und jeder Browser hat einen eigenen Speicher. Ohne eigenen Server überträgst du die Daten wie gewohnt per Sicherung.')}</p>`;
+}
 
 /** Ein-/Aus-Schalter für eine Einstellung (wird sofort gespeichert) */
 function settingToggle(key, on, label, hint) {
@@ -2319,6 +2347,10 @@ function renderSettings() {
     ${settingsSection('erinnerungen', '😴', tr('Erinnerungen bei eingeschlafenen Projekten'),
       set.remindersOn === false ? `<span class="badge">${tr('Ausgeschaltet')}</span>` : `${tr('nach {n} Tagen', { n: esc(set.staleDays) })} · ${trp(texts.length, '{n} Text', '{n} Texte')}`,
       renderReminderSettings())}
+
+    ${settingsSection('app', '📲', tr('App installieren'),
+      isStandalone() ? `<span class="badge aktiv">${tr('Als App geöffnet')}</span>` : tr('Eigenes Fenster, eigenes Symbol, auch offline'),
+      renderAppSettings())}
 
     ${settingsSection('erfolge', '🏅', tr('Erfolge'),
       set.achievementsOn === false ? `<span class="badge">${tr('Ausgeschaltet')}</span>`
@@ -2553,6 +2585,13 @@ const actions = {
     commit();
     if (!wasDone && status === 'abgeschlossen') celebrateProject(p);
     else toast(tr('Status: {s}', { s: statusLabel(status) }));
+  },
+  async installApp() {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch { /* abgebrochen */ }
+    installPrompt = null;
+    render();
   },
   setChartPeriod({ id }) {
     if (!CHART_PERIODS.includes(id)) return;

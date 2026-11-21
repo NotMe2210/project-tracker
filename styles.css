@@ -1164,3 +1164,9 @@ html.side-collapsed .brand .brand-mark { display: grid; }
 /* Kartenkopf mit mehreren Knöpfen: Titel und Knöpfe dürfen umbrechen, Knöpfe bleiben nebeneinander */
 .card-head:has(> .btn-row) { flex-wrap: wrap; }
 .card-head > .btn-row { flex-wrap: nowrap; margin-left: auto; }
+
+/* App installieren */
+.app-steps { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.app-steps li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
+.app-steps li > span { font-size: 1.3rem; line-height: 1.2; }
+.app-steps li.mine { border-color: var(--primary); background: var(--primary-soft); }
