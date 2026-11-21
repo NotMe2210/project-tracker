@@ -1221,7 +1221,7 @@ div.doc-chips { margin-top: 6px; }
 .gantt-tools { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 8px; }
 .gantt-tools .seg-btn { padding: 4px 10px; font-size: .82rem; }
 .gantt-scroll { --gl: 220px; overflow-x: auto; overscroll-behavior-x: contain; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-.gantt { position: relative; width: calc(var(--gl) + var(--gw)); }
+.gantt { position: relative; width: calc(var(--gl) + var(--gw)); overflow-x: clip; }
 .g-row { display: flex; height: 34px; }
 .g-label {
   position: sticky; left: 0; z-index: 5; flex: none; width: var(--gl); padding: 0 10px; line-height: 34px; font-size: .85rem;
@@ -1395,3 +1395,50 @@ div.doc-chips { margin-top: 6px; }
 @media (max-width: 640px) { .quick-help code { white-space: normal; } .quick-help td:first-child { width: 48%; } }
 @media (max-width: 640px) { .quick > * { flex-shrink: 0; } }
 .plan-table .crit-why { font-weight: 400; color: var(--bad); margin-top: 2px; max-width: 420px; }
+
+/* ---- Willkommen: Sicherung importieren ---- */
+.welcome-import { margin: 28px auto 0; padding-top: 22px; border-top: 1px solid var(--border); max-width: 520px; }
+.welcome-import h2 { font-size: 1.05rem; margin: 0 0 6px; }
+.welcome-import p { font-size: .92rem; margin-bottom: 14px; }
+.welcome-import code { font-size: .82rem; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+
+/* ---- Gantt auf Touch-Geräten: Scrollen erlaubt, Ziehen erst nach Gedrückthalten ---- */
+@media (hover: none) {
+  .g-bar, .g-diamond { touch-action: pan-x pan-y; -webkit-touch-callout: none; }
+}
+.g-bar.armed, .g-diamond.armed { outline: 2px solid var(--text); outline-offset: 2px; box-shadow: 0 6px 16px rgba(0, 0, 0, .25); }
+.g-bar.armed { transform: translateY(-1px); }
+
+/* ---- Zeitplan-Tabellen auf kleinen Bildschirmen: kompakt, ohne seitliches Scrollen ---- */
+@media (max-width: 640px) {
+  .table-wrap:has(> .plan-table) { overflow: visible; }
+  .plan-table, .plan-table tbody, .plan-table tr, .plan-table td { display: block; width: auto; }
+  .plan-table thead { display: none; }
+  .plan-table tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; position: relative; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .plan-table td { padding: 0; border: 0; text-align: left !important; font-size: .85rem; color: var(--muted); }
+  .plan-table td[data-label]::before { content: attr(data-label) " "; font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; opacity: .8; }
+  .plan-table td.pt-title { flex: 1 0 100%; font-size: .95rem; color: var(--text); padding-right: 44px; }
+  .plan-table tr.crit td.pt-title { box-shadow: none; }
+  .plan-table tr.crit { box-shadow: inset 3px 0 0 var(--bad); padding-left: 10px; background: color-mix(in srgb, var(--bad) 7%, transparent); }
+  .plan-table tr.crit td { background: none; }
+  .plan-table td.pt-deps { flex-basis: 100%; }
+  .plan-table td.pt-edit { position: absolute; top: 4px; right: 0; }
+  .plan-table td.pt-status { margin-left: auto; }
+  .plan-table .crit-why { max-width: none; }
+  .plan-table td.pt-empty { display: none; }
+}
+
+/* ---- Einführung bei leerer Übersicht ---- */
+.layout-intro { padding: 22px; border: 1px dashed color-mix(in srgb, var(--primary) 45%, var(--border)); background: linear-gradient(135deg, var(--primary-soft), var(--surface) 65%); }
+.layout-intro .li-head { display: flex; gap: 14px; align-items: flex-start; }
+.layout-intro .li-ico { font-size: 2rem; line-height: 1; }
+.layout-intro h2 { margin: 0 0 4px; }
+.layout-intro .li-head p { margin: 0; color: var(--muted); }
+.layout-intro .li-steps { margin: 16px 0 10px; padding-left: 22px; display: grid; gap: 6px; }
+.layout-intro .li-steps li::marker { color: var(--primary); font-weight: 700; }
+.layout-intro .btn-row { margin-top: 12px; }
+
+/* ---- Erinnerungston: Timer-Anzeige pulsiert kurz mit ---- */
+.timer-indicator.ping { animation: timer-ping 1.2s ease-out; }
+@keyframes timer-ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+@media (prefers-reduced-motion: reduce) { .timer-indicator.ping { animation: none; } }

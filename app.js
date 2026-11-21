@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-7';
+const APP_VERSION = '2026.11.21-15';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -31,6 +31,7 @@ const DEFAULT_DATA = {
     pomoLong: 15, // lange Pause
     pomoEvery: 4, // lange Pause nach jedem n-ten Pomodoro
     pomoSound: true,
+    timerBeep: 15, // Erinnerungston alle … Minuten, solange ein Timer läuft (0 = aus)
     pomoNotify: true,
     language: 'auto', // 'auto' = Gerätesprache, sonst Sprachcode (de, en …)
     remindersOn: true, // Erinnerungen bei eingeschlafenen Projekten
@@ -229,11 +230,19 @@ let syncHintDismissed = false;
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? normalize(JSON.parse(raw)) : structuredClone(DEFAULT_DATA);
+    return raw ? normalize(JSON.parse(raw)) : freshData();
   } catch (e) {
     console.error(e);
-    return structuredClone(DEFAULT_DATA);
+    return freshData();
   }
+}
+
+/** Start auf einem neuen Gerät: Übersicht und Projektansicht beginnen leer – mit Einführung zum Gestalten */
+function freshData() {
+  const d = structuredClone(DEFAULT_DATA);
+  d.settings.dashboard = { widgets: [] };
+  d.settings.projectLayout = { widgets: [] };
+  return d;
 }
 
 function normalize(d) {
@@ -690,6 +699,8 @@ function render() {
   else if (r.view === 'woche') html = renderWeekReview(r.id);
   else html = renderDashboard();
   app.innerHTML = html;
+  // Zeitachse an die tatsächliche Breite anpassen (höchstens ein zusätzlicher Durchgang)
+  if (measureCharts() && !render.refit) { render.refit = true; try { render(); } finally { render.refit = false; } return; }
   restoreGanttScroll();
   growAll(app);
   renderBackupBar();
@@ -957,6 +968,32 @@ function renderLayoutGrid(cfg, defs, renderFn, { edit = false, statDefs = [] } =
   return `<div class="wgrid ${edit ? 'editing' : ''}">${items.join('')}</div>${tray}`;
 }
 
+const layoutEmpty = (cfg) => !cfg.widgets.some((w) => w.visible);
+/** Einführung, solange eine Übersicht leer ist: wie man sie selbst gestaltet */
+function layoutIntro(kind, p) {
+  const isProject = kind === 'project';
+  const btn = isProject ? `✏️ ${tr('Ansicht anpassen')}` : `⚙️ ${tr('Anpassen')}`;
+  const shared = isProject && p.layout && !layoutEmpty(layoutConfig(data.settings.projectLayout, PROJECT_DEFS, PROJECT_STATS));
+  return `<section class="card layout-intro">
+    <div class="li-head"><span class="li-ico" aria-hidden="true">✨</span><div>
+      <h2>${isProject ? tr('Gestalte die Projektansicht') : tr('Gestalte deine Übersicht')}</h2>
+      <p>${tr('Hier ist noch nichts eingeblendet – du entscheidest, was du sehen möchtest. So geht’s:')}</p></div></div>
+    <ol class="li-steps">
+      <li>${tr('<b>{btn}</b> antippen', { btn })}</li>
+      <li>${tr('Unter „Ausgeblendet“ die gewünschten Bereiche mit <b>+</b> einblenden')}</li>
+      <li>${tr('Am <b>⠿</b>-Griff verschieben, die Breite mit <b>¼ ½ ¾ voll</b> wählen, mit <b>✕</b> wieder ausblenden')}</li>
+      <li>${tr('<b>Fertig</b> antippen – du kannst alles jederzeit wieder ändern')}</li>
+    </ol>
+    ${isProject ? `<p class="small muted">${tr('Tipp: Beim Speichern wählst du, ob die Anordnung für alle Projekte oder nur für dieses gilt.')}</p>`
+      : `<p class="small muted">${tr('Tipp für den Anfang: „Heute“, „Wochenziel“ und „Nächste Schritte“.')}</p>`}
+    <div class="btn-row">
+      <button class="btn primary" data-action="${isProject ? 'customizeProject' : 'customizeDashboard'}" ${isProject ? `data-id="${p.id}"` : ''}>${tr('Jetzt gestalten')}</button>
+      ${shared ? `<button class="btn" data-action="useSharedLayout" data-id="${p.id}">${tr('Gewohnte Anordnung übernehmen')}</button>` : ''}
+      <button class="btn" data-action="applyRecommendedLayout" data-kind="${kind}" ${isProject ? `data-id="${p.id}"` : ''}>${tr('Empfohlene Auswahl übernehmen')}</button>
+    </div>
+  </section>`;
+}
+
 function editBar() {
   if (!editState) return '';
   const p = editState.kind === 'project' ? getProject(editState.pid) : null;
@@ -1150,6 +1187,16 @@ function renderDashboard() {
         <button class="btn primary" data-action="newProject">${tr('Erstes Projekt anlegen')}</button>
         <button class="btn" data-action="loadDemo">${tr('Beispieldaten ansehen')}</button>
       </div>
+      <div class="welcome-import">
+        <h2>${tr('Schon mit Protrac gearbeitet?')}</h2>
+        <p>${syncService().cloud
+          ? tr('Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>protrac-backup-….json</code>), z. B. aus {svc}. Auch verschlüsselte Sicherungen funktionieren.', { svc: esc(syncService().name) })
+          : tr('Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>protrac-backup-….json</code>). Auch verschlüsselte Sicherungen funktionieren.')}</p>
+        <div class="btn-row">
+          <button class="btn" data-action="importData">⬆ ${tr('Sicherung importieren')}</button>
+          ${isServerMode() ? '' : `<a class="btn ghost" href="#/einstellungen" data-open-section="sync">${tr('Wie geht das?')}</a>`}
+        </div>
+      </div>
     </div>`;
   }
 
@@ -1163,8 +1210,8 @@ function renderDashboard() {
       <h1>${tr('Übersicht')}</h1>
       <button class="btn small" data-action="customizeDashboard">⚙️ ${tr('Anpassen')}</button>
     </div>`}
-    ${renderLayoutGrid(cfg, DASH_DEFS, (id) => renderWidget(id, ctx, cfg), { edit: editing, statDefs: STAT_TILES })}
-    ${anyVisible || editing ? '' : `<div class="card empty">${tr('Alle Bereiche sind ausgeblendet.')}<br><br><button class="btn primary" data-action="customizeDashboard">${tr('Übersicht anpassen')}</button></div>`}`;
+    ${!editing && layoutEmpty(cfg) ? layoutIntro('dashboard') : renderLayoutGrid(cfg, DASH_DEFS, (id) => renderWidget(id, ctx, cfg), { edit: editing, statDefs: STAT_TILES })}
+    ${anyVisible || editing || layoutEmpty(cfg) ? '' : `<div class="card empty">${tr('Alle Bereiche sind ausgeblendet.')}<br><br><button class="btn primary" data-action="customizeDashboard">${tr('Übersicht anpassen')}</button></div>`}`;
 }
 
 function dashboardContext() {
@@ -1956,7 +2003,7 @@ function projectOverview(p, s) {
       <span class="small muted">${p.layout ? tr('🎯 Eigene Anordnung für dieses Projekt') : ''}</span>
       <button class="btn small" data-action="customizeProject" data-id="${p.id}">✏️ ${tr('Ansicht anpassen')}</button>
     </div>`}
-    ${renderLayoutGrid(cfg, PROJECT_DEFS, (id) => renderProjectWidget(id, p, s, cfg), { edit: editing, statDefs: PROJECT_STATS })}`;
+    ${!editing && layoutEmpty(cfg) ? layoutIntro('project', p) : renderLayoutGrid(cfg, PROJECT_DEFS, (id) => renderProjectWidget(id, p, s, cfg), { edit: editing, statDefs: PROJECT_STATS })}`;
 }
 
 /** Kennzahl-Kacheln eines Projekts */
@@ -2476,12 +2523,16 @@ function renderPomodoroSettings() {
         <label>${tr('Lange Pause (Minuten)')}<input type="number" min="1" max="120" step="1" name="pomoLong" value="${cfg.long}"></label>
         <label>${tr('Lange Pause nach … Pomodoros')}<input type="number" min="1" max="12" step="1" name="pomoEvery" value="${cfg.every}"></label>
       </div>
+      <label>${tr('Erinnerungston, solange ein Timer läuft')}
+        <select name="timerBeep">${[0, 1, 5, 10, 15, 30, 60].map((n) => `<option value="${n}" ${timerBeepMin() === n ? 'selected' : ''}>${n === 1 ? tr('jede Minute') : n ? tr('alle {n} Minuten', { n }) : tr('Aus')}</option>`).join('')}</select></label>
+      <div class="hint" style="margin-top:-6px">${tr('Ein kurzer, leiser Doppel-Ton erinnert dich, dass Stoppuhr oder Pomodoro-Fokus noch laufen. Während einer Pause bleibt er still.')}</div>
       <label class="check-row"><input type="checkbox" name="pomoSound" ${st.pomoSound !== false ? 'checked' : ''}> ${tr('Ton am Ende von Fokus und Pause')}</label>
       <label class="check-row"><input type="checkbox" name="pomoNotify" ${st.pomoNotify !== false ? 'checked' : ''}> ${tr('Mitteilung anzeigen, wenn der Tracker im Hintergrund ist')}</label>
       <div class="hint">${permText}
         ${perm === 'default' ? ` <button type="button" class="btn small" data-action="askNotify">${tr('Mitteilungen erlauben')}</button>` : ''}</div>
       <div class="hint">${tr('Hinweis: Auf iPhone und iPad hält Safari Webseiten im Hintergrund an. Das Signal kommt dort, sobald du den Tracker wieder öffnest – die Zeit stimmt trotzdem.')}</div>
       <div class="form-actions">
+        <button type="button" class="btn" data-action="testTimerBeep">⏱ ${tr('Erinnerungston testen')}</button>
         <button type="button" class="btn" data-action="testChime">🔔 ${tr('Ton testen')}</button>
         <button class="btn primary" type="submit">${tr('Speichern')}</button>
       </div>
@@ -2553,8 +2604,8 @@ function renderSettings() {
 
     ${settingsSection('wochenziel', '🎯', tr('Wochenziel'), weeklyGoalSummary(), renderWeeklyGoalSettings())}
 
-    ${settingsSection('pomodoro', '🍅', tr('Pomodoro-Timer'),
-      tr('{w} Min Fokus · {s} / {l} Min Pause · lange Pause nach {e}', { w: pomoCfg().work, s: pomoCfg().short, l: pomoCfg().long, e: pomoCfg().every }),
+    ${settingsSection('pomodoro', '🍅', tr('Timer & Pomodoro'),
+      `${tr('{w} Min Fokus · {s} / {l} Min Pause · lange Pause nach {e}', { w: pomoCfg().work, s: pomoCfg().short, l: pomoCfg().long, e: pomoCfg().every })} · ${timerBeepMin() === 1 ? tr('Erinnerungston jede Minute') : timerBeepMin() ? tr('Erinnerungston alle {n} Min', { n: timerBeepMin() }) : tr('kein Erinnerungston')}`,
       renderPomodoroSettings())}
 
     ${settingsSection('erinnerungen', '😴', tr('Erinnerungen bei eingeschlafenen Projekten'),
@@ -2867,6 +2918,20 @@ const actions = {
   openPalette() { openPalette(); },
   quickAdd() { openQuickAdd(); },
   customizeProject({ id }) { startEdit('project', id); },
+  applyRecommendedLayout({ kind, id }) {
+    if (kind === 'project') {
+      const p = getProject(id);
+      if (p) p.layout = defaultLayout(PROJECT_DEFS, PROJECT_STATS); // nur dieses Projekt
+    } else delete data.settings.dashboard; // Standard-Übersicht
+    commit();
+    toast(tr('✨ Empfohlene Auswahl übernommen – über „Anpassen“ kannst du sie jederzeit ändern.'));
+  },
+  useSharedLayout({ id }) {
+    const p = getProject(id);
+    if (!p) return;
+    delete p.layout;
+    commit();
+  },
   resetProjectLayout({ id }) {
     delete getProject(id).layout;
     commit();
@@ -2901,6 +2966,7 @@ const actions = {
     if (!('Notification' in window)) return;
     Notification.requestPermission().then(() => render()).catch(() => {});
   },
+  testTimerBeep() { unlockAudio(); setTimeout(playTimerBeep, 50); },
   testChime() { unlockAudio(); playChime(); if (data.settings.pomoSound === false) toast(tr('Der Ton ist ausgeschaltet.')); },
   editProject({ id }) { projectForm(getProject(id)); },
 
@@ -3032,6 +3098,7 @@ const actions = {
   startTimer({ id, task }) {
     if (data.timer && !confirm(tr('Es läuft bereits ein Timer. Diesen verwerfen und neu starten?'))) return;
     const tk = task ? data.tasks.find((x) => x.id === task) : null;
+    unlockAudio(); // Start ist eine Nutzeraktion – danach darf der Erinnerungston spielen
     data.timer = { projectId: id, start: Date.now(), taskId: tk?.id || null };
     if (tk && !tk.done) tk.status = 'doing';
     noteTimerStart();
@@ -3139,7 +3206,7 @@ const actions = {
   exportData() {
     const now = new Date();
     const stamp = `${toISO(now)}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
-    download(`projekttracker-backup-${stamp}.json`, JSON.stringify({ ...data, exportedAt: now.toISOString() }, null, 2), 'application/json');
+    download(`protrac-backup-${stamp}.json`, JSON.stringify({ ...data, exportedAt: now.toISOString() }, null, 2), 'application/json');
     meta.lastExport = Date.now();
     saveMeta();
     render();
@@ -3167,7 +3234,7 @@ const actions = {
     data.timeEntries.forEach((e) => rows.push([tr('Zeit'), e.date, name(e.projectId), entryTitle(e), e.description, '', e.minutes, dec(e.minutes / 60), ''].map(q).join(sep)));
     data.investments.forEach((e) => rows.push([tr('Investition'), e.date, name(e.projectId), e.description, '', e.category, '', '', dec(e.amount)].map(q).join(sep)));
     (data.incomes || []).forEach((e) => rows.push([tr('Einnahme'), e.date, name(e.projectId), e.description, '', e.category, '', '', dec(-e.amount)].map(q).join(sep)));
-    download(`projekttracker-${todayISO()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv');
+    download(`protrac-${todayISO()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv');
   },
   importData() {
     const input = document.createElement('input');
@@ -3216,7 +3283,7 @@ const actions = {
   resetData() {
     if (!confirm(tr('Wirklich ALLE Daten löschen? Das kann nicht rückgängig gemacht werden.'))) return;
     if (!confirm(tr('Letzte Chance: Hast du ein Backup exportiert? Endgültig löschen?'))) return;
-    data = structuredClone(DEFAULT_DATA);
+    data = freshData();
     save();
     location.hash = '#/';
     render();
@@ -3241,6 +3308,9 @@ function projectForm(p) {
     submitLabel: isNew ? tr('Anlegen') : tr('Speichern'),
     wide: true,
     fields: [
+      ...(isNew && !layoutEmpty(layoutConfig(data.settings.projectLayout, PROJECT_DEFS, PROJECT_STATS)) ? [{ name: 'startView', label: tr('Projektansicht'), type: 'select', w: 4, value: 'shared',
+        options: [{ value: 'shared', label: tr('Gewohnte Anordnung übernehmen') }, { value: 'empty', label: tr('Leer starten und selbst gestalten') }],
+        hint: tr('Bestimmt, welche Bereiche im Reiter „Übersicht“ des neuen Projekts erscheinen.') }] : []),
       ...(isNew ? [{ name: 'template', label: tr('Vorlage'), type: 'select', w: 4, value: '',
         options: [{ value: '', label: tr('Leeres Projekt') }, ...allTemplates().map((t) => ({ value: t.id, label: `${t.icon || '📋'} ${t.name}` }))],
         hint: tr('Übernimmt Meilensteine und Aufgaben; Termine beginnen heute.') }] : []),
@@ -3267,9 +3337,11 @@ function projectForm(p) {
     ],
     onSubmit(v) {
       if (isNew) {
-        const tplId = v.template;
+        const tplId = v.template, startView = v.startView;
         delete v.template;
+        delete v.startView;
         const np = { id: uid(), createdAt: todayISO(), ...v };
+        if (startView === 'empty') np.layout = { widgets: [] };
         const tpl = tplId && templateById(tplId);
         if (tpl) applyBlueprint(np, tpl.bp, todayISO());
         data.projects.push(np);
@@ -3557,6 +3629,51 @@ function playChime() {
     });
   } catch { /* ignorieren */ }
 }
+/** Kurzer, leiser Doppel-Ton: „Timer läuft noch“ – bewusst anders als der Pomodoro-Gong */
+function playTimerBeep() {
+  if (!audioCtx) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    [0, 0.18].forEach((dt) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      const t0 = audioCtx.currentTime + dt;
+      o.type = 'triangle'; o.frequency.value = 660;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.14);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t0); o.stop(t0 + 0.16);
+    });
+  } catch { /* ignorieren */ }
+}
+const timerBeepMin = () => { const v = Number(data.settings.timerBeep ?? 15); return v > 0 ? v : 0; };
+/* Gezählt wird nur laufende Zeit (nicht pausiert, beim Pomodoro nur Fokus). */
+const timerBeep = { key: null, acc: 0, last: 0 };
+function tickTimerBeep() {
+  const t = data.timer, now = Date.now();
+  const dt = timerBeep.last ? Math.min(now - timerBeep.last, 90000) : 0; // im Hintergrund gedrosselte Takte begrenzen
+  timerBeep.last = now;
+  const running = t && !t.pausedAt && (t.mode !== 'pomodoro' || t.phase === 'work');
+  const key = t ? `${t.projectId}|${t.startedAt || t.start}|${t.mode || ''}` : null;
+  if (key !== timerBeep.key) { timerBeep.key = key; timerBeep.acc = 0; return; }
+  const every = timerBeepMin();
+  if (!running || !every) return;
+  timerBeep.acc += dt;
+  if (timerBeep.acc < every * 60000) return;
+  timerBeep.acc = 0;
+  if (t.mode === 'pomodoro' && t.phaseEnd - now < 60000) return; // gleich kommt ohnehin der Pomodoro-Gong
+  playTimerBeep();
+  const el = $('#timer-indicator');
+  el?.classList.add('ping');
+  setTimeout(() => el?.classList.remove('ping'), 1200);
+  const min = Math.round((t.mode === 'pomodoro' ? Date.now() - t.phaseStart : stopwatchMs(t)) / 60000);
+  if (data.settings.pomoNotify !== false && 'Notification' in window && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+    try { new Notification(tr('⏱ Timer läuft noch'), { body: `${getProject(t.projectId)?.name || ''} · ${fmtDuration(min)}`, icon: 'icon-180.png', tag: 'timer-beep', silent: true }); } catch { /* ignorieren */ }
+  }
+}
+// Nach einem Neuladen ist Audio erst nach einer Berührung erlaubt – dann freischalten, wenn ein Timer läuft
+document.addEventListener('pointerdown', () => { if (data.timer && !audioCtx) unlockAudio(); }, true);
+
 function requestNotifyPermission() {
   if (data.settings.pomoNotify === false || !('Notification' in window)) return;
   if (Notification.permission === 'default') Notification.requestPermission().catch(() => {});
@@ -3682,6 +3799,7 @@ function renderPauseOverlay() {
 $('#modal').addEventListener('close', () => setTimeout(() => { if (data.timer) renderTimer(true); }, 0));
 setInterval(() => {
   tickPomodoro();
+  tickTimerBeep();
   if (data.timer) renderTimer();
   else if (document.title !== BRAND) document.title = BRAND;
 }, 1000);
@@ -4605,6 +4723,7 @@ document.addEventListener('submit', (e) => {
     pomoWork: Number(fd.get('pomoWork')), pomoShort: Number(fd.get('pomoShort')),
     pomoLong: Number(fd.get('pomoLong')), pomoEvery: Number(fd.get('pomoEvery')),
     pomoSound: fd.get('pomoSound') === 'on', pomoNotify: fd.get('pomoNotify') === 'on',
+    timerBeep: Number(fd.get('timerBeep')) || 0,
   });
   Object.assign(data.settings, { pomoWork: pomoCfg().work, pomoShort: pomoCfg().short, pomoLong: pomoCfg().long, pomoEvery: pomoCfg().every });
   if (data.settings.pomoNotify) requestNotifyPermission();
@@ -5500,7 +5619,7 @@ function openCsvImport(defaultProjectId) {
     box.querySelector('.csv-file-name').textContent = file.name;
     btn('check').click();
   });
-  box.addEventListener('click', (e) => { if (e.target.closest('[data-csv-template]')) download(`${tr('projekttracker-vorlage')}.csv`, csvTemplate(), 'text/csv'); });
+  box.addEventListener('click', (e) => { if (e.target.closest('[data-csv-template]')) download(`${tr('protrac-vorlage')}.csv`, csvTemplate(), 'text/csv'); });
   btn('cancel').addEventListener('click', close);
   btn('back').addEventListener('click', () => step(1));
   btn('check').addEventListener('click', () => {
@@ -5861,7 +5980,7 @@ function projectSchedule(p) {
       : !x ? `<span class="muted small">${tr('keine offenen Aufgaben zugeordnet')}</span>`
       : x.late > 0 ? `<span class="badge overdue">⚠️ ${trp(x.late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät')}</span>`
       : `<span class="badge aktiv">${tr('im Plan')}</span>`;
-    return `<tr><td>🏁 ${esc(m.title)}</td><td>${m.dueDate ? fmtDate(m.dueDate) : '–'}</td><td>${x ? fmtDate(x.forecast) : '–'}</td><td>${status}</td></tr>`;
+    return `<tr><td class="pt-title">🏁 ${esc(m.title)}</td><td data-label="${tr('Zieldatum')}">${m.dueDate ? fmtDate(m.dueDate) : '–'}</td><td class="${x ? '' : 'pt-empty'}" data-label="${tr('Prognose')}">${x ? fmtDate(x.forecast) : '–'}</td><td class="pt-status">${status}</td></tr>`;
   }).join('');
   return `<section class="card">
     <div class="card-head"><h2>🗓 ${tr('Zeitplan')}</h2><span class="btn-row"><button class="btn small" data-action="exportIcs" data-id="${p.id}" title="${tr('Termine als Kalender-Datei (.ics)')}">📅 ${tr('Kalender')}</button><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
@@ -5874,13 +5993,13 @@ function projectSchedule(p) {
     <div class="table-wrap"><table class="plan-table">
       <thead><tr><th>${tr('Aufgabe')}</th><th class="num">${tr('Dauer')}</th><th>${tr('Start')}</th><th>${tr('Ende')}</th><th class="num">${tr('Puffer')}</th><th>${tr('Vorgänger')}</th><th></th></tr></thead>
       <tbody>${rows.map((t) => { const x = pl.plan.get(t.id); return `<tr class="${t.done ? 'done' : x.critical ? 'crit' : ''}">
-        <td>${t.done ? '✓ ' : x.critical ? '🔴 ' : ''}${esc(t.title)}${t.milestoneId ? `<div class="small muted">🏁 ${esc(data.milestones.find((m) => m.id === t.milestoneId)?.title || '')}</div>` : ''}
+        <td class="pt-title">${t.done ? '✓ ' : x.critical ? '🔴 ' : ''}${esc(t.title)}${t.milestoneId ? `<div class="small muted">🏁 ${esc(data.milestones.find((m) => m.id === t.milestoneId)?.title || '')}</div>` : ''}
           ${!t.done && x.critical ? `<div class="small crit-why">${esc(critReason(x))}</div>` : ''}</td>
-        <td class="num">${trp(x.dur, '{n} Tag', '{n} Tage')}</td>
-        <td>${fmtDate(x.es)}</td><td>${t.done ? tr('erledigt {when}', { when: fmtDate(t.doneAt) }) : fmtDate(x.ef)}</td>
-        <td class="num" title="${t.done ? '' : esc(critReason(x))}">${t.done ? '–' : x.critical ? `<b>${x.slack}</b>` : x.slack}</td>
-        <td class="small">${(t.dependsOn || []).map(title).join(', ') || '–'}</td>
-        <td><button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button></td></tr>`; }).join('')}</tbody>
+        <td class="num" data-label="${tr('Dauer')}">${trp(x.dur, '{n} Tag', '{n} Tage')}</td>
+        <td data-label="${tr('Start')}">${fmtDate(x.es)}</td><td data-label="${tr('Ende')}">${t.done ? tr('erledigt {when}', { when: fmtDate(t.doneAt) }) : fmtDate(x.ef)}</td>
+        <td class="num" data-label="${tr('Puffer')}" title="${t.done ? '' : esc(critReason(x))}">${t.done ? '–' : x.critical ? `<b>${x.slack}</b>` : x.slack}</td>
+        <td class="small pt-deps ${(t.dependsOn || []).length ? '' : 'pt-empty'}" data-label="${tr('Vorgänger')}">${(t.dependsOn || []).map(title).join(', ') || '–'}</td>
+        <td class="pt-edit"><button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button></td></tr>`; }).join('')}</tbody>
     </table></div>
     ${pl.used ? '' : `<div class="callout">💡 ${tr('Noch keine Planungsdaten: Öffne eine Aufgabe und trage Dauer und Vorgänger ein. Bis dahin gilt jede Aufgabe als 1 Tag ab heute.')}</div>`}
   </section>`;
@@ -6078,7 +6197,7 @@ async function exportEncrypted(pw) {
     const now = new Date();
     const stamp = `${toISO(now)}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
     const box = await encryptText(JSON.stringify({ ...data, exportedAt: now.toISOString() }), pw);
-    download(`projekttracker-backup-${stamp}.protrac.json`, JSON.stringify(box), 'application/json');
+    download(`protrac-backup-${stamp}-${tr('verschluesselt')}.json`, JSON.stringify(box), 'application/json');
     meta.lastExport = Date.now();
     saveMeta();
     render();
@@ -6201,7 +6320,7 @@ function duplicateForm(p) {
         hint: tr('Termine werden relativ zum Start von „{name}“ ({date}) verschoben.', { name: p.name, date: fmtDate(p.createdAt?.slice(0, 10) || todayISO()) }) },
     ],
     onSubmit(v) {
-      const np = { id: uid(), name: v.name, status: 'aktiv', createdAt: v.start };
+      const np = { id: uid(), name: v.name, status: 'aktiv', createdAt: v.start, ...(p.layout ? { layout: structuredClone(p.layout) } : {}) };
       const n = applyBlueprint(np, projectBlueprint(p), v.start);
       np.color = np.color || p.color;
       data.projects.push(np);
@@ -6518,6 +6637,41 @@ Object.assign(actions, {
   },
 });
 
+/* ---------------------------- Zeitachsen füllen die ganze Breite ------- */
+/* Gantt und Roadmap verlängern ihren Zeitraum, bis die Achse den verfügbaren Platz füllt.
+   Die Breite wird nach dem Zeichnen gemessen (je Diagrammart) und beim nächsten Zeichnen
+   genutzt; vor der ersten Messung gilt eine Schätzung aus der Seitenbreite. */
+const chartWidths = new Map(); // data-chart → Breite der Zeitachse in px (ohne Beschriftungsspalte)
+function chartFillDays(key, px) {
+  let w = chartWidths.get(key);
+  if (!w) {
+    const label = window.matchMedia('(max-width: 640px)').matches ? 118 : 220;
+    w = ($('#app')?.clientWidth || window.innerWidth) - 34 - label;
+  }
+  return Math.ceil(Math.max(0, w) / px) + 1;
+}
+/** Nach dem Zeichnen messen; hat sich die Breite geändert, einmal neu zeichnen */
+function measureCharts() {
+  let changed = false;
+  document.querySelectorAll('.gantt-scroll[data-chart]').forEach((el) => {
+    const gl = parseFloat(getComputedStyle(el).getPropertyValue('--gl')) || 0;
+    const w = Math.round(el.clientWidth - gl);
+    const old = chartWidths.get(el.dataset.chart);
+    if (w > 0 && (!old || Math.abs(old - w) > 8)) {
+      chartWidths.set(el.dataset.chart, w);
+      // nur neu zeichnen, wenn die Achse dadurch nicht mehr passt (zu kurz oder unnötig lang)
+      const inner = el.querySelector('.gantt');
+      if (inner && (inner.offsetWidth < el.clientWidth - 2 || (old && old > w))) changed = true;
+    }
+  });
+  return changed;
+}
+let chartResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(chartResizeTimer);
+  chartResizeTimer = setTimeout(() => { if (document.querySelector('.gantt-scroll[data-chart]') && !$('#modal').open && measureCharts()) render(); }, 200);
+});
+
 /* ---------------------------- Gantt-Diagramm --------------------------- */
 /* Balken je Aufgabe (gruppiert nach Meilensteinen), ◆ Meilensteine, Pfeile für Vorgänger,
    kritischer Pfad rot, Puffer hell, Heute-Linie. Ziehen = Start verschieben,
@@ -6548,7 +6702,7 @@ function ganttChart(p, pl) {
   let end = addDays(parseISO(dates.reduce(maxIso)), ganttZoom === 'month' ? 21 : 7);
   if (ganttZoom === 'week') start = startOfWeek(start);
   if (ganttZoom === 'month') start = new Date(start.getFullYear(), start.getMonth(), 1);
-  const minDays = ganttZoom === 'day' ? 28 : ganttZoom === 'week' ? 84 : 240;
+  const minDays = Math.max(ganttZoom === 'day' ? 28 : ganttZoom === 'week' ? 84 : 240, chartFillDays('gantt', px));
   if (daysBetween(toISO(start), toISO(end)) < minDays) end = addDays(start, minDays);
   const startIso = toISO(start);
   const total = daysBetween(startIso, toISO(end)) + 1;
@@ -6613,7 +6767,7 @@ function ganttChart(p, pl) {
       <button type="button" class="btn small" data-action="ganttToday">${tr('Heute')}</button>
       <span class="g-legend small muted"><span class="g-key crit"></span>${tr('kritisch')} <span class="g-key"></span>${tr('geplant')} <span class="g-key slack"></span>${tr('Puffer')} <span class="g-key done"></span>${tr('erledigt')} ◆ ${tr('Meilenstein')}</span>
     </div>
-    <div class="gantt-scroll" data-gantt="${p.id}" data-px="${px}">
+    <div class="gantt-scroll" data-gantt="${p.id}" data-chart="gantt" data-px="${px}">
       <div class="gantt" style="--gw:${W}px">
         <div class="g-row g-head"><div class="g-label"></div><div class="g-track" style="width:${W}px"><div class="g-months">${monthHtml}</div><div class="g-days">${cells.join('')}</div></div></div>
         <div class="g-body">
@@ -6628,7 +6782,9 @@ function ganttChart(p, pl) {
         </div>
       </div>
     </div>
-    <p class="small muted g-hint">${tr('Balken ziehen = Start verschieben · rechten Rand ziehen = Dauer ändern · ◆ ziehen = Zieldatum · antippen = bearbeiten. Nachfolger rücken automatisch mit.')}</p>
+    <p class="small muted g-hint">${window.matchMedia('(hover: none)').matches
+      ? tr('Gedrückt halten und ziehen = Start verschieben · am rechten Rand = Dauer ändern · ◆ = Zieldatum · antippen = bearbeiten. Nachfolger rücken automatisch mit.')
+      : tr('Balken ziehen = Start verschieben · rechten Rand ziehen = Dauer ändern · ◆ ziehen = Zieldatum · antippen = bearbeiten. Nachfolger rücken automatisch mit.')}</p>
   </div>`;
 }
 
@@ -6644,18 +6800,42 @@ function restoreGanttScroll(forceToday = false) {
 }
 
 /* Ziehen von Balken, Balkenende und Meilensteinen */
+/* Maus: sofort ziehen. Finger: erst nach kurzem Gedrückthalten (GANTT_HOLD ms) – so verschiebt
+   normales Scrollen auf dem Smartphone nichts mehr. Bewegt sich der Finger vorher, ist es Scrollen. */
+const GANTT_HOLD = 380;
 let gDrag = null;
 document.addEventListener('pointerdown', (e) => {
   const bar = e.target.closest('[data-gtask], [data-gms]');
   if (!bar || e.button > 0) return;
   const px = Number(bar.closest('.gantt-scroll').dataset.px);
-  gDrag = { el: bar, px, x0: e.clientX, moved: false, mode: bar.dataset.gms ? 'ms' : e.target.closest('.g-handle') ? 'resize' : 'move',
+  const touch = e.pointerType === 'touch' || e.pointerType === 'pen';
+  gDrag = { el: bar, px, x0: e.clientX, y0: e.clientY, moved: false, touch, armed: !touch, pointerId: e.pointerId,
+    mode: bar.dataset.gms ? 'ms' : e.target.closest('.g-handle') ? 'resize' : 'move',
     left: parseFloat(bar.style.left), width: parseFloat(bar.style.width) || 0, id: bar.dataset.gtask || bar.dataset.gms };
+  if (touch) {
+    gDrag.timer = setTimeout(() => {
+      if (!gDrag || gDrag.el !== bar) return;
+      gDrag.armed = true;
+      gDrag.x0 = gDrag.lastX ?? gDrag.x0;
+      bar.classList.add('armed');
+      bar.setPointerCapture?.(gDrag.pointerId);
+      navigator.vibrate?.(12);
+    }, GANTT_HOLD);
+    return; // nicht preventDefault – sonst ließe sich die Seite nicht scrollen
+  }
   bar.setPointerCapture?.(e.pointerId);
   e.preventDefault();
 });
+// Solange ein Balken „gegriffen“ ist, darf der Finger die Seite nicht scrollen
+document.addEventListener('touchmove', (e) => { if (gDrag?.armed && gDrag.touch) e.preventDefault(); }, { passive: false });
 document.addEventListener('pointermove', (e) => {
   if (!gDrag) return;
+  if (!gDrag.armed) {
+    gDrag.lastX = e.clientX;
+    // vor dem Greifen bewegt = Scrollen → kein Ziehen, kein Antippen
+    if (Math.hypot(e.clientX - gDrag.x0, e.clientY - gDrag.y0) > 8) { clearTimeout(gDrag.timer); gDrag = null; }
+    return;
+  }
   const dx = e.clientX - gDrag.x0;
   if (!gDrag.moved && Math.abs(dx) < 4) return;
   gDrag.moved = true;
@@ -6668,14 +6848,25 @@ document.addEventListener('pointermove', (e) => {
 });
 function endGanttDrag() {
   if (!gDrag) return;
-  const { mode, id, moved, days } = gDrag;
+  const { mode, id, moved, days, timer, el } = gDrag;
+  clearTimeout(timer);
+  el.classList.remove('armed');
   gDrag = null;
   if (!moved) return mode === 'ms' ? actions.editMilestone({ id }) : actions.editTask({ id });
   if (!days) return render();
   applyGanttChange(mode, id, days);
 }
 document.addEventListener('pointerup', endGanttDrag);
-document.addEventListener('pointercancel', () => { if (gDrag) { gDrag = null; render(); } });
+document.addEventListener('pointercancel', () => {
+  if (!gDrag) return;
+  const { moved, timer, el } = gDrag;
+  clearTimeout(timer);
+  el.classList.remove('armed');
+  gDrag = null;
+  if (moved) render(); // nur zurücksetzen, wenn schon etwas verschoben war
+});
+// Langes Drücken soll kein Kontextmenü / keine Textauswahl öffnen
+document.addEventListener('contextmenu', (e) => { if (e.target.closest?.('[data-gtask], [data-gms]')) e.preventDefault(); });
 // Tastatur: Pfeile verschieben, Umschalt+Pfeile ändern die Dauer, Enter bearbeitet
 document.addEventListener('keydown', (e) => {
   const bar = e.target.closest?.('[data-gtask], [data-gms]');
@@ -6763,7 +6954,7 @@ function roadmapChart(projects, { compact = false } = {}) {
   if (start < floor) start = floor; // sehr alte Projekte beginnen am linken Rand
   start = roadmapZoom === 'month' ? new Date(start.getFullYear(), start.getMonth(), 1) : startOfWeek(start);
   let end = addDays(parseISO([today, ...spans.map((x) => x.end)].reduce(maxIso)), 28);
-  const minDays = roadmapZoom === 'week' ? 84 : 180;
+  const minDays = Math.max(roadmapZoom === 'week' ? 84 : 180, chartFillDays(compact ? 'roadmap-compact' : 'roadmap', px));
   if (daysBetween(toISO(start), toISO(end)) < minDays) end = addDays(start, minDays);
   const startIso = toISO(start);
   const total = daysBetween(startIso, toISO(end)) + 1;
@@ -6804,7 +6995,7 @@ function roadmapChart(projects, { compact = false } = {}) {
       <button type="button" class="btn small" data-action="ganttToday">${tr('Heute')}</button>
       ${compact ? '' : `<span class="g-legend small muted"><span class="g-key rm"></span>${tr('Laufzeit & Fortschritt')} ◆ ${tr('Meilenstein')} ⚑ ${tr('Zieltermin')} <span class="g-key crit"></span>${tr('Termin gefährdet')}</span>`}
     </div>
-    <div class="gantt-scroll" data-gantt="roadmap" data-px="${px}">
+    <div class="gantt-scroll" data-gantt="roadmap" data-chart="${compact ? 'roadmap-compact' : 'roadmap'}" data-px="${px}">
       <div class="gantt" style="--gw:${W}px">
         <div class="g-row g-head"><div class="g-label"></div><div class="g-track" style="width:${W}px"><div class="g-months">${monthHtml}</div><div class="g-days">${weeks.join('')}</div></div></div>
         <div class="g-body">

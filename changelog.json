@@ -2,6 +2,90 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-15",
+      "date": "2026-11-21",
+      "de": [
+        "🔔 Erinnerungston auf Wunsch jede Minute"
+      ],
+      "en": [
+        "🔔 Reminder sound can now play every minute"
+      ]
+    },
+    {
+      "version": "2026.11.21-14",
+      "date": "2026-11-21",
+      "de": [
+        "🔔 Erinnerungston: Solange Stoppuhr oder Pomodoro-Fokus laufen, erklingt alle 15 Minuten ein kurzer, leiser Doppel-Ton (einstellbar 5–60 Min oder aus, unter Einstellungen › Timer & Pomodoro)"
+      ],
+      "en": [
+        "🔔 Reminder sound: while the stopwatch or Pomodoro focus is running, a short, quiet double beep plays every 15 minutes (5–60 min or off, under Settings › Timer & Pomodoro)"
+      ]
+    },
+    {
+      "version": "2026.11.21-13",
+      "date": "2026-11-21",
+      "de": [
+        "✨ Neuer Start: Übersicht und Projektansicht beginnen leer, mit kurzer Einführung zum Gestalten – oder einem Klick auf „Empfohlene Auswahl übernehmen“",
+        "🗂️ Neues Projekt: wählen, ob die Projektansicht die gewohnte Anordnung übernimmt oder leer startet"
+      ],
+      "en": [
+        "✨ Fresh start: the overview and project view begin empty, with a short guide to design them – or one click on “Use recommended selection”",
+        "🗂️ New project: choose whether the project view uses your usual layout or starts empty"
+      ]
+    },
+    {
+      "version": "2026.11.21-12",
+      "date": "2026-11-21",
+      "de": [
+        "💾 Sicherungen heißen jetzt protrac-backup-….json (verschlüsselt: …-verschluesselt.json), CSV-Exporte protrac-….csv – ältere Sicherungen lassen sich weiterhin importieren"
+      ],
+      "en": [
+        "💾 Backups are now named protrac-backup-….json (encrypted: …-encrypted.json), CSV exports protrac-….csv – older backups can still be imported"
+      ]
+    },
+    {
+      "version": "2026.11.21-11",
+      "date": "2026-11-21",
+      "de": [
+        "👆 Gantt auf dem Smartphone: Balken erst nach kurzem Gedrückthalten verschieben – normales Scrollen verändert nichts mehr",
+        "📱 Zeitplan-Tabellen (Meilensteine, Aufgaben) auf kleinen Bildschirmen kompakt untereinander statt seitlich scrollbar"
+      ],
+      "en": [
+        "👆 Gantt on phones: press and hold a bar before dragging it – normal scrolling no longer changes anything",
+        "📱 Schedule tables (milestones, tasks) are compact and stacked on small screens instead of scrolling sideways"
+      ]
+    },
+    {
+      "version": "2026.11.21-10",
+      "date": "2026-11-21",
+      "de": [
+        "⬆ Auf einem neuen Gerät lässt sich direkt auf der Willkommensseite eine Sicherung importieren – auch verschlüsselte"
+      ],
+      "en": [
+        "⬆ On a new device you can import a backup right from the welcome page – encrypted ones too"
+      ]
+    },
+    {
+      "version": "2026.11.21-9",
+      "date": "2026-11-21",
+      "de": [
+        "🎨 Das neue Logo erscheint jetzt zuverlässig auch im Browser-Tab (Safari hielt noch die Rakete fest)"
+      ],
+      "en": [
+        "🎨 The new logo now reliably appears in the browser tab too (Safari kept showing the rocket)"
+      ]
+    },
+    {
+      "version": "2026.11.21-8",
+      "date": "2026-11-21",
+      "de": [
+        "🗓 Gantt-Diagramm und Roadmap nutzen in jeder Zoomstufe (Tage, Wochen, Monate) die ganze Breite – die Zeitachse endet nicht mehr mittendrin"
+      ],
+      "en": [
+        "🗓 Gantt chart and roadmap use the full width at every zoom level (days, weeks, months) – the timeline no longer stops halfway"
+      ]
+    },
+    {
       "version": "2026.11.21-7",
       "date": "2026-11-21",
       "de": [

@@ -23,6 +23,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 **Erfassen**
 - ⏱ **Zeit**: per Stoppuhr (läuft im Hintergrund weiter, auch nach einem Neuladen) oder manuell (`1:30`, `1,5`, `45 min`)
   - **Pausieren** mit ⏸ neben „Stopp“. Solange der Timer pausiert ist, liegt ein Hinweis über dem ganzen Fenster, mit „Fortsetzen“ oder „Beenden & Zeit speichern“. So vergisst du das Weiterlaufenlassen nicht. Die Pausenzeit wird nicht mitgezählt.
+  - 🔔 **Erinnerungston:** Solange ein Timer läuft, erinnert alle 15 Minuten ein kurzer, leiser Doppel-Ton daran (einstellbar: jede Minute, alle 5, 10, 15, 30 oder 60 Minuten oder aus, unter *Einstellungen › Timer & Pomodoro*). Pausen und Pomodoro-Pausen bleiben still; im Hintergrund kommt zusätzlich eine Mitteilung, wenn erlaubt. Auf iPhone/iPad hält Safari Webseiten im Hintergrund an, dort ertönt er nur bei geöffneter App.
   - 🍅 **Pomodoro-Timer**: 25 Min Fokus, 5 Min Pause, lange Pause nach jedem 4. Pomodoro (alles einstellbar). Mit Pausieren, Überspringen, Ton und Mitteilung. Beim Beenden wird die reine Fokuszeit als Zeiteintrag gespeichert.
   - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
 - ⚡ **Schnelleingabe** (Taste **N**, ⚡ in Seitenleiste bzw. Kopfzeile oder über die Befehlspalette): eine Zeile mit Live-Vorschau, bleibt für weitere Einträge offen.
@@ -55,6 +56,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - 🤫 **14 geheime Erfolge** (davon 4 rund ums Team): Name und Bedingung bleiben verborgen (🔒 ???), bis du sie zufällig erreichst. Dann werden sie mit einer eigenen Meldung enthüllt und golden hervorgehoben.
 - 🔎 **Befehlspalette** am Computer mit ⌘K bzw. Strg+K: Seiten, Projekte, Pomodoro, Zeit, Aufgaben, Darstellung …
 - 👆 **Wischgesten** auf dem iPhone: Aufgabe nach rechts wischen = erledigt, nach links = Optionen
+- **Leerer Start mit Einführung:** Auf einem neuen Gerät beginnen Übersicht und Projektansicht leer. Eine Karte erklärt in vier Schritten, wie man Bereiche einblendet und anordnet; „Empfohlene Auswahl übernehmen“ setzt mit einem Klick die Standardauswahl. Gibt es schon eine gespeicherte Projektansicht, fragt Protrac beim Anlegen eines Projekts, ob sie übernommen oder leer gestartet werden soll. Bestehende Daten bleiben unverändert.
 - **Anpassbare Übersicht und Projektansicht** direkt auf der Seite (⚙️ Anpassen bzw. ✏️ Ansicht anpassen): Bereiche per **Drag-and-drop** am ⠿-Griff verschieben (Maus, Finger oder Pfeiltasten) mit sofortiger Vorschau, Breite **¼ Viertel / ½ Halb / ¾ Dreiviertel / voll** (4-Spalten-Raster), ausblenden ✕, wieder einblenden, Kennzahlen-Kacheln wählen. **✂ Aufteilen** zerlegt die Kennzahlen in einzelne Kacheln, die sich frei anordnen lassen. Die Projektansicht gilt wahlweise **für alle Projekte** oder **nur für ein Projekt**. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche (gestapelt nach Projekt), letzte Aktivitäten, Projektkacheln, offene Aufgaben, Investitionen nach Kategorie.
 - Dashboard mit Wochenstunden, Wochenziel, Streak, offenen bzw. überfälligen Aufgaben und Investitionen
 - **„Braucht Aufmerksamkeit“**: aktive Projekte ohne Aktivität seit X Tagen werden gelb, ab 2·X Tagen rot markiert. Die Erinnerungen lassen sich ausschalten, ebenso die Erfolge (Einstellungen).
@@ -88,6 +90,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
   - Linien für Heute und den Zieltermin, Zoom auf Tage, Wochen oder Monate
   - **Ziehen** verschiebt den Start, der **rechte Rand** ändert die Dauer, **◆ ziehen** setzt das Zieldatum, **Antippen** öffnet die Aufgabe. Nachfolger rücken automatisch mit.
   - Mit der Tastatur: Pfeiltasten verschieben, Umschalt+Pfeil ändert die Dauer, Enter bearbeitet.
+  - Auf dem Smartphone: Balken erst **kurz gedrückt halten**, dann ziehen. Normales Wischen scrollt nur und verändert nichts.
 - **Warnungen:** Ein gefährdeter Meilenstein erscheint unter „Heute“, zum Beispiel „voraussichtlich 2 Arbeitstage zu spät“.
 - Wochenenden zählen standardmäßig nicht, das ist umstellbar. Kreisabhängigkeiten werden beim Speichern verhindert und im Zeitplan gemeldet.
 
