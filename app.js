@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-16';
+const APP_VERSION = '2026.11.21-17';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -32,6 +32,11 @@ const DEFAULT_DATA = {
     pomoEvery: 4, // lange Pause nach jedem n-ten Pomodoro
     pomoSound: true,
     timerBeep: 15, // Erinnerungston alle … Minuten, solange ein Timer läuft (0 = aus)
+    timerSound: 'beep', // Klang, solange ein Timer läuft: beep | file | url | rain | brown | pad
+    timerSoundUrl: '', // Internetradio / Audio-Link
+    timerSoundVolume: 60, // 0–100
+    timerSoundBreaks: false, // in Pomodoro-Pausen weiterspielen
+    timerSoundFileName: '', // Name der eigenen Musikdatei (die Datei selbst liegt nur auf dem Gerät)
     pomoNotify: true,
     language: 'auto', // 'auto' = Gerätesprache, sonst Sprachcode (de, en …)
     remindersOn: true, // Erinnerungen bei eingeschlafenen Projekten
@@ -2523,16 +2528,13 @@ function renderPomodoroSettings() {
         <label>${tr('Lange Pause (Minuten)')}<input type="number" min="1" max="120" step="1" name="pomoLong" value="${cfg.long}"></label>
         <label>${tr('Lange Pause nach … Pomodoros')}<input type="number" min="1" max="12" step="1" name="pomoEvery" value="${cfg.every}"></label>
       </div>
-      <label>${tr('Erinnerungston, solange ein Timer läuft')}
-        <select name="timerBeep">${[0, 1, 5, 10, 15, 30, 60].map((n) => `<option value="${n}" ${timerBeepMin() === n ? 'selected' : ''}>${n === 1 ? tr('jede Minute') : n ? tr('alle {n} Minuten', { n }) : tr('Aus')}</option>`).join('')}</select></label>
-      <div class="hint" style="margin-top:-6px">${tr('Ein kurzer, leiser Doppel-Ton erinnert dich, dass Stoppuhr oder Pomodoro-Fokus noch laufen. Während einer Pause bleibt er still.')}</div>
+      ${renderTimerSoundSettings(st)}
       <label class="check-row"><input type="checkbox" name="pomoSound" ${st.pomoSound !== false ? 'checked' : ''}> ${tr('Ton am Ende von Fokus und Pause')}</label>
       <label class="check-row"><input type="checkbox" name="pomoNotify" ${st.pomoNotify !== false ? 'checked' : ''}> ${tr('Mitteilung anzeigen, wenn der Tracker im Hintergrund ist')}</label>
       <div class="hint">${permText}
         ${perm === 'default' ? ` <button type="button" class="btn small" data-action="askNotify">${tr('Mitteilungen erlauben')}</button>` : ''}</div>
       <div class="hint">${tr('Hinweis: Auf iPhone und iPad hält Safari Webseiten im Hintergrund an. Das Signal kommt dort, sobald du den Tracker wieder öffnest – die Zeit stimmt trotzdem.')}</div>
       <div class="form-actions">
-        <button type="button" class="btn" data-action="testTimerBeep">⏱ ${tr('Erinnerungston testen')}</button>
         <button type="button" class="btn" data-action="testChime">🔔 ${tr('Ton testen')}</button>
         <button class="btn primary" type="submit">${tr('Speichern')}</button>
       </div>
@@ -2605,7 +2607,7 @@ function renderSettings() {
     ${settingsSection('wochenziel', '🎯', tr('Wochenziel'), weeklyGoalSummary(), renderWeeklyGoalSettings())}
 
     ${settingsSection('pomodoro', '🍅', tr('Timer & Pomodoro'),
-      `${tr('{w} Min Fokus · {s} / {l} Min Pause · lange Pause nach {e}', { w: pomoCfg().work, s: pomoCfg().short, l: pomoCfg().long, e: pomoCfg().every })} · ${timerBeepMin() === 1 ? tr('Erinnerungston jede Minute') : timerBeepMin() ? tr('Erinnerungston alle {n} Min', { n: timerBeepMin() }) : tr('kein Erinnerungston')}`,
+      `${tr('{w} Min Fokus · {s} / {l} Min Pause · lange Pause nach {e}', { w: pomoCfg().work, s: pomoCfg().short, l: pomoCfg().long, e: pomoCfg().every })} · ${(data.settings.timerSound || 'beep') !== 'beep' ? soundLabel() : timerBeepMin() === 1 ? tr('Erinnerungston jede Minute') : timerBeepMin() ? tr('Erinnerungston alle {n} Min', { n: timerBeepMin() }) : tr('kein Erinnerungston')}`,
       renderPomodoroSettings())}
 
     ${settingsSection('erinnerungen', '😴', tr('Erinnerungen bei eingeschlafenen Projekten'),
@@ -2967,6 +2969,27 @@ const actions = {
     Notification.requestPermission().then(() => render()).catch(() => {});
   },
   testTimerBeep() { unlockAudio(); setTimeout(playTimerBeep, 50); },
+  previewTimerSound() {
+    const form = document.querySelector('[data-form="pomodoro"]');
+    if (snd.preview || !form) { snd.preview = null; clearTimeout(snd.previewTimer); syncTimerSound(); return render(); }
+    const fd = new FormData(form);
+    const source = String(fd.get('timerSound') || 'beep');
+    if (source === 'beep') { unlockAudio(); return setTimeout(playTimerBeep, 50); }
+    snd.failed = null;
+    snd.preview = soundCfg({ source, url: String(fd.get('timerSoundUrl') || '').trim(), volume: Number(fd.get('timerSoundVolume') ?? 60) / 100 });
+    soundStop(true);
+    syncTimerSound();
+    snd.previewTimer = setTimeout(() => { snd.preview = null; syncTimerSound(); if (location.hash.startsWith('#/einstellungen')) render(); }, 20000);
+    render();
+  },
+  async removeMusicFile() {
+    try { await idb('readwrite', (s) => s.delete('timerMusicFile')); } catch { /* ignorieren */ }
+    await loadMusicFile();
+    data.settings.timerSoundFileName = '';
+    soundStop(true);
+    save();
+    render();
+  },
   testChime() { unlockAudio(); playChime(); if (data.settings.pomoSound === false) toast(tr('Der Ton ist ausgeschaltet.')); },
   editProject({ id }) { projectForm(getProject(id)); },
 
@@ -3656,7 +3679,7 @@ function tickTimerBeep() {
   const running = t && !t.pausedAt && (t.mode !== 'pomodoro' || t.phase === 'work');
   const key = t ? `${t.projectId}|${t.startedAt || t.start}|${t.mode || ''}` : null;
   if (key !== timerBeep.key) { timerBeep.key = key; timerBeep.acc = 0; return; }
-  const every = timerBeepMin();
+  const every = (data.settings.timerSound || 'beep') === 'beep' ? timerBeepMin() : 0;
   if (!running || !every) return;
   timerBeep.acc += dt;
   if (timerBeep.acc < every * 60000) return;
@@ -3800,6 +3823,7 @@ $('#modal').addEventListener('close', () => setTimeout(() => { if (data.timer) r
 setInterval(() => {
   tickPomodoro();
   tickTimerBeep();
+  syncTimerSound();
   if (data.timer) renderTimer();
   else if (document.title !== BRAND) document.title = BRAND;
 }, 1000);
@@ -4690,6 +4714,7 @@ document.addEventListener('click', (e) => {
   if (!fn) return;
   e.preventDefault();
   fn({ ...el.dataset });
+  syncTimerSound(); // Start/Pause/Weiter: Musik passend starten oder anhalten
 });
 
 document.addEventListener('change', (e) => {
@@ -4724,7 +4749,14 @@ document.addEventListener('submit', (e) => {
     pomoLong: Number(fd.get('pomoLong')), pomoEvery: Number(fd.get('pomoEvery')),
     pomoSound: fd.get('pomoSound') === 'on', pomoNotify: fd.get('pomoNotify') === 'on',
     timerBeep: Number(fd.get('timerBeep')) || 0,
+    timerSound: String(fd.get('timerSound') || 'beep'),
+    timerSoundUrl: String(fd.get('timerSoundUrl') || '').trim(),
+    timerSoundVolume: Number(fd.get('timerSoundVolume') ?? 60),
+    timerSoundBreaks: fd.get('timerSoundBreaks') === 'on',
   });
+  snd.failed = null;
+  if (snd.preview) { snd.preview = null; }
+  syncTimerSound();
   Object.assign(data.settings, { pomoWork: pomoCfg().work, pomoShort: pomoCfg().short, pomoLong: pomoCfg().long, pomoEvery: pomoCfg().every });
   if (data.settings.pomoNotify) requestNotifyPermission();
   commit();
@@ -6029,6 +6061,241 @@ function importBackup(parsed) {
     toast(tr('Import fehlgeschlagen: {msg}', { msg: e.message }), 'error');
   }
 }
+
+/* ---------------------------- Klang / Musik, solange ein Timer läuft ------ */
+/* Quellen: eigene Musikdatei (bleibt im Browser dieses Geräts, IndexedDB), Internetradio bzw.
+   Audio-Link, oder im Browser erzeugte Fokus-Klänge (Regen, Rauschen, Klangfläche).
+   Spielt, solange Stoppuhr bzw. Pomodoro-Fokus laufen; pausiert mit dem Timer, blendet weich
+   ein und aus. Browser erlauben Ton erst nach einer Nutzeraktion – deshalb wird nach jedem
+   Klick abgeglichen (siehe Klick-Verteiler) und zusätzlich bei der ersten Berührung. */
+const SOUND_GEN = ['rain', 'brown', 'pad'];
+const SOUND_SOURCES = () => [
+  ['beep', tr('🔔 Erinnerungston (kurzer Doppel-Ton)')],
+  ['file', tr('🎵 Eigene Musikdatei')],
+  ['url', tr('📻 Internetradio / Audio-Link')],
+  ['rain', tr('🌧 Regen')],
+  ['brown', tr('🌊 Sanftes Rauschen')],
+  ['pad', tr('🎹 Ruhige Klangfläche')],
+];
+const snd = { key: null, el: null, nodes: [], gain: null, timers: [], fileUrl: null, preview: null, failed: null, noted: null };
+function soundCfg(over = {}) {
+  const st = data.settings;
+  return { source: st.timerSound || 'beep', url: (st.timerSoundUrl || '').trim(), volume: Math.max(0, Math.min(100, Number(st.timerSoundVolume ?? 60))) / 100, breaks: !!st.timerSoundBreaks, ...over };
+}
+/** Was jetzt laufen soll (oder null) */
+function wantedSound() {
+  if (snd.preview) return snd.preview;
+  const t = data.timer, c = soundCfg();
+  if (!t || c.source === 'beep' || t.pausedAt) return null;
+  if (t.mode === 'pomodoro' && t.phase !== 'work' && !(c.breaks && (t.phase === 'short' || t.phase === 'long'))) return null;
+  return c;
+}
+function syncTimerSound() {
+  const c = wantedSound();
+  if (!c) return soundStop();
+  soundStart(c);
+}
+function soundKey(c) { return `${c.source}|${c.source === 'url' ? c.url : c.source === 'file' ? snd.fileUrl : ''}`; }
+function soundStart(c) {
+  const key = soundKey(c);
+  if (snd.key === key) return soundVolume(c);
+  if (snd.failed === key) return; // nicht ständig neu versuchen
+  soundStop(true);
+  snd.key = key;
+  unlockAudio();
+  if (SOUND_GEN.includes(c.source)) return startGenerated(c);
+  const src = c.source === 'file' ? snd.fileUrl : /^https?:\/\//i.test(c.url) ? c.url : '';
+  if (!src) {
+    snd.failed = key;
+    if (snd.noted !== key) {
+      snd.noted = key;
+      toast(c.source === 'file' ? tr('🎵 Auf diesem Gerät ist noch keine Musikdatei gewählt – unter Einstellungen › Timer & Pomodoro auswählen.')
+        : tr('📻 Bitte zuerst einen Audio-Link eintragen (Einstellungen › Timer & Pomodoro).'));
+    }
+    return;
+  }
+  const a = new Audio();
+  a.src = src;
+  a.loop = c.source === 'file';
+  a.preload = 'auto';
+  a.volume = 0;
+  a.addEventListener('error', () => {
+    if (snd.el !== a) return;
+    snd.failed = key;
+    soundStop(true);
+    toast(c.source === 'url' ? tr('📻 Der Audio-Link ließ sich nicht abspielen. Nötig ist eine direkte Stream-Adresse (z. B. …/stream.mp3), möglichst mit https.')
+      : tr('🎵 Die Musikdatei ließ sich nicht abspielen.'), 'error');
+  });
+  // Stream bricht ab (z. B. Netz weg): nach kurzer Zeit neu verbinden
+  a.addEventListener('ended', () => { if (snd.el === a && !a.loop) { snd.key = null; setTimeout(syncTimerSound, 1500); } });
+  snd.el = a;
+  a.play().then(() => fadeElement(a, c.volume)).catch(() => { snd.key = null; }); // ohne Nutzeraktion blockiert → beim nächsten Antippen erneut
+  setMediaSession();
+}
+function fadeElement(a, target, ms = 1200, done) {
+  clearInterval(a._fade);
+  const from = a.volume, t0 = Date.now();
+  a._fade = setInterval(() => {
+    const k = Math.min(1, (Date.now() - t0) / ms);
+    try { a.volume = Math.max(0, Math.min(1, from + (target - from) * k)); } catch { /* iOS: Lautstärke nur über Gerätetasten */ }
+    if (k >= 1) { clearInterval(a._fade); a._fade = null; done?.(); }
+  }, 50);
+}
+function soundVolume(c) {
+  if (snd.el && !snd.el._fade) { try { snd.el.volume = c.volume; } catch { /* iOS */ } }
+  if (snd.gain && audioCtx) snd.gain.gain.setTargetAtTime(genLevel(c), audioCtx.currentTime, 0.3);
+}
+const genLevel = (c) => c.volume * (c.source === 'pad' ? 0.22 : 0.35);
+function soundStop(immediate = false) {
+  if (!snd.key && !snd.el && !snd.gain) return;
+  const el = snd.el, gain = snd.gain, nodes = snd.nodes, timers = snd.timers;
+  Object.assign(snd, { key: null, el: null, gain: null, nodes: [], timers: [] });
+  timers.forEach(clearInterval);
+  if (el) {
+    const end = () => { el.pause(); el.removeAttribute('src'); el.load(); };
+    if (immediate) end(); else fadeElement(el, 0, 700, end);
+  }
+  if (gain && audioCtx) {
+    gain.gain.setTargetAtTime(0, audioCtx.currentTime, immediate ? 0.05 : 0.3);
+    setTimeout(() => { nodes.forEach((n) => { try { n.stop?.(); n.disconnect(); } catch { /* ignorieren */ } }); try { gain.disconnect(); } catch { /* ignorieren */ } }, immediate ? 200 : 1500);
+  }
+}
+function noiseBuffer(kind) {
+  const len = audioCtx.sampleRate * 4, buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate), d = buf.getChannelData(0);
+  let last = 0;
+  for (let i = 0; i < len; i++) {
+    const w = Math.random() * 2 - 1;
+    if (kind === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w;
+  }
+  return buf;
+}
+function startGenerated(c) {
+  if (!audioCtx) { snd.key = null; return; } // Ton noch nicht freigeschaltet – beim nächsten Antippen erneut
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const ctx = audioCtx, now = ctx.currentTime;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0, now);
+  gain.connect(ctx.destination);
+  const nodes = [];
+  const lfo = (freq, depth, target) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = freq; g.gain.value = depth; o.connect(g).connect(target); o.start(); nodes.push(o, g); };
+  if (c.source === 'rain' || c.source === 'brown') {
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer(c.source === 'rain' ? 'white' : 'brown');
+    src.loop = true;
+    const hp = ctx.createBiquadFilter(), lp = ctx.createBiquadFilter(), mod = ctx.createGain();
+    hp.type = 'highpass'; hp.frequency.value = c.source === 'rain' ? 400 : 30;
+    lp.type = 'lowpass'; lp.frequency.value = c.source === 'rain' ? 5200 : 700;
+    mod.gain.value = 0.85;
+    src.connect(hp).connect(lp).connect(mod).connect(gain);
+    lfo(c.source === 'rain' ? 0.13 : 0.07, 0.12, mod.gain); // leichtes An- und Abschwellen
+    if (c.source === 'rain') lfo(0.05, 900, lp.frequency);
+    src.start();
+    nodes.push(src, hp, lp, mod);
+  } else {
+    // Klangfläche: weiche Akkorde, die langsam ineinander übergehen
+    const chords = [[220, 277.18, 329.63, 415.3], [196, 246.94, 293.66, 369.99], [174.61, 220, 261.63, 329.63], [196, 246.94, 293.66, 392]];
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 1100; lp.Q.value = 0.7;
+    lp.connect(gain);
+    lfo(0.04, 350, lp.frequency);
+    const voices = chords[0].flatMap((f) => [-5, 5].map((cents) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'triangle'; o.frequency.value = f; o.detune.value = cents; g.gain.value = 0.12;
+      o.connect(g).connect(lp); o.start(); nodes.push(o, g);
+      return o;
+    }));
+    let i = 0;
+    snd.timers.push(setInterval(() => {
+      i = (i + 1) % chords.length;
+      voices.forEach((o, k) => o.frequency.setTargetAtTime(chords[i][k >> 1], ctx.currentTime, 1.6));
+    }, 9000));
+    nodes.push(lp);
+  }
+  gain.gain.setTargetAtTime(genLevel(c), now, 0.8);
+  snd.gain = gain;
+  snd.nodes = nodes;
+}
+/** Sperrbildschirm / Medientasten: Titel anzeigen, Pause hält den Timer an */
+function setMediaSession() {
+  if (!('mediaSession' in navigator) || snd.preview) return;
+  const t = data.timer;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: `${BRAND} · ${tr('Timer läuft')}`, artist: getProject(t?.projectId)?.name || '', artwork: [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }] });
+    navigator.mediaSession.setActionHandler('pause', () => { if (data.timer && !data.timer.pausedAt) data.timer.mode === 'pomodoro' ? actions.pomoPause() : actions.pauseTimer(); });
+    navigator.mediaSession.setActionHandler('play', () => { if (data.timer?.pausedAt) data.timer.mode === 'pomodoro' ? actions.pomoPause() : actions.pauseTimer(); syncTimerSound(); });
+  } catch { /* nicht unterstützt */ }
+}
+// Eigene Musikdatei: liegt im Browser dieses Geräts (nicht in der Sicherung – zu groß)
+async function loadMusicFile() {
+  try {
+    const f = await idb('readonly', (s) => s.get('timerMusicFile'));
+    if (snd.fileUrl) URL.revokeObjectURL(snd.fileUrl);
+    snd.fileUrl = f?.blob ? URL.createObjectURL(f.blob) : null;
+    snd.fileName = f?.name || '';
+  } catch { snd.fileUrl = null; }
+}
+document.addEventListener('change', async (e) => {
+  const input = e.target.closest?.('[data-music-file]');
+  if (!input || !input.files?.[0]) return;
+  const file = input.files[0];
+  if (!/^audio\//.test(file.type) && !/\.(mp3|m4a|aac|wav|ogg|oga|opus|flac)$/i.test(file.name)) return toast(tr('Das ist keine Audiodatei.'), 'error');
+  if (file.size > 80 * 1024 * 1024) return toast(tr('Die Datei ist zu groß (höchstens 80 MB).'), 'error');
+  try {
+    await idb('readwrite', (s) => s.put({ blob: file, name: file.name, type: file.type }, 'timerMusicFile'));
+  } catch {
+    return toast(tr('Die Datei konnte in diesem Browser nicht gespeichert werden (z. B. privates Fenster).'), 'error');
+  }
+  await loadMusicFile();
+  data.settings.timerSoundFileName = file.name;
+  data.settings.timerSound = 'file'; // wer eine Datei wählt, will sie auch hören
+  snd.failed = null;
+  save();
+  render();
+  toast(tr('🎵 „{name}“ gespeichert – nur auf diesem Gerät.', { name: file.name }));
+});
+// Auswahl im Formular: passende Felder einblenden
+document.addEventListener('change', (e) => {
+  if (e.target.name !== 'timerSound') return;
+  const form = e.target.form;
+  form.querySelectorAll('[data-sound-show]').forEach((el) => { el.hidden = !el.dataset.soundShow.split(' ').includes(e.target.value); });
+});
+// Nach einem Neuladen ist Ton erst nach einer Berührung erlaubt
+document.addEventListener('pointerdown', () => { if (data.timer) setTimeout(syncTimerSound, 0); }, true);
+
+function renderTimerSoundSettings(st) {
+  const src = st.timerSound || 'beep';
+  const show = (list) => (list.split(' ').includes(src) ? '' : 'hidden');
+  const fileName = snd.fileName || '';
+  return `<fieldset class="sound-set">
+      <legend>${tr('Klang, solange ein Timer läuft')}</legend>
+      <label><select name="timerSound">${SOUND_SOURCES().map(([v, l]) => `<option value="${v}" ${src === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      <div data-sound-show="beep" ${show('beep')}>
+        <label>${tr('Erinnerungston')}
+          <select name="timerBeep">${[0, 1, 5, 10, 15, 30, 60].map((n) => `<option value="${n}" ${timerBeepMin() === n ? 'selected' : ''}>${n === 1 ? tr('jede Minute') : n ? tr('alle {n} Minuten', { n }) : tr('Aus')}</option>`).join('')}</select></label>
+        <div class="hint">${tr('Ein kurzer, leiser Doppel-Ton erinnert dich, dass Stoppuhr oder Pomodoro-Fokus noch laufen. Während einer Pause bleibt er still.')}</div>
+      </div>
+      <div data-sound-show="file" ${show('file')}>
+        <div class="file-pick">
+          <label class="btn small">📂 ${fileName ? tr('Andere Datei wählen') : tr('Musikdatei wählen')}<input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.opus,.flac" data-music-file hidden></label>
+          <span class="small">${fileName ? `🎵 ${esc(fileName)}` : st.timerSoundFileName ? `<span class="badge mittel">${tr('Auf diesem Gerät noch nicht gewählt')}</span> ${esc(st.timerSoundFileName)}` : `<span class="muted">${tr('Noch keine Datei')}</span>`}</span>
+          ${fileName ? `<button type="button" class="btn small ghost danger" data-action="removeMusicFile">${tr('Entfernen')}</button>` : ''}
+        </div>
+        <div class="hint">${tr('MP3, M4A, WAV oder OGG, bis 80 MB. Die Datei bleibt nur in diesem Browser und läuft in Dauerschleife – sie ist nicht Teil der Sicherung und muss auf jedem Gerät einmal gewählt werden.')}</div>
+      </div>
+      <div data-sound-show="url" ${show('url')}>
+        <label>${tr('Adresse des Streams oder der Audiodatei')}
+          <input type="url" name="timerSoundUrl" value="${esc(st.timerSoundUrl || '')}" placeholder="https://…/stream.mp3" inputmode="url" autocomplete="off"></label>
+        <div class="hint">${tr('Direkte Adresse eines Internetradios oder einer Audiodatei (MP3/AAC), am besten mit https. Viele Sender nennen sie auf ihrer Website („Stream-URL“, „Direktlink“). Playlist-Dateien (.m3u/.pls) und Spotify-, YouTube- oder Apple-Music-Links funktionieren nicht.')}</div>
+      </div>
+      <div data-sound-show="file url rain brown pad" ${show('file url rain brown pad')}>
+        <label>${tr('Lautstärke')} <input type="range" name="timerSoundVolume" min="0" max="100" step="5" value="${Math.round(soundCfg().volume * 100)}"></label>
+        <label class="check-row"><input type="checkbox" name="timerSoundBreaks" ${st.timerSoundBreaks ? 'checked' : ''}> ${tr('Auch in Pomodoro-Pausen weiterspielen')}</label>
+        <div class="hint">${tr('Spielt, solange Stoppuhr oder Pomodoro-Fokus laufen, blendet weich ein und aus und hält mit dem Timer an. Auf iPhone/iPad regelst du die Lautstärke von Datei und Radio mit den Gerätetasten.')}</div>
+      </div>
+      <div class="btn-row"><button type="button" class="btn small" data-action="previewTimerSound">${snd.preview ? '■ ' + tr('Vorhören beenden') : '▶ ' + tr('Vorhören')}</button></div>
+    </fieldset>`;
+}
+const soundLabel = () => (SOUND_SOURCES().find(([v]) => v === (data.settings.timerSound || 'beep')) || SOUND_SOURCES()[0])[1];
 
 /* ---------------------------- Automatische Sicherung in einen Ordner ----- */
 /* Edge/Chrome (File System Access API): Nach jeder Änderung wird – kurz verzögert – eine
@@ -7391,4 +7658,5 @@ window.addEventListener('languagechange', () => render());
 render();
 initServer();
 initFolderBackup();
+loadMusicFile();
 setTimeout(checkWhatsNew, 800);

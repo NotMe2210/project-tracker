@@ -24,6 +24,11 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - ⏱ **Zeit**: per Stoppuhr (läuft im Hintergrund weiter, auch nach einem Neuladen) oder manuell (`1:30`, `1,5`, `45 min`)
   - **Pausieren** mit ⏸ neben „Stopp“. Solange der Timer pausiert ist, liegt ein Hinweis über dem ganzen Fenster, mit „Fortsetzen“ oder „Beenden & Zeit speichern“. So vergisst du das Weiterlaufenlassen nicht. Die Pausenzeit wird nicht mitgezählt.
   - 🔔 **Erinnerungston:** Solange ein Timer läuft, erinnert alle 15 Minuten ein kurzer, leiser Doppel-Ton daran (einstellbar: jede Minute, alle 5, 10, 15, 30 oder 60 Minuten oder aus, unter *Einstellungen › Timer & Pomodoro*). Pausen und Pomodoro-Pausen bleiben still; im Hintergrund kommt zusätzlich eine Mitteilung, wenn erlaubt. Auf iPhone/iPad hält Safari Webseiten im Hintergrund an, dort ertönt er nur bei geöffneter App.
+  - 🎵 **Musik statt Ton** (*Einstellungen › Timer & Pomodoro › Klang, solange ein Timer läuft*):
+    - **Eigene Musikdatei** (MP3, M4A, WAV, OGG bis 80 MB): bleibt nur im Browser des Geräts, läuft in Dauerschleife, ist nicht Teil der Sicherung.
+    - **Internetradio / Audio-Link**: direkte Stream-Adresse, z. B. `https://…/stream.mp3`. Playlist-Dateien (.m3u/.pls) sowie Spotify-, YouTube- und Apple-Music-Links funktionieren nicht.
+    - **Eingebaute Fokus-Klänge**: Regen, sanftes Rauschen, ruhige Klangfläche – im Browser erzeugt, ohne Dateien.
+    - Spielt, solange Stoppuhr bzw. Pomodoro-Fokus laufen, blendet weich ein und aus und hält mit dem Timer an; optional auch in Pomodoro-Pausen. Lautstärke-Regler und *Vorhören*. Auf iPhone/iPad regeln die Gerätetasten die Lautstärke von Datei und Radio.
   - 🍅 **Pomodoro-Timer**: 25 Min Fokus, 5 Min Pause, lange Pause nach jedem 4. Pomodoro (alles einstellbar). Mit Pausieren, Überspringen, Ton und Mitteilung. Beim Beenden wird die reine Fokuszeit als Zeiteintrag gespeichert.
   - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
 - ⚡ **Schnelleingabe** (Taste **N**, ⚡ in Seitenleiste bzw. Kopfzeile oder über die Befehlspalette): eine Zeile mit Live-Vorschau, bleibt für weitere Einträge offen.
