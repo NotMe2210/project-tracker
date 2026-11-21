@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-1';
+const APP_VERSION = '2026.11.21-2';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -3601,6 +3601,27 @@ function hadWeekend() {
   const days = new Set(data.timeEntries.filter((e) => e.minutes > 0).map((e) => e.date));
   return [...days].some((d) => parseISO(d).getDay() === 6 && days.has(toISO(addDays(parseISO(d), 1))));
 }
+/** Kennzahlen für die Team-Erfolge */
+function teamStats() {
+  const teamAssigned = (x) => (x.assignees || []).some((a) => a.startsWith('t:'));
+  const me = currentPerson();
+  const perDay = {};
+  data.tasks.filter((t) => t.done && t.doneAt && teamAssigned(t)).forEach((t) => { perDay[t.doneAt] = (perDay[t.doneAt] || 0) + 1; });
+  return {
+    teams: data.teams.length,
+    people: data.people.length,
+    projectTeams: data.projects.filter((p) => (p.teamIds || []).length).length,
+    assignedTasks: data.tasks.filter((t) => (t.assignees || []).length).length,
+    teamTasksDone: data.tasks.filter((t) => t.done && teamAssigned(t)).length,
+    myTasksDone: me ? data.tasks.filter((t) => t.done && isMine(t, me)).length : 0,
+    docs: data.docs.length,
+    teamMilestones: data.milestones.filter((m) => m.done && teamAssigned(m)).length,
+    maxTeamsPerPerson: Math.max(0, ...data.people.map((p) => teamsOf(p.id).length)),
+    biggestTeam: Math.max(0, ...data.teams.map((tm) => (tm.memberIds || []).length)),
+    teamDay: Math.max(0, ...Object.values(perDay)),
+  };
+}
+
 /** Zählt Ereignisse für geheime Erfolge (Werte werden beim Abgleich mehrerer Geräte addiert) */
 function countEvent(key) {
   data.counters[key] = (data.counters[key] || 0) + 1;
@@ -3648,6 +3669,14 @@ const ACHIEVEMENTS = [
   { id: 'notes_10', icon: '📓', get name() { return tr('Chronist'); }, get desc() { return tr('10 Notizen im Logbuch'); }, goal: 10, val: (x) => x.notes },
   { id: 'invest_1', icon: '💶', get name() { return tr('Investor'); }, get desc() { return tr('Erste Investition erfasst'); }, goal: 1, val: (x) => x.investments },
   { id: 'week_goal_4', icon: '📈', get name() { return tr('Beständig'); }, get desc() { return tr('In 4 Wochen das Wochenziel erreicht'); }, goal: 4, val: (x) => x.weekGoals },
+  // Zusammenarbeit & Dokumente
+  { id: 'team_1', icon: '👥', get name() { return tr('Teamplayer'); }, get desc() { return tr('Erstes Team angelegt'); }, goal: 1, val: (x) => x.teams },
+  { id: 'people_5', icon: '🤝', get name() { return tr('Netzwerker'); }, get desc() { return tr('5 Personen angelegt'); }, goal: 5, val: (x) => x.people },
+  { id: 'project_team', icon: '🏗️', get name() { return tr('Projektcrew'); }, get desc() { return tr('Einem Projekt ein Projektteam zugeordnet'); }, goal: 1, val: (x) => x.projectTeams },
+  { id: 'assign_10', icon: '📌', get name() { return tr('Delegierer'); }, get desc() { return tr('10 Aufgaben Personen oder Teams zugewiesen'); }, goal: 10, val: (x) => x.assignedTasks },
+  { id: 'team_done_10', icon: '🚣', get name() { return tr('Gemeinsam stark'); }, get desc() { return tr('10 Team-Aufgaben erledigt'); }, goal: 10, val: (x) => x.teamTasksDone },
+  { id: 'mine_done_10', icon: '🙋', get name() { return tr('Zuverlässig'); }, get desc() { return tr('10 dir zugewiesene Aufgaben erledigt'); }, goal: 10, val: (x) => x.myTasksDone },
+  { id: 'docs_10', icon: '📚', get name() { return tr('Archivar'); }, get desc() { return tr('10 Dokumente verknüpft'); }, goal: 10, val: (x) => x.docs },
   // Geheime Erfolge – Name und Bedingung werden erst beim Erreichen verraten
   { id: 's_night', icon: '🦉', get name() { return tr('Nachteule'); }, get desc() { return tr('Einen Timer zwischen 22 und 4 Uhr gestartet'); }, goal: 1, val: (x) => x.nightStarts, secret: true },
   { id: 's_early', icon: '🐦', get name() { return tr('Früher Vogel'); }, get desc() { return tr('Einen Timer zwischen 5 und 7 Uhr gestartet'); }, goal: 1, val: (x) => x.earlyStarts, secret: true },
@@ -3659,6 +3688,10 @@ const ACHIEVEMENTS = [
   { id: 's_phoenix', icon: '🌅', get name() { return tr('Phönix aus der Asche'); }, get desc() { return tr('Ein pausiertes Projekt wieder aktiviert'); }, goal: 1, val: (x) => x.reactivated, secret: true },
   { id: 's_perfect', icon: '💎', get name() { return tr('Perfektionist'); }, get desc() { return tr('Alle (mindestens 5) Aufgaben eines Projekts erledigt'); }, goal: 1, val: (x) => x.perfectProject, secret: true },
   { id: 's_holiday', icon: '🎄', get name() { return tr('Feiertagsfleiß'); }, get desc() { return tr('An Heiligabend, den Weihnachtstagen oder Neujahr aktiv gewesen'); }, goal: 1, val: (x) => x.holiday, secret: true },
+  { id: 's_allhands', icon: '🙌', get name() { return tr('Alle Mann an Deck'); }, get desc() { return tr('Einen Meilenstein erreicht, der einem Team zugewiesen war'); }, goal: 1, val: (x) => x.teamMilestones, secret: true },
+  { id: 's_bridge', icon: '🌉', get name() { return tr('Brückenbauer'); }, get desc() { return tr('Eine Person gehört zu 3 Teams'); }, goal: 3, val: (x) => x.maxTeamsPerPerson, secret: true },
+  { id: 's_bigteam', icon: '🏟️', get name() { return tr('Volles Haus'); }, get desc() { return tr('Ein Team mit mindestens 8 Mitgliedern'); }, goal: 8, val: (x) => x.biggestTeam, secret: true },
+  { id: 's_teamday', icon: '🎊', get name() { return tr('Teamtag'); }, get desc() { return tr('An einem Tag 5 Team-Aufgaben erledigt'); }, goal: 5, val: (x) => x.teamDay, secret: true },
 ];
 
 function achievementStats() {
@@ -3689,6 +3722,7 @@ function achievementStats() {
     doubleGoal: weeks.double ? 1 : 0,
     reactivated: c.reactivated || 0,
     perfectProject: data.projects.some((p) => { const ts = data.tasks.filter((t) => t.projectId === p.id); return ts.length >= 5 && ts.every((t) => t.done); }) ? 1 : 0,
+    ...teamStats(),
     holiday: Object.keys(days).some((d) => ['12-24', '12-25', '12-26', '01-01'].includes(d.slice(5))) ? 1 : 0,
   };
 }
