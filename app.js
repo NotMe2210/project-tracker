@@ -2580,6 +2580,7 @@ function renderSettings() {
       </dl>
       <div class="btn-row">
         <button class="btn primary" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
+        <button class="btn" data-action="exportEncrypted">🔒 ${tr('Verschlüsselt exportieren')}</button>
         <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
         <button class="btn" data-action="exportIcs">📅 ${tr('Termine als Kalender-Datei (.ics)')}</button>
         <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
@@ -3162,31 +3163,16 @@ const actions = {
       const file = input.files[0];
       if (!file) return;
       try {
-        const parsed = JSON.parse(await file.text());
-        if (!Array.isArray(parsed.projects)) throw new Error(tr('Keine gültige Projekttracker-Datei.'));
-        const backupTime = parsed.exportedAt ? Date.parse(parsed.exportedAt) : 0;
-        let msg = tr('Sicherung importieren?\n\nGesichert: {when}\nProjekte: {n}\n\nDie Daten auf diesem Gerät werden dadurch ersetzt.', { when: backupTime ? fmtDateTime(backupTime) : tr('unbekannt'), n: parsed.projects.length });
-        if (hasUnsavedChanges()) {
-          msg += '\n\n' + tr('⚠️ Auf diesem Gerät gibt es ungesicherte Änderungen (letzte Sicherung: {when}). Sie gehen beim Import verloren!', { when: fmtDateTime(meta.lastExport) });
-        }
-        if (backupTime && meta.lastChange > backupTime) {
-          msg += '\n\n' + tr('⚠️ Die Daten auf diesem Gerät (zuletzt geändert {when}) sind NEUER als diese Sicherung.', { when: fmtDateTime(meta.lastChange) });
-        }
-        if (!confirm(msg)) return;
-        delete parsed.exportedAt;
-        data = normalize(parsed);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-        meta.lastChange = meta.lastExport = Date.now(); // Gerät entspricht jetzt genau der Sicherung
-        saveMeta();
-        syncHintDismissed = true;
-        render();
-        toast(tr('Import erfolgreich ✔'));
+        const raw = JSON.parse(await file.text());
+        if (isEncryptedBackup(raw)) return decryptPrompt(raw, (parsed) => importBackup(parsed));
+        importBackup(raw);
       } catch (e) {
         toast(tr('Import fehlgeschlagen: {msg}', { msg: e.message }), 'error');
       }
     };
     input.click();
   },
+  exportEncrypted() { encryptedExportForm(); },
   resetData() {
     if (!confirm(tr('Wirklich ALLE Daten löschen? Das kann nicht rückgängig gemacht werden.'))) return;
     if (!confirm(tr('Letzte Chance: Hast du ein Backup exportiert? Endgültig löschen?'))) return;
@@ -5052,6 +5038,7 @@ function renderServerBackupSettings(size) {
     <h3 style="margin-top:20px">${tr('Zusätzliche Sicherung')}</h3>
     <div class="btn-row">
       <button class="btn" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
+      <button class="btn" data-action="exportEncrypted">🔒 ${tr('Verschlüsselt exportieren')}</button>
       <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
         <button class="btn" data-action="exportIcs">📅 ${tr('Termine als Kalender-Datei (.ics)')}</button>
         <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
@@ -5655,6 +5642,104 @@ function projectSchedule(p) {
     </table></div>
     ${pl.used ? '' : `<div class="callout">💡 ${tr('Noch keine Planungsdaten: Öffne eine Aufgabe und trage Dauer und Vorgänger ein. Bis dahin gilt jede Aufgabe als 1 Tag ab heute.')}</div>`}
   </section>`;
+}
+
+function importBackup(parsed) {
+  try {
+    if (!Array.isArray(parsed.projects)) throw new Error(tr('Keine gültige Projekttracker-Datei.'));
+    const backupTime = parsed.exportedAt ? Date.parse(parsed.exportedAt) : 0;
+    let msg = tr('Sicherung importieren?\n\nGesichert: {when}\nProjekte: {n}\n\nDie Daten auf diesem Gerät werden dadurch ersetzt.', { when: backupTime ? fmtDateTime(backupTime) : tr('unbekannt'), n: parsed.projects.length });
+    if (hasUnsavedChanges()) {
+      msg += '\n\n' + tr('⚠️ Auf diesem Gerät gibt es ungesicherte Änderungen (letzte Sicherung: {when}). Sie gehen beim Import verloren!', { when: fmtDateTime(meta.lastExport) });
+    }
+    if (backupTime && meta.lastChange > backupTime) {
+      msg += '\n\n' + tr('⚠️ Die Daten auf diesem Gerät (zuletzt geändert {when}) sind NEUER als diese Sicherung.', { when: fmtDateTime(meta.lastChange) });
+    }
+    if (!confirm(msg)) return;
+    delete parsed.exportedAt;
+    data = normalize(parsed);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    meta.lastChange = meta.lastExport = Date.now(); // Gerät entspricht jetzt genau der Sicherung
+    saveMeta();
+    syncHintDismissed = true;
+    render();
+    toast(tr('Import erfolgreich ✔'));
+  } catch (e) {
+    toast(tr('Import fehlgeschlagen: {msg}', { msg: e.message }), 'error');
+  }
+}
+
+/* ---------------------------- Verschlüsselte Sicherungen ----------------- */
+/* AES-GCM (256 Bit) mit einem per PBKDF2-SHA-256 aus dem Passwort abgeleiteten Schlüssel.
+   Alles passiert im Browser – das Passwort verlässt das Gerät nie und wird nicht gespeichert. */
+const ENC_FORMAT = 'protrac-encrypted';
+const ENC_ITER = 310000;
+const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+async function deriveKey(password, salt, iter) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function encryptText(text, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(password, salt, ENC_ITER);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text));
+  // Große Dateien in Blöcken kodieren (String.fromCharCode verträgt nicht beliebig viele Argumente)
+  const bytes = new Uint8Array(ct);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { format: ENC_FORMAT, v: 1, app: BRAND, kdf: 'PBKDF2-SHA256', iter: ENC_ITER, cipher: 'AES-GCM-256', salt: b64(salt), iv: b64(iv), data: btoa(bin), exportedAt: new Date().toISOString() };
+}
+async function decryptText(box, password) {
+  const key = await deriveKey(password, unb64(box.salt), box.iter || ENC_ITER);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(box.iv) }, key, unb64(box.data));
+  return new TextDecoder().decode(pt);
+}
+const isEncryptedBackup = (o) => o && o.format === ENC_FORMAT && o.data && o.salt && o.iv;
+
+function encryptedExportForm() {
+  if (!window.crypto?.subtle) return toast(tr('Verschlüsselung ist hier nicht verfügbar (nur über https oder localhost).'), 'error');
+  openForm({
+    title: tr('🔒 Verschlüsselte Sicherung'),
+    submitLabel: tr('Verschlüsseln & exportieren'),
+    fields: [
+      { name: 'pw', label: tr('Passwort'), type: 'password', required: true, hint: tr('Mindestens 8 Zeichen. Ohne dieses Passwort lässt sich die Sicherung nicht mehr öffnen – auch nicht von uns. Notiere es sicher!') },
+      { name: 'pw2', label: tr('Passwort wiederholen'), type: 'password', required: true },
+    ],
+    onSubmit(v) {
+      if (v.pw.length < 8) return tr('Das Passwort ist zu kurz (mindestens 8 Zeichen).');
+      if (v.pw !== v.pw2) return tr('Die Passwörter stimmen nicht überein.');
+      exportEncrypted(v.pw);
+    },
+  });
+}
+async function exportEncrypted(pw) {
+  try {
+    const now = new Date();
+    const stamp = `${toISO(now)}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+    const box = await encryptText(JSON.stringify({ ...data, exportedAt: now.toISOString() }), pw);
+    download(`projekttracker-backup-${stamp}.protrac.json`, JSON.stringify(box), 'application/json');
+    meta.lastExport = Date.now();
+    saveMeta();
+    render();
+    toast(tr('🔒 Verschlüsselte Sicherung exportiert ✔'));
+  } catch (e) {
+    toast(tr('Export fehlgeschlagen: {msg}', { msg: e.message }), 'error');
+  }
+}
+/** Passwort abfragen und entschlüsseln; ruft onData mit dem geparsten Inhalt auf */
+function decryptPrompt(box, onData, error = '') {
+  openForm({
+    title: tr('🔒 Sicherung entschlüsseln'),
+    submitLabel: tr('Entschlüsseln'),
+    fields: [{ name: 'pw', label: tr('Passwort'), type: 'password', required: true,
+      hint: error || tr('Diese Sicherung ist verschlüsselt. Gib das Passwort ein, mit dem sie erstellt wurde.') }],
+    onSubmit(v) {
+      decryptText(box, v.pw)
+        .then((text) => onData(JSON.parse(text)))
+        .catch(() => setTimeout(() => decryptPrompt(box, onData, tr('❌ Falsches Passwort oder beschädigte Datei. Bitte erneut versuchen.')), 50));
+    },
+  });
 }
 
 /* ---------------------------- Vorlagen & Duplizieren --------------------- */
