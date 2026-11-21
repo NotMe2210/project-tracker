@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-6';
+const APP_VERSION = '2026.11.21-7';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -1143,7 +1143,7 @@ document.addEventListener('keydown', (e) => {
 function renderDashboard() {
   if (!data.projects.length) {
     return `<div class="card welcome">
-      <div class="big" aria-hidden="true"><span class="brand-mark">P</span></div>
+      <div class="big" aria-hidden="true"><img class="brand-mark" src="logo.png" alt=""></div>
       <h1>${tr('Willkommen bei Protrac')}</h1>
       <p>${tr('Erfasse Zeit, Investitionen, Meilensteine und Aufgaben deiner Projekte. Der Tracker zeigt dir, welche Projekte Aufmerksamkeit brauchen, damit nichts einschläft.')}</p>
       <div class="btn-row">
@@ -5095,7 +5095,7 @@ function renderLockScreen() {
   const problem = info.dbError ? tr('Die Datenbank ist nicht erreichbar. Prüfe die Einstellungen in config.php.')
     : info.configured === false ? tr('Auf dem Server ist noch kein Passwort festgelegt. Lege die Datei config.php an (Vorlage: config.sample.php).') : '';
   $('#app').innerHTML = `<div class="lock-wrap"><form class="card lock-card form" data-form="login">
-    <div class="lock-logo" aria-hidden="true"><span class="brand-mark">P</span></div>
+    <div class="lock-logo" aria-hidden="true"><img class="brand-mark" src="logo.png" alt=""></div>
     <h1 class="lock-brand">Protrac<span class="brand-by">by R3DO</span></h1>
     <p class="muted">${tr('Deine Daten liegen auf deinem Server und sind auf allen Geräten automatisch aktuell. Melde dich einmal pro Gerät an.')}</p>
     ${problem ? `<div class="lock-msg error">⚠️ ${esc(problem)}</div>` : `

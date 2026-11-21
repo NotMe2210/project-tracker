@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Protrac by R3DO</title>
   <meta name="description" content="Persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben – mit Motivationshilfen.">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="apple-touch-icon" href="icon-180.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -16,12 +17,12 @@
     // Eingeklappte Seitenleiste sofort anwenden (vermeidet Flackern beim Laden)
     try { if (localStorage.getItem('projekttracker.ui.sidebar') === 'collapsed') document.documentElement.classList.add('side-collapsed'); } catch (e) {}
   </script>
-  <link rel="stylesheet" href="styles.css?v=2026.11.21-6">
+  <link rel="stylesheet" href="styles.css?v=2026.11.21-7">
 </head>
 <body>
   <header class="topbar">
     <div class="side-head">
-      <a class="brand" href="#/" title="Protrac by R3DO" aria-label="Protrac by R3DO"><span class="brand-mark" aria-hidden="true">P</span><span class="brand-text"><span class="brand-name">Protrac</span><span class="brand-by">by R3DO</span></span></a>
+      <a class="brand" href="#/" title="Protrac by R3DO" aria-label="Protrac by R3DO"><img class="brand-mark" src="logo.png" alt="" aria-hidden="true"><span class="brand-text"><span class="brand-name">Protrac</span><span class="brand-by">by R3DO</span></span></a>
       <button id="side-toggle" class="side-toggle" type="button" data-action="toggleSidebar" title="Seitenleiste einklappen" aria-label="Seitenleiste einklappen">«</button>
     </div>
     <nav class="nav">
@@ -46,8 +47,8 @@
   <dialog id="modal"></dialog>
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
-  <script src="i18n.js?v=2026.11.21-6"></script>
-  <script src="lang-en.js?v=2026.11.21-6"></script>
-  <script src="app.js?v=2026.11.21-6"></script>
+  <script src="i18n.js?v=2026.11.21-7"></script>
+  <script src="lang-en.js?v=2026.11.21-7"></script>
+  <script src="app.js?v=2026.11.21-7"></script>
 </body>
 </html>
