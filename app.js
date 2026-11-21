@@ -213,6 +213,8 @@ const CHEERS = ['Stark! 💪', 'Erledigt! ✅', 'Weiter so! 🚀', 'Super gemach
 setLang((() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').settings?.language; } catch { return null; } })());
 let data = load();
 let meta = loadMeta();
+/** Automatische Sicherung in einen Ordner (Zustand dieser Sitzung, siehe initFolderBackup) */
+const folderBackup = { handle: null, perm: 'none', busy: false, error: '', timer: null };
 let syncState = loadSyncState();
 let pushTimer = null;
 // Laufzeit-Zustand der Server-Verbindung (nicht gespeichert)
@@ -268,6 +270,7 @@ function save() {
     meta.lastChange = Date.now();
     saveMeta();
     if (isServerMode()) { syncState.dirty = true; saveSyncState(); if (server.authed) schedulePush(); }
+    else scheduleFolderBackup();
   } catch (e) {
     toast(tr('Speichern fehlgeschlagen: {msg}', { msg: e.message }), 'error');
   }
@@ -715,6 +718,12 @@ function renderBackupBar() {
         <button class="btn primary small" data-action="importData">⬆ ${tr('Sicherung importieren')}</button>
         <button class="btn small" data-action="dismissSyncHint">${tr('Nein, weiter')}</button>
       </span></div>`;
+    bar.hidden = false;
+  } else if (folderBackup.handle && folderBackup.perm === 'prompt') {
+    bar.className = 'backup-bar info';
+    bar.innerHTML = `<div class="container">
+      <span>📁 ${tr('Die automatische Sicherung in „{name}“ wartet auf deine Erlaubnis.', { name: esc(folderBackup.handle.name) })}<span class="long"> ${tr('Der Browser fragt nach jedem Neustart einmal nach.')}</span></span>
+      <span class="btn-row"><button class="btn primary small" data-action="resumeFolderBackup">🔓 ${tr('Zugriff erneuern')}</button></span></div>`;
     bar.hidden = false;
   } else if (dirty) {
     bar.className = 'backup-bar warn';
@@ -2586,6 +2595,7 @@ function renderSettings() {
         <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
         <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
       </div>
+      ${renderFolderBackupSettings()}
       <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
       <h3>${tr('Gefahrenzone')}</h3>
       <button class="btn danger" data-action="resetData">${tr('Alle Daten löschen')}</button>`)}
@@ -3173,6 +3183,32 @@ const actions = {
     input.click();
   },
   exportEncrypted() { encryptedExportForm(); },
+  async pickBackupFolder() {
+    try {
+      const handle = await window.showDirectoryPicker({ id: 'protrac-backup', mode: 'readwrite', startIn: 'documents' });
+      await useBackupFolder(handle);
+      if (folderBackup.perm === 'granted') toast(tr('📁 Automatische Sicherung aktiv – Ordner „{name}“.', { name: handle.name }));
+    } catch (e) {
+      if (e.name !== 'AbortError') toast(e.message, 'error');
+    }
+  },
+  async resumeFolderBackup() {
+    if (!folderBackup.handle) return;
+    folderBackup.perm = await folderPermission(folderBackup.handle, true);
+    if (folderBackup.perm === 'granted') { await writeFolderBackup(); toast(tr('📁 Automatische Sicherung läuft wieder.')); }
+    render();
+  },
+  async writeFolderBackup() {
+    if (await writeFolderBackup()) toast(tr('Sicherung exportiert ✔'));
+    render();
+  },
+  async stopFolderBackup() {
+    folderBackup.handle = null;
+    folderBackup.perm = 'none';
+    try { await idb('readwrite', (s) => s.delete('backupDir')); } catch { /* ignorieren */ }
+    saveFolderCfg({ name: '' });
+    render();
+  },
   resetData() {
     if (!confirm(tr('Wirklich ALLE Daten löschen? Das kann nicht rückgängig gemacht werden.'))) return;
     if (!confirm(tr('Letzte Chance: Hast du ein Backup exportiert? Endgültig löschen?'))) return;
@@ -5669,6 +5705,124 @@ function importBackup(parsed) {
   }
 }
 
+/* ---------------------------- Automatische Sicherung in einen Ordner ----- */
+/* Edge/Chrome (File System Access API): Nach jeder Änderung wird – kurz verzögert – eine
+   Tagesdatei protrac-backup-JJJJ-MM-TT.json in den gewählten Ordner geschrieben. Ältere
+   Tagesdateien werden nach der eingestellten Anzahl Tage aufgeräumt. Der Ordnerzugriff
+   gehört zu diesem Gerät/Browser (IndexedDB), nicht zu den Projektdaten. */
+const FOLDER_KEY = 'projekttracker.ui.folderBackup';
+const FOLDER_FILE_RE = /^protrac-backup-\d{4}-\d{2}-\d{2}\.json$/;
+const folderBackupSupported = () => 'showDirectoryPicker' in window && !isServerMode();
+function folderCfg() {
+  try { return { keep: 14, lastWrite: 0, name: '', ...JSON.parse(localStorage.getItem(FOLDER_KEY) || '{}') }; } catch { return { keep: 14, lastWrite: 0, name: '' }; }
+}
+function saveFolderCfg(patch) {
+  try { localStorage.setItem(FOLDER_KEY, JSON.stringify({ ...folderCfg(), ...patch })); } catch { /* ignorieren */ }
+}
+function idb(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('protrac', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction('kv', mode);
+      const r = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => resolve(r?.result);
+      tx.onerror = () => reject(tx.error);
+    };
+  });
+}
+async function folderPermission(handle, ask = false) {
+  if (!handle.queryPermission) return 'granted';
+  const opts = { mode: 'readwrite' };
+  let state = await handle.queryPermission(opts);
+  if (state === 'prompt' && ask) state = await handle.requestPermission(opts);
+  return state;
+}
+async function useBackupFolder(handle, { persist = true } = {}) {
+  folderBackup.handle = handle;
+  folderBackup.perm = await folderPermission(handle);
+  folderBackup.error = '';
+  if (persist) { try { await idb('readwrite', (s) => s.put(handle, 'backupDir')); } catch { /* z. B. privates Fenster */ } }
+  saveFolderCfg({ name: handle.name });
+  if (folderBackup.perm === 'granted') await writeFolderBackup();
+  render();
+}
+async function initFolderBackup() {
+  if (!folderBackupSupported()) return;
+  try {
+    const handle = await idb('readonly', (s) => s.get('backupDir'));
+    if (!handle) return;
+    folderBackup.handle = handle;
+    folderBackup.perm = await folderPermission(handle);
+    if (folderBackup.perm === 'granted' && meta.lastChange > folderCfg().lastWrite) await writeFolderBackup();
+    renderBackupBar();
+  } catch { /* kein gespeicherter Ordner */ }
+}
+function scheduleFolderBackup() {
+  if (!folderBackup.handle || folderBackup.perm !== 'granted') return;
+  clearTimeout(folderBackup.timer);
+  folderBackup.timer = setTimeout(writeFolderBackup, 4000);
+}
+async function writeFolderBackup() {
+  const dir = folderBackup.handle;
+  if (!dir || folderBackup.busy) return false;
+  clearTimeout(folderBackup.timer);
+  folderBackup.busy = true;
+  try {
+    const now = new Date();
+    const file = await dir.getFileHandle(`protrac-backup-${toISO(now)}.json`, { create: true });
+    const w = await file.createWritable();
+    await w.write(JSON.stringify({ ...data, exportedAt: now.toISOString() }, null, 2));
+    await w.close();
+    // Aufräumen: nur eigene Tagesdateien, die neuesten „keep“ bleiben
+    const keep = Math.max(1, Number(folderCfg().keep) || 14);
+    const names = [];
+    for await (const [name, h] of dir.entries()) if (h.kind === 'file' && FOLDER_FILE_RE.test(name)) names.push(name);
+    names.sort().reverse().slice(keep).forEach((name) => dir.removeEntry(name).catch(() => {}));
+    meta.lastExport = Date.now();
+    saveMeta();
+    saveFolderCfg({ lastWrite: meta.lastExport });
+    folderBackup.error = '';
+    return true;
+  } catch (e) {
+    folderBackup.error = e.message;
+    if (e.name === 'NotAllowedError' || e.name === 'SecurityError') folderBackup.perm = 'prompt';
+    return false;
+  } finally {
+    folderBackup.busy = false;
+    renderBackupBar();
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && folderBackup.timer && folderBackup.perm === 'granted') writeFolderBackup();
+});
+
+function renderFolderBackupSettings() {
+  if (!('showDirectoryPicker' in window)) {
+    return `<h3 style="margin-top:20px">📁 ${tr('Automatische Sicherung in einen Ordner')}</h3>
+      <p class="small muted">${tr('Nur in Edge, Chrome und anderen Chromium-Browsern am Computer verfügbar. Dort sichert Protrac nach jeder Änderung automatisch in einen Ordner deiner Wahl – z. B. in deinen OneDrive-, Dropbox- oder iCloud-Ordner.')}</p>`;
+  }
+  const cfg = folderCfg(), fb = folderBackup;
+  const status = !fb.handle ? `<span class="badge">${tr('Aus')}</span>`
+    : fb.perm === 'granted' ? `<span class="badge aktiv">${tr('Aktiv')}</span> ${tr('📁 {name}', { name: esc(fb.handle.name) })} · ${tr('Letzte Sicherung: {when}', { when: esc(fmtDateTime(cfg.lastWrite)) })}`
+    : `<span class="badge mittel">${tr('Zugriff erneuern')}</span> ${tr('📁 {name}', { name: esc(fb.handle.name) })}`;
+  return `<h3 style="margin-top:20px">📁 ${tr('Automatische Sicherung in einen Ordner')}</h3>
+    <p class="small muted" style="margin-top:0">${tr('Nach jeder Änderung schreibt Protrac eine Tagesdatei in den gewählten Ordner. Tipp: Wähle einen Ordner in OneDrive, Dropbox oder iCloud – dann ist die Sicherung auch auf deinen anderen Geräten.')}</p>
+    <p class="small">${status}${fb.error ? `<br><span class="badge overdue">${esc(fb.error)}</span>` : ''}</p>
+    <div class="btn-row">
+      ${!fb.handle ? `<button class="btn primary" data-action="pickBackupFolder">📁 ${tr('Ordner wählen')}</button>`
+        : `${fb.perm === 'granted' ? `<button class="btn" data-action="writeFolderBackup">💾 ${tr('Jetzt sichern')}</button>` : `<button class="btn primary" data-action="resumeFolderBackup">🔓 ${tr('Zugriff erneuern')}</button>`}
+          <button class="btn" data-action="pickBackupFolder">${tr('Anderen Ordner wählen')}</button>
+          <button class="btn danger" data-action="stopFolderBackup">${tr('Ausschalten')}</button>`}
+    </div>
+    ${fb.handle ? `<label class="small" style="display:flex;gap:8px;align-items:center;margin-top:10px">${tr('Aufbewahren:')}
+      <select data-action-change="folderKeep">${[7, 14, 30, 90].map((n) => `<option value="${n}" ${Number(cfg.keep) === n ? 'selected' : ''}>${trp(n, '{n} Tag', '{n} Tage')}</option>`).join('')}</select></label>` : ''}`;
+}
+document.addEventListener('change', (e) => {
+  if (e.target.dataset?.actionChange === 'folderKeep') { saveFolderCfg({ keep: Number(e.target.value) }); writeFolderBackup(); }
+});
+
 /* ---------------------------- Verschlüsselte Sicherungen ----------------- */
 /* AES-GCM (256 Bit) mit einem per PBKDF2-SHA-256 aus dem Passwort abgeleiteten Schlüssel.
    Alles passiert im Browser – das Passwort verlässt das Gerät nie und wird nicht gespeichert. */
@@ -6839,4 +6993,5 @@ window.addEventListener('languagechange', () => render());
 
 render();
 initServer();
+initFolderBackup();
 setTimeout(checkWhatsNew, 800);
