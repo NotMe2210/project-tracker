@@ -1633,7 +1633,61 @@ function syncTaskDone(t) {
   return null;
 }
 
+/* Wiederkehrende Aufgaben: beim Erledigen entsteht automatisch die nächste */
+const REPEATS = [
+  { value: '', get label() { return tr('– nicht wiederholen –'); } },
+  { value: 'daily', get label() { return tr('täglich'); } },
+  { value: 'workdays', get label() { return tr('werktags (Mo–Fr)'); } },
+  { value: 'weekly', get label() { return tr('wöchentlich'); } },
+  { value: 'biweekly', get label() { return tr('alle 2 Wochen'); } },
+  { value: 'monthly', get label() { return tr('monatlich'); } },
+  { value: 'quarterly', get label() { return tr('vierteljährlich'); } },
+  { value: 'yearly', get label() { return tr('jährlich'); } },
+];
+const repeatLabel = (r) => REPEATS.find((x) => x.value === r)?.label || '';
+function addMonthsISO(iso, n) {
+  const d = parseISO(iso), day = d.getDate();
+  d.setDate(1); d.setMonth(d.getMonth() + n);
+  d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return toISO(d);
+}
+function nextRepeatDate(iso, r) {
+  switch (r) {
+    case 'daily': return toISO(addDays(parseISO(iso), 1));
+    case 'workdays': { let d = addDays(parseISO(iso), 1); while ([0, 6].includes(d.getDay())) d = addDays(d, 1); return toISO(d); }
+    case 'weekly': return toISO(addDays(parseISO(iso), 7));
+    case 'biweekly': return toISO(addDays(parseISO(iso), 14));
+    case 'monthly': return addMonthsISO(iso, 1);
+    case 'quarterly': return addMonthsISO(iso, 3);
+    case 'yearly': return addMonthsISO(iso, 12);
+  }
+  return null;
+}
+/** Legt die nächste Wiederholung an (einmal je erledigter Aufgabe) und gibt sie zurück */
+function spawnRecurrence(t) {
+  if (!t.repeat || !t.done || (t.nextId && data.tasks.some((x) => x.id === t.nextId))) return null;
+  const today = todayISO();
+  let due = nextRepeatDate(t.dueDate || today, t.repeat);
+  for (let i = 0; due && due <= today && i < 1000; i++) due = nextRepeatDate(due, t.repeat); // verpasste Termine überspringen
+  if (!due) return null;
+  const ms = t.milestoneId && data.milestones.find((m) => m.id === t.milestoneId && !m.done);
+  const next = {
+    id: uid(), projectId: t.projectId, title: t.title, priority: t.priority, dueDate: due, repeat: t.repeat,
+    notes: t.notes || '', estimate: t.estimate || null, duration: t.duration || null, assignees: [...(t.assignees || [])],
+    milestoneId: ms ? ms.id : null, subtasks: (t.subtasks || []).map((st) => ({ id: uid(), title: st.title, done: false, doneAt: null })),
+    done: false, doneAt: null, status: 'open', createdAt: new Date().toISOString(),
+  };
+  data.tasks.push(next);
+  t.nextId = next.id;
+  return next;
+}
+
 function celebrateTask(t) {
+  const next = spawnRecurrence(t);
+  if (next) {
+    commit();
+    return toast(`${tr(pick(CHEERS))} ${tr('🔁 Nächste Wiederholung am {date}.', { date: fmtDate(next.dueDate) })}`);
+  }
   const left = data.tasks.filter((x) => x.projectId === t.projectId && !x.done).length;
   toast(`${tr(pick(CHEERS))} ${left ? tr('Noch {n} offen.', { n: left }) : tr('Alle Aufgaben erledigt!')}`);
   if (!left) confetti();
@@ -1668,6 +1722,7 @@ function taskItem(t, { showProject = false } = {}) {
         <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
         ${!t.done && t.status === 'doing' ? `<span class="badge doing">▶ ${tr('In Arbeit')}</span>` : ''}
         ${taskTimeBadge(t)}
+        ${t.repeat ? `<span class="badge" title="${tr('Wiederkehrende Aufgabe')}">🔁 ${repeatLabel(t.repeat)}</span>` : ''}
         ${assigneeBadges(t.assignees)}
         ${taskPlanBadges(t)}
         ${t.done ? `<span>${tr('erledigt {when}', { when: fmtRelative(t.doneAt) })}</span>` : dueBadge(t.dueDate)}
@@ -3147,6 +3202,8 @@ function taskForm(t) {
     fields.push({ name: 'milestoneId', label: tr('Meilenstein'), type: 'select', value: t.milestoneId || '', options: [{ value: '', label: tr('– keiner –') }, ...opts.map((m) => ({ value: m.id, label: m.title }))] });
   }
   if (data.people.length || data.teams.length) fields.push({ name: 'assignees', label: tr('Zuständig'), type: 'checks', options: assigneeOptions(pid), value: t.assignees || [] });
+  fields.push({ name: 'repeat', label: tr('Wiederholen'), type: 'select', half: true, value: t.repeat || '',
+    options: REPEATS.map((r) => ({ value: r.value, label: r.label })), hint: tr('Beim Abhaken entsteht die nächste Aufgabe') });
   fields.push({ name: 'estimate', label: tr('Geschätzter Aufwand'), type: 'duration', half: true, placeholder: '2:00',
     value: t.estimate ? fmtHM(t.estimate) : '', hint: t.id && taskMinutes(t.id) ? tr('Bisher gebucht: {d}', { d: fmtDuration(taskMinutes(t.id)) }) : tr('Arbeitszeit, z. B. 2:00 oder 90 min – wird mit der gebuchten Zeit verglichen') });
   // Planung (optional): Dauer, frühester Start, Vorgänger → Zeitplan & kritischer Pfad
@@ -3165,6 +3222,7 @@ function taskForm(t) {
     onSubmit(v) {
       v.milestoneId = v.milestoneId || null;
       v.estimate = v.estimate || null;
+      v.repeat = v.repeat || null;
       v.duration = v.duration ? Math.max(1, Math.round(v.duration)) : null;
       v.startAfter = v.startAfter || null;
       if (v.dependsOn && t.id && wouldCycle(t.id, v.dependsOn)) return tr('Diese Vorgänger würden eine Kreisabhängigkeit erzeugen (die Aufgaben warten gegenseitig aufeinander).');
@@ -5602,6 +5660,7 @@ function kanbanCard(t) {
       <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
       ${subs.length ? `<span class="badge">☑ ${subs.filter((s) => s.done).length}/${subs.length}</span>` : ''}
       ${taskTimeBadge(t)}
+      ${t.repeat ? `<span class="badge">🔁</span>` : ''}
       ${t.done ? `<span>${fmtRelative(t.doneAt)}</span>` : dueBadge(t.dueDate)}
       ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
       ${assigneeBadges(t.assignees)}
