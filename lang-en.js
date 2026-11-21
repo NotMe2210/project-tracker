@@ -1173,4 +1173,10 @@ I18N.en = {
   "Geplant laut Zeitplan": "Planned according to schedule",
   "📅 {n} Termin exportiert – Datei öffnen, um sie in deinen Kalender zu übernehmen.": "📅 {n} date exported – open the file to add it to your calendar.",
   "📅 {n} Termine exportiert – Datei öffnen, um sie in deinen Kalender zu übernehmen.": "📅 {n} dates exported – open the file to add them to your calendar.",
+  "In Arbeit": "In progress",
+  "Offen": "Open",
+  "Board": "Board",
+  "Hierher ziehen": "Drag here",
+  "Karten zwischen den Spalten ziehen – oder antippen, um den Status zu wählen.": "Drag cards between the columns – or tap to choose the status.",
+  "▶ „{title}“ ist jetzt in Arbeit": "▶ “{title}” is now in progress",
 };

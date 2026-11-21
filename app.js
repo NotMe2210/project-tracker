@@ -491,6 +491,7 @@ function sortTasks(tasks) {
   const rank = milestoneRanks();
   const msRank = (t) => (t.milestoneId && rank.has(t.milestoneId) ? rank.get(t.milestoneId) : Infinity);
   return [...tasks].sort((a, b) =>
+    Number(b.status === 'doing' && !b.done) - Number(a.status === 'doing' && !a.done) || // „In Arbeit“ zuerst
     (PRIO_ORDER[a.priority] ?? 1) - (PRIO_ORDER[b.priority] ?? 1) ||
     (msRank(a) === msRank(b) ? 0 : msRank(a) < msRank(b) ? -1 : 1) ||
     (a.dueDate || '9999').localeCompare(b.dueDate || '9999') ||
@@ -1636,6 +1637,7 @@ function taskItem(t, { showProject = false } = {}) {
         ${subs.length ? `<span class="badge ${subsDone === subs.length ? 'aktiv' : ''}">☑ ${subsDone}/${subs.length}</span>` : ''}
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/aufgaben">${esc(p.name)}</a></span>` : ''}
         <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
+        ${!t.done && t.status === 'doing' ? `<span class="badge doing">▶ ${tr('In Arbeit')}</span>` : ''}
         ${assigneeBadges(t.assignees)}
         ${taskPlanBadges(t)}
         ${t.done ? `<span>${tr('erledigt {when}', { when: fmtRelative(t.doneAt) })}</span>` : dueBadge(t.dueDate)}
@@ -1961,8 +1963,16 @@ function projectTasks(p) {
   const tasks = data.tasks.filter((t) => t.projectId === p.id && matchesWho(t, taskWhoFilter));
   const open = sortTasks(tasks.filter((t) => !t.done));
   const done = tasks.filter((t) => t.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
+  const viewSwitch = `<div class="segmented" role="group" aria-label="${tr('Ansicht')}">
+      <button type="button" class="seg-btn ${taskView === 'list' ? 'active' : ''}" data-action="setTaskView" data-id="list" aria-pressed="${taskView === 'list'}">☰ <span>${tr('Liste')}</span></button>
+      <button type="button" class="seg-btn ${taskView === 'board' ? 'active' : ''}" data-action="setTaskView" data-id="board" aria-pressed="${taskView === 'board'}">▥ <span>${tr('Board')}</span></button></div>`;
+  if (taskView === 'board') return `<section class="card">
+    <div class="card-head"><h2>${tr('Aufgaben')} (${tasks.length})</h2><span class="btn-row">${viewSwitch}<button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
+    ${whoFilterChips(p)}
+    ${kanbanBoard(open, done)}
+  </section>`;
   return `<section class="card">
-    <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
+    <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><span class="btn-row">${viewSwitch}<button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
     ${whoFilterChips(p)}
     ${open.length ? PRIORITIES.map(({ value, label }) => {
       const group = open.filter((t) => (t.priority || 'mittel') === value);
@@ -3874,7 +3884,9 @@ const qaButton = (p) => `<button class="btn ghost icon qa-btn" data-action="quic
 function taskMenuHTML(t) {
   const p = getProject(t.projectId);
   return `<div class="pop-title">${esc(t.title)}</div>
-    <button class="pop-item" data-action="toggleTask" data-id="${t.id}">${t.done ? `↺ ${tr('Wieder öffnen')}` : `✓ ${tr('Erledigt')}`}</button>
+    <div class="pop-chips">${[['open', tr('Offen')], ['doing', tr('In Arbeit')], ['done', tr('Erledigt')]].map(([v, l]) =>
+      `<button class="chip ${taskStatusOf(t) === v ? 'active' : ''}" data-action="setTaskStatus" data-id="${t.id}" data-status="${v}">${l}</button>`).join('')}</div>
+    <div class="pop-sep"></div>
     <button class="pop-item" data-action="editTask" data-id="${t.id}">✎ ${tr('Bearbeiten')}</button>
     <button class="pop-item" data-action="addDoc" data-id="${t.projectId}" data-task="${t.id}">📎 ${tr('Dokument verknüpfen')}</button>
     ${t.done ? '' : `<button class="pop-item" data-action="addSubtask" data-id="${t.id}">＋ ${tr('Unterpunkt')}</button>`}
@@ -5379,6 +5391,116 @@ function projectSchedule(p) {
     ${pl.used ? '' : `<div class="callout">💡 ${tr('Noch keine Planungsdaten: Öffne eine Aufgabe und trage Dauer und Vorgänger ein. Bis dahin gilt jede Aufgabe als 1 Tag ab heute.')}</div>`}
   </section>`;
 }
+
+/* ---------------------------- Kanban-Board -------------------------------- */
+/* Spalten Offen · In Arbeit · Erledigt. Maus: Karten ziehen; Finger: Karte antippen → Status wählen. */
+let taskView = (() => { try { return localStorage.getItem('projekttracker.ui.taskView') === 'board' ? 'board' : 'list'; } catch { return 'list'; } })();
+const taskStatusOf = (t) => (t.done ? 'done' : t.status === 'doing' ? 'doing' : 'open');
+
+function kanbanCard(t) {
+  const subs = t.subtasks || [];
+  const ms = t.milestoneId ? data.milestones.find((m) => m.id === t.milestoneId) : null;
+  return `<div class="kb-card ${t.done ? 'done' : ''}" data-kb="${t.id}" tabindex="0" role="button" aria-label="${esc(t.title)}">
+    <div class="kb-title">${esc(t.title)}</div>
+    <div class="meta">
+      <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
+      ${subs.length ? `<span class="badge">☑ ${subs.filter((s) => s.done).length}/${subs.length}</span>` : ''}
+      ${t.done ? `<span>${fmtRelative(t.doneAt)}</span>` : dueBadge(t.dueDate)}
+      ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
+      ${assigneeBadges(t.assignees)}
+    </div>
+  </div>`;
+}
+function kanbanBoard(open, done) {
+  const cols = [
+    ['open', tr('Offen'), open.filter((t) => t.status !== 'doing')],
+    ['doing', tr('In Arbeit'), open.filter((t) => t.status === 'doing')],
+    ['done', tr('Erledigt'), done],
+  ];
+  return `<div class="kanban">${cols.map(([key, label, list]) => `<div class="kb-col" data-kb-col="${key}">
+      <div class="kb-head"><span>${key === 'doing' ? '▶ ' : key === 'done' ? '✓ ' : ''}${label}</span><span class="muted small">${list.length}</span></div>
+      <div class="kb-list">${list.slice(0, key === 'done' ? 15 : 200).map(kanbanCard).join('') || `<div class="kb-empty small muted">${tr('Hierher ziehen')}</div>`}
+        ${key === 'done' && list.length > 15 ? `<div class="small muted kb-more">${tr('… und {n} weitere', { n: list.length - 15 })}</div>` : ''}</div>
+    </div>`).join('')}</div>
+    <p class="small muted g-hint">${tr('Karten zwischen den Spalten ziehen – oder antippen, um den Status zu wählen.')}</p>`;
+}
+
+function setTaskStatus(id, status) {
+  const t = data.tasks.find((x) => x.id === id);
+  if (!t || taskStatusOf(t) === status) return;
+  if (status === 'done') { t.status = 'open'; return actions.toggleTask({ id }); } // Regeln für Unterpunkte & Feiern
+  if (t.done) {
+    if ((t.subtasks || []).length && t.subtasks.every((s) => s.done)) return toast(tr('Um die Aufgabe wieder zu öffnen, entferne den Haken bei einem Unterpunkt.'));
+    t.done = false; t.doneAt = null;
+  }
+  t.status = status === 'doing' ? 'doing' : 'open';
+  commit();
+  if (status === 'doing') toast(tr('▶ „{title}“ ist jetzt in Arbeit', { title: t.title }));
+}
+
+// Ziehen mit der Maus (Finger: Antippen öffnet das Status-Menü)
+let kbDrag = null;
+document.addEventListener('pointerdown', (e) => {
+  const card = e.target.closest('.kb-card');
+  if (!card || e.button > 0) return;
+  kbDrag = { card, id: card.dataset.kb, x0: e.clientX, y0: e.clientY, moved: false, touch: e.pointerType !== 'mouse' };
+});
+document.addEventListener('pointermove', (e) => {
+  if (!kbDrag || kbDrag.touch) return;
+  if (!kbDrag.moved && Math.hypot(e.clientX - kbDrag.x0, e.clientY - kbDrag.y0) < 6) return;
+  if (!kbDrag.moved) {
+    kbDrag.moved = true;
+    const r = kbDrag.card.getBoundingClientRect();
+    kbDrag.ghost = kbDrag.card.cloneNode(true);
+    kbDrag.ghost.classList.add('kb-ghost');
+    Object.assign(kbDrag.ghost.style, { width: `${r.width}px`, left: `${r.left}px`, top: `${r.top}px` });
+    kbDrag.dx = e.clientX - r.left; kbDrag.dy = e.clientY - r.top;
+    document.body.appendChild(kbDrag.ghost);
+    kbDrag.card.classList.add('kb-placeholder');
+  }
+  kbDrag.ghost.style.left = `${e.clientX - kbDrag.dx}px`;
+  kbDrag.ghost.style.top = `${e.clientY - kbDrag.dy}px`;
+  document.querySelectorAll('.kb-col.over').forEach((c) => c.classList.remove('over'));
+  kbDrag.ghost.style.display = 'none';
+  document.elementFromPoint(e.clientX, e.clientY)?.closest('.kb-col')?.classList.add('over');
+  kbDrag.ghost.style.display = '';
+});
+document.addEventListener('pointerup', (e) => {
+  if (!kbDrag) return;
+  const d = kbDrag;
+  kbDrag = null;
+  if (!d.moved) return; // Antippen/Klick öffnet das Menü im click-Ereignis (sonst trifft der Klick das frisch geöffnete Menü)
+  kbJustDragged = Date.now();
+  d.ghost.remove();
+  d.card.classList.remove('kb-placeholder');
+  const col = document.querySelector('.kb-col.over');
+  document.querySelectorAll('.kb-col.over').forEach((c) => c.classList.remove('over'));
+  if (col) setTaskStatus(d.id, col.dataset.kbCol);
+});
+let kbJustDragged = 0;
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('.kb-card');
+  if (!card || e.target.closest('a, button') || Date.now() - kbJustDragged < 250) return;
+  const t = data.tasks.find((x) => x.id === card.dataset.kb);
+  if (t) openPopover(card, taskMenuHTML(t));
+});
+document.addEventListener('pointercancel', () => { if (kbDrag?.ghost) { kbDrag.ghost.remove(); kbDrag.card.classList.remove('kb-placeholder'); } kbDrag = null; });
+document.addEventListener('keydown', (e) => {
+  const card = e.target.closest?.('.kb-card');
+  if (!card || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  const t = data.tasks.find((x) => x.id === card.dataset.kb);
+  if (t) openPopover(card, taskMenuHTML(t));
+});
+
+Object.assign(actions, {
+  setTaskView({ id }) {
+    taskView = id === 'board' ? 'board' : 'list';
+    try { localStorage.setItem('projekttracker.ui.taskView', taskView); } catch { /* ignorieren */ }
+    render();
+  },
+  setTaskStatus({ id, status }) { setTaskStatus(id, status); },
+});
 
 /* ---------------------------- Kalender-Export (.ics) --------------------- */
 /* Fällige Aufgaben, Meilensteine, Zieltermine und geplante Aufgaben (Zeitplan) als
