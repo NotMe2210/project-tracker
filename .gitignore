@@ -2,3 +2,6 @@ config.php
 data/*
 !data/.htaccess
 !data/index.html
+
+# Test-Screenshots
+shots/
