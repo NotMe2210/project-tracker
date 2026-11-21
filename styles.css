@@ -1129,13 +1129,10 @@ dialog .form:focus, dialog .form:focus-visible { outline: none; }
 .brand-text { display: inline-flex; flex-direction: column; gap: 3px; min-width: 0; }
 .brand-name { font-size: 1.3rem; font-weight: 800; letter-spacing: -.01em; }
 .brand-by { font-size: .68rem; font-weight: 600; color: var(--muted); letter-spacing: .08em; text-transform: none; }
-/* Signet „P“ – nur in der eingeklappten Seitenleiste, auf der Anmelde- und Willkommensseite */
-.brand-mark {
-  display: none; place-items: center; width: 40px; height: 40px; border-radius: 12px; flex: none;
-  background: var(--primary); color: var(--primary-contrast); font-weight: 800; font-size: 1.3rem; line-height: 1;
-}
-html.side-collapsed .brand .brand-mark { display: grid; }
-.lock-logo .brand-mark, .welcome .big .brand-mark { display: inline-grid; width: 64px; height: 64px; border-radius: 18px; font-size: 2.1rem; }
+/* Signet (Logo) – nur in der eingeklappten Seitenleiste, auf der Anmelde- und Willkommensseite */
+.brand-mark { display: none; width: 36px; height: 36px; flex: none; object-fit: contain; }
+html.side-collapsed .brand .brand-mark { display: block; }
+.lock-logo .brand-mark, .welcome .big .brand-mark { display: inline-block; width: 72px; height: 72px; }
 .lock-brand { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 1.8rem !important; font-weight: 800; }
 .lock-brand .brand-by { font-size: .78rem; }
 @media (min-width: 1024px) {

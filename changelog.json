@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-7",
+      "date": "2026-11-21",
+      "de": [
+        "🎨 Neues Protrac-Logo als App-Symbol, Favicon und in der eingeklappten Seitenleiste"
+      ],
+      "en": [
+        "🎨 New Protrac logo as app icon, favicon and in the collapsed sidebar"
+      ]
+    },
+    {
       "version": "2026.11.21-6",
       "date": "2026-11-21",
       "de": [

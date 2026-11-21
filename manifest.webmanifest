@@ -5,7 +5,7 @@
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#f5f6f8",
+  "background_color": "#ffffff",
   "theme_color": "#4f46e5",
   "lang": "de",
   "icons": [
@@ -17,7 +17,14 @@
     {
       "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "description": "Protrac – persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben.",
