@@ -7,7 +7,7 @@
 
 const CACHE = 'protrac-app-v1';
 // Grundgerüst, das beim Installieren schon für den Offline-Start abgelegt wird
-const SHELL = ['./', './index.html', './styles.css', './i18n.js', './lang-en.js', './app.js', './manifest.webmanifest', './icon-180.png', './icon-512.png', './icon-maskable-512.png', './logo.png', './favicon-32.png', './favicon-64.png'];
+const SHELL = ['./', './index.html', './styles.css', './i18n.js', './lang-en.js', './app.js', './manifest.webmanifest', './icon-180.png', './icon-512.png', './icon-maskable-512.png', './logo.png', './favicon-32.png', './favicon-64.png', './favicon.ico'];
 // Nie zwischenspeichern: Server-Schnittstelle, Versions- und Neuigkeiten-Abfrage
 const BYPASS = /\/(api\.php|version\.json|changelog\.json)$/;
 

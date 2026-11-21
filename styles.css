@@ -1442,3 +1442,14 @@ div.doc-chips { margin-top: 6px; }
 .timer-indicator.ping { animation: timer-ping 1.2s ease-out; }
 @keyframes timer-ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 55%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
 @media (prefers-reduced-motion: reduce) { .timer-indicator.ping { animation: none; } }
+
+/* ---- Klang / Musik, solange ein Timer läuft ---- */
+.sound-set { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px 14px; margin: 4px 0; display: grid; gap: 10px; min-width: 0; }
+.sound-set legend { font-weight: 600; padding: 0 6px; }
+.sound-set [hidden] { display: none !important; }
+.sound-set > div { display: grid; gap: 8px; }
+.sound-set input[type="range"] { width: 100%; accent-color: var(--primary); }
+.file-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.file-pick .btn { cursor: pointer; }
+.file-pick span { overflow-wrap: anywhere; }
+.sound-set > .btn-row { display: flex; justify-content: flex-start; }

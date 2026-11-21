@@ -2,6 +2,26 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-17",
+      "date": "2026-11-21",
+      "de": [
+        "🎵 Musik, solange der Timer läuft: eigene Musikdatei, Internetradio/Audio-Link oder eingebaute Fokus-Klänge (Regen, Rauschen, Klangfläche) – mit Lautstärke, Vorhören und weichem Ein- und Ausblenden"
+      ],
+      "en": [
+        "🎵 Music while the timer runs: your own music file, internet radio/audio link or built-in focus sounds (rain, noise, ambient pad) – with volume, preview and smooth fades"
+      ]
+    },
+    {
+      "version": "2026.11.21-16",
+      "date": "2026-11-21",
+      "de": [
+        "🎨 Logo zusätzlich als favicon.ico – damit Safari das neue Symbol im Tab übernimmt"
+      ],
+      "en": [
+        "🎨 Logo also as favicon.ico – so Safari picks up the new tab icon"
+      ]
+    },
+    {
       "version": "2026.11.21-15",
       "date": "2026-11-21",
       "de": [
