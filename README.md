@@ -39,7 +39,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - ⋯ **Schnellaktionen** pro Projekt (Pomodoro, Stoppuhr, Zeit, Aufgabe, Notiz, Status) in Tabelle, Kacheln und „Braucht Aufmerksamkeit“
 - **Klickbare Diagramme:** Tag bzw. Woche anklicken öffnet die Einträge (mit Bearbeiten). Projekte in der Legende ein- und ausblenden.
 - 📈 **Verlaufslinien** in den Kennzahlen (Wochen bzw. Monate)
-- 🏅 **Erfolge:** 37 Abzeichen, darunter 7 für Zusammenarbeit und Dokumente (z. B. Teamplayer, Delegierer, Gemeinsam stark, Archivar), (Stunden, Serien, aktive Tage, Pomodoros, Aufgaben, Unterpunkte, Meilensteine, Notizen …) mit Fortschritt, sortiert von erreicht über Fortschritt bis offen. Neue Erfolge werden gefeiert.
+- 🏅 **Erfolge:** 37 Abzeichen für Stunden, Serien, aktive Tage, Pomodoros, Aufgaben, Unterpunkte, Meilensteine, Notizen sowie Zusammenarbeit und Dokumente (z. B. Teamplayer, Delegierer, Gemeinsam stark, Archivar), mit Fortschritt, sortiert von erreicht über Fortschritt bis offen. Neue Erfolge werden gefeiert.
 - 🤫 **14 geheime Erfolge** (davon 4 rund ums Team): Name und Bedingung bleiben verborgen (🔒 ???), bis du sie zufällig erreichst. Dann werden sie mit einer eigenen Meldung enthüllt und golden hervorgehoben.
 - 🔎 **Befehlspalette** am Computer mit ⌘K bzw. Strg+K: Seiten, Projekte, Pomodoro, Zeit, Aufgaben, Darstellung …
 - 👆 **Wischgesten** auf dem iPhone: Aufgabe nach rechts wischen = erledigt, nach links = Optionen
