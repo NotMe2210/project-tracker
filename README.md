@@ -61,6 +61,32 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - **„Das bin ich“** pro Gerät wählen. Der Bereich **🙋 Meine Aufgaben** auf der Übersicht zeigt alles, was dir direkt oder über deine Teams zugewiesen ist.
 - Im Aufgaben-Reiter lässt sich nach Zuständigen filtern: Alle, Meine, Team, Person oder ohne Zuständige.
 
+**🗓 Zeitplan & kritischer Pfad** (Projekt-Reiter *Zeitplan*)
+- Aufgaben bekommen optional eine **Dauer** (Arbeitstage), einen **frühesten Start** und **Vorgänger** („startet erst, wenn … erledigt ist“).
+- Protrac berechnet daraus nach der Critical-Path-Methode:
+  - frühesten und spätesten Start jeder Aufgabe
+  - **Puffer** jeder Aufgabe
+  - den **kritischen Pfad**: die Aufgaben, die das Projektende bzw. einen Meilenstein direkt verschieben, wenn sie sich verzögern
+- Die Rückwärtsrechnung prüft gegen das Zieldatum der Meilensteine und den Zieltermin des Projekts.
+- An jeder Aufgabe stehen Planzeitraum, Puffer bzw. „kritisch“ und „wartet auf …“. Meilensteine zeigen ihre Prognose.
+- **Gantt-Diagramm** im Reiter *Zeitplan*:
+  - Balken je Aufgabe, gruppiert nach Meilensteinen, ◆ für Meilensteine (bei Verzug mit gestrichelter Prognose)
+  - Pfeile für die Vorgänger, kritischer Pfad in Rot, Puffer als heller Balken
+  - Linien für Heute und den Zieltermin, Zoom auf Tage, Wochen oder Monate
+  - **Ziehen** verschiebt den Start, der **rechte Rand** ändert die Dauer, **◆ ziehen** setzt das Zieldatum, **Antippen** öffnet die Aufgabe. Nachfolger rücken automatisch mit.
+  - Mit der Tastatur: Pfeiltasten verschieben, Umschalt+Pfeil ändert die Dauer, Enter bearbeitet.
+- **Warnungen:** Ein gefährdeter Meilenstein erscheint unter „Heute“, zum Beispiel „voraussichtlich 2 Arbeitstage zu spät“.
+- Wochenenden zählen standardmäßig nicht, das ist umstellbar. Kreisabhängigkeiten werden beim Speichern verhindert und im Zeitplan gemeldet.
+
+**🗺️ Roadmap über alle Projekte**
+- Dritte Ansicht auf der Projektseite (*Kacheln · Liste · Roadmap*) und als Bereich auf der Übersicht. Auch über die Befehlspalette erreichbar.
+- Eine Zeile je Projekt:
+  - Laufzeit vom ersten Eintrag bzw. geplanten Start bis zum voraussichtlichen Ende oder Zieltermin, mit Fortschritt
+  - ◆ Meilensteine (rot bei Verzug, grün erreicht) und ⚑ Zieltermin
+- Projekte ohne Termin enden offen (gestrichelt), pausierte erscheinen blass.
+- **Warnliste** oben: Welche Meilensteine und Zieltermine laut Zeitplan wie viele Arbeitstage zu spät sind. Gefährdete Projekte sind rot umrandet.
+- Zoom auf Wochen oder Monate. Ein Antippen öffnet den Zeitplan des Projekts. Die Statusfilter der Projektseite gelten auch hier.
+
 **📎 Dokumente**
 - Links zu Dateien und Seiten (iCloud, OneDrive, SharePoint, Google Drive/Docs, Dropbox, Notion, Figma …) im neuen Projekt-Reiter *Dokumente*, optional einer Aufgabe oder einem Meilenstein zugeordnet.
 - Gespeichert wird nur der Link, die Datei bleibt, wo sie ist.

@@ -2,6 +2,42 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-5",
+      "date": "2026-11-21",
+      "de": [
+        "🗺️ Roadmap über alle Projekte: Laufzeit, Fortschritt, Meilensteine und Zieltermine auf einer Zeitachse – als Ansicht auf der Projektseite und als Bereich der Übersicht",
+        "⚠️ Warnliste für gefährdete Meilensteine und Zieltermine aller Projekte"
+      ],
+      "en": [
+        "🗺️ Roadmap across all projects: duration, progress, milestones and target dates on one timeline – as a view on the projects page and as an overview section",
+        "⚠️ Warning list for milestones and target dates at risk across all projects"
+      ]
+    },
+    {
+      "version": "2026.11.21-4",
+      "date": "2026-11-21",
+      "de": [
+        "📊 Gantt-Diagramm im Reiter „Zeitplan“: Balken, Abhängigkeitspfeile, kritischer Pfad in Rot, Puffer, Heute-Linie und Zoom",
+        "Balken ziehen zum Verschieben, am Rand ziehen für die Dauer, ◆ ziehen für das Zieldatum – Nachfolger rücken automatisch mit"
+      ],
+      "en": [
+        "📊 Gantt chart in the “Schedule” tab: bars, dependency arrows, critical path in red, slack, today line and zoom",
+        "Drag bars to move them, drag the edge to change the duration, drag ◆ for the target date – successors move along automatically"
+      ]
+    },
+    {
+      "version": "2026.11.21-3",
+      "date": "2026-11-21",
+      "de": [
+        "🗓 Zeitplan & kritischer Pfad: Dauer, frühester Start und Vorgänger für Aufgaben; Puffer, kritische Aufgaben und Prognose je Meilenstein",
+        "⚠️ Warnung unter „Heute“, wenn ein Meilenstein laut Zeitplan zu spät fertig wird"
+      ],
+      "en": [
+        "🗓 Schedule & critical path: duration, earliest start and predecessors for tasks; slack, critical tasks and forecast per milestone",
+        "⚠️ Warning under “Today” when a milestone is expected to finish late"
+      ]
+    },
+    {
       "version": "2026.11.21-2",
       "date": "2026-11-21",
       "de": [
