@@ -1421,4 +1421,6 @@ I18N.en = {
   "Timer & Pomodoro": "Timer & Pomodoro",
   "Erinnerungston alle {n} Min": "reminder every {n} min",
   "kein Erinnerungston": "no reminder sound",
+  "jede Minute": "every minute",
+  "Erinnerungston jede Minute": "reminder every minute",
 };

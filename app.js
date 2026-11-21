@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-14';
+const APP_VERSION = '2026.11.21-15';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2524,7 +2524,7 @@ function renderPomodoroSettings() {
         <label>${tr('Lange Pause nach … Pomodoros')}<input type="number" min="1" max="12" step="1" name="pomoEvery" value="${cfg.every}"></label>
       </div>
       <label>${tr('Erinnerungston, solange ein Timer läuft')}
-        <select name="timerBeep">${[0, 5, 10, 15, 30, 60].map((n) => `<option value="${n}" ${timerBeepMin() === n ? 'selected' : ''}>${n ? tr('alle {n} Minuten', { n }) : tr('Aus')}</option>`).join('')}</select></label>
+        <select name="timerBeep">${[0, 1, 5, 10, 15, 30, 60].map((n) => `<option value="${n}" ${timerBeepMin() === n ? 'selected' : ''}>${n === 1 ? tr('jede Minute') : n ? tr('alle {n} Minuten', { n }) : tr('Aus')}</option>`).join('')}</select></label>
       <div class="hint" style="margin-top:-6px">${tr('Ein kurzer, leiser Doppel-Ton erinnert dich, dass Stoppuhr oder Pomodoro-Fokus noch laufen. Während einer Pause bleibt er still.')}</div>
       <label class="check-row"><input type="checkbox" name="pomoSound" ${st.pomoSound !== false ? 'checked' : ''}> ${tr('Ton am Ende von Fokus und Pause')}</label>
       <label class="check-row"><input type="checkbox" name="pomoNotify" ${st.pomoNotify !== false ? 'checked' : ''}> ${tr('Mitteilung anzeigen, wenn der Tracker im Hintergrund ist')}</label>
@@ -2605,7 +2605,7 @@ function renderSettings() {
     ${settingsSection('wochenziel', '🎯', tr('Wochenziel'), weeklyGoalSummary(), renderWeeklyGoalSettings())}
 
     ${settingsSection('pomodoro', '🍅', tr('Timer & Pomodoro'),
-      `${tr('{w} Min Fokus · {s} / {l} Min Pause · lange Pause nach {e}', { w: pomoCfg().work, s: pomoCfg().short, l: pomoCfg().long, e: pomoCfg().every })} · ${timerBeepMin() ? tr('Erinnerungston alle {n} Min', { n: timerBeepMin() }) : tr('kein Erinnerungston')}`,
+      `${tr('{w} Min Fokus · {s} / {l} Min Pause · lange Pause nach {e}', { w: pomoCfg().work, s: pomoCfg().short, l: pomoCfg().long, e: pomoCfg().every })} · ${timerBeepMin() === 1 ? tr('Erinnerungston jede Minute') : timerBeepMin() ? tr('Erinnerungston alle {n} Min', { n: timerBeepMin() }) : tr('kein Erinnerungston')}`,
       renderPomodoroSettings())}
 
     ${settingsSection('erinnerungen', '😴', tr('Erinnerungen bei eingeschlafenen Projekten'),

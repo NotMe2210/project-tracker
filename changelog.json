@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-15",
+      "date": "2026-11-21",
+      "de": [
+        "🔔 Erinnerungston auf Wunsch jede Minute"
+      ],
+      "en": [
+        "🔔 Reminder sound can now play every minute"
+      ]
+    },
+    {
       "version": "2026.11.21-14",
       "date": "2026-11-21",
       "de": [
