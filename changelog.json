@@ -2,6 +2,30 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-2",
+      "date": "2026-11-21",
+      "de": [
+        "🏅 7 neue Erfolge rund um Teams und Dokumente (z. B. Teamplayer, Delegierer, Gemeinsam stark, Archivar) und 4 neue geheime Erfolge"
+      ],
+      "en": [
+        "🏅 7 new achievements around teams and documents (e.g. Team player, Delegator, Stronger together, Archivist) and 4 new secret ones"
+      ]
+    },
+    {
+      "version": "2026.11.21-1",
+      "date": "2026-11-21",
+      "de": [
+        "👥 Personen & Teams: Aufgaben und Meilensteine zuweisen, Projektteams, „Meine Aufgaben“ und Filter nach Zuständigen",
+        "📎 Dokumente: Links zu Dateien in iCloud, OneDrive, Google Drive, Dropbox, Notion … an Projekten, Aufgaben und Meilensteinen",
+        "📲 Als App installierbar (eigenes Fenster, eigenes Symbol, auch offline) – siehe Einstellungen › App installieren"
+      ],
+      "en": [
+        "👥 People & teams: assign tasks and milestones, project teams, “My tasks” and filters by assignee",
+        "📎 Documents: links to files in iCloud, OneDrive, Google Drive, Dropbox, Notion … on projects, tasks and milestones",
+        "📲 Installable as an app (own window, own icon, works offline) – see Settings › Install app"
+      ]
+    },
+    {
       "version": "2026.11.20-8",
       "date": "2026-11-20",
       "de": [

@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.20-8';
+const APP_VERSION = '2026.11.21-2';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -42,6 +42,9 @@ const DEFAULT_DATA = {
   milestones: [],
   tasks: [],
   notes: [],
+  docs: [], // Dokument-Verweise { id, projectId, taskId, milestoneId, title, url, note, createdAt }
+  people: [], // Personen { id, name, short, color, email, accountId (später: Login-Konto), createdAt }
+  teams: [], // Teams { id, name, color, memberIds: [Personen-IDs], createdAt }
   timer: null,
   counters: { pomodoros: 0 },
   achievements: null, // { id: Datum } – null = noch nie geprüft
@@ -764,6 +767,7 @@ const WIDGETS = [
   { id: 'stats', get label() { return tr('Kennzahlen'); }, icon: '📊', wide: true, visible: true },
   { id: 'attention', get label() { return tr('Braucht Aufmerksamkeit'); }, icon: '⚠️', wide: false, visible: true },
   { id: 'milestones', get label() { return tr('Anstehende Meilensteine'); }, icon: '🏁', wide: false, visible: true },
+  { id: 'myTasks', get label() { return tr('Meine Aufgaben'); }, icon: '🙋', wide: false, visible: false },
   { id: 'nextSteps', get label() { return tr('Nächste Schritte'); }, icon: '👉', wide: false, visible: true },
   { id: 'activity', get label() { return tr('Aktivität (12 Wochen)'); }, icon: '📈', wide: false, visible: true },
   { id: 'projects', get label() { return tr('Alle Projekte (Tabelle)'); }, icon: '📋', wide: true, visible: true },
@@ -797,6 +801,7 @@ const PROJECT_WIDGETS = [
   { id: 'description', get label() { return tr('Beschreibung'); }, icon: '📝', wide: true, visible: true },
   { id: 'tasks', get label() { return tr('Offene Aufgaben'); }, icon: '✅', wide: false, visible: false },
   { id: 'invest', get label() { return tr('Investitionen nach Kategorie'); }, icon: '💶', wide: false, visible: false },
+  { id: 'docs', get label() { return tr('Dokumente'); }, icon: '📎', wide: false, visible: true },
 ];
 const PROJECT_STATS = [
   { id: 'progress', get label() { return tr('Fortschritt'); }, visible: true },
@@ -1190,6 +1195,19 @@ function renderWidget(id, c, cfg) {
           ${qaButton(p)}
         </li>`).join('')}</ul>`
         : `<div class="empty">${tr('Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉')}</div>`);
+
+    case 'myTasks': {
+      const me = currentPerson();
+      if (!me) return card(`🙋 ${tr('Meine Aufgaben')}`, `<div class="empty">${tr('Lege unter Einstellungen › Team fest, wer du bist – dann siehst du hier alles, was dir oder deinen Teams zugewiesen ist.')}<br><br><a class="btn small" href="#/einstellungen" data-open-section="team">👥 ${tr('Team einrichten')}</a></div>`);
+      const tasks = sortTasks(c.openTasks.filter((t) => isMine(t)));
+      const ms = data.milestones.filter((m) => !m.done && isMine(m) && getProject(m.projectId)?.status !== 'abgeschlossen')
+        .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+      return card(`🙋 ${tr('Meine Aufgaben')}`, tasks.length || ms.length ? `<div class="scroll-list">
+          ${tasks.length ? `<ul class="list">${tasks.map((t) => taskItem(t, { showProject: true })).join('')}</ul>` : ''}
+          ${ms.length ? `<div class="list-divider small muted">${tr('Meine Meilensteine ({n})', { n: ms.length })}</div><ul class="list">${ms.map((m) => milestoneItem(m, { showProject: true })).join('')}</ul>` : ''}
+        </div>` : `<div class="empty">${tr('Dir ist gerade nichts zugewiesen. 🎉')}</div>`,
+        `<span class="small muted">${personAvatar(me)} ${esc(me.name)}</span>`);
+    }
 
     case 'nextSteps': {
       // Oben der nächste Schritt jedes aktiven Projekts, darunter alle weiteren offenen Aufgaben (scrollbar)
@@ -1608,9 +1626,11 @@ function taskItem(t, { showProject = false } = {}) {
         ${subs.length ? `<span class="badge ${subsDone === subs.length ? 'aktiv' : ''}">☑ ${subsDone}/${subs.length}</span>` : ''}
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/aufgaben">${esc(p.name)}</a></span>` : ''}
         <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
+        ${assigneeBadges(t.assignees)}
         ${t.done ? `<span>${tr('erledigt {when}', { when: fmtRelative(t.doneAt) })}</span>` : dueBadge(t.dueDate)}
         ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
         ${t.notes ? `<span>${esc(t.notes)}</span>` : ''}
+        ${docChips(data.docs.filter((d) => d.taskId === t.id))}
       </div>
       ${subs.length ? `<ul class="subtasks">${subs.map((st) => `
         <li class="${st.done ? 'done' : ''}">
@@ -1620,6 +1640,7 @@ function taskItem(t, { showProject = false } = {}) {
       ${t.done || showProject ? '' : `<button class="btn ghost small add-sub" data-action="addSubtask" data-id="${t.id}">${tr('+ Unterpunkt')}</button>`}
     </div>
     <div class="actions">
+      <button class="btn ghost icon" data-action="addDoc" data-id="${t.projectId}" data-task="${t.id}" title="${tr('Dokument verknüpfen')}">📎</button>
       <button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button>
       <button class="btn ghost icon danger" data-action="deleteTask" data-id="${t.id}" title="${tr('Löschen')}">🗑</button>
     </div>
@@ -1637,8 +1658,10 @@ function milestoneItem(m, { showProject = false, move = null } = {}) {
       <div class="meta">
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/meilensteine">${esc(p.name)}</a></span>` : ''}
         ${m.done ? `<span>${tr('erreicht am {date}', { date: fmtDate(m.doneAt) })}</span>` : m.dueDate ? `${dueBadge(m.dueDate)}<span>(${fmtRelative(m.dueDate)})</span>` : ''}
+        ${assigneeBadges(m.assignees)}
       </div>
       ${m.description ? `<div class="small muted">${esc(m.description)}</div>` : ''}
+      ${docChips(data.docs.filter((d) => d.milestoneId === m.id), true)}
       ${tasks.length && !m.done ? `<div style="margin-top:6px;max-width:240px">${progressBar((done / tasks.length) * 100)}</div>` : ''}
       ${tasks.length ? `<details class="ms-tasks" data-ms="${m.id}" ${openMsTasks.has(m.id) ? 'open' : ''}>
         <summary>${tr('{done}/{n} Aufgaben', { done, n: tasks.length })}</summary>
@@ -1653,6 +1676,7 @@ function milestoneItem(m, { showProject = false, move = null } = {}) {
     <div class="actions">
       ${move ? `<button class="btn ghost icon" data-action="moveMilestone" data-id="${m.id}" data-dir="-1" title="${tr('Nach oben')}" ${move.first ? 'disabled' : ''}>↑</button>
       <button class="btn ghost icon" data-action="moveMilestone" data-id="${m.id}" data-dir="1" title="${tr('Nach unten')}" ${move.last ? 'disabled' : ''}>↓</button>` : ''}
+      <button class="btn ghost icon" data-action="addDoc" data-id="${m.projectId}" data-ms="${m.id}" title="${tr('Dokument verknüpfen')}">📎</button>
       <button class="btn ghost icon" data-action="editMilestone" data-id="${m.id}" title="${tr('Bearbeiten')}">✎</button>
       <button class="btn ghost icon danger" data-action="deleteMilestone" data-id="${m.id}" title="${tr('Löschen')}">🗑</button>
     </div>
@@ -1751,14 +1775,15 @@ function renderProject(id, tab) {
     zeit: data.timeEntries.filter((e) => e.projectId === id).length,
     investitionen: data.investments.filter((e) => e.projectId === id).length,
     logbuch: data.notes.filter((e) => e.projectId === id).length,
+    dokumente: data.docs.filter((e) => e.projectId === id).length,
   };
   const tabs = [
     ['uebersicht', tr('Übersicht')], ['aufgaben', tr('Aufgaben')], ['meilensteine', tr('Meilensteine')],
-    ['zeit', tr('Zeit')], ['investitionen', tr('Investitionen')], ['logbuch', tr('Logbuch')],
+    ['zeit', tr('Zeit')], ['investitionen', tr('Investitionen')], ['logbuch', tr('Logbuch')], ['dokumente', tr('Dokumente')],
   ];
   const body = {
     uebersicht: projectOverview, aufgaben: projectTasks, meilensteine: projectMilestones,
-    zeit: projectTime, investitionen: projectInvestments, logbuch: projectNotes,
+    zeit: projectTime, investitionen: projectInvestments, logbuch: projectNotes, dokumente: projectDocs,
   }[tab] || projectOverview;
 
   return `
@@ -1773,6 +1798,7 @@ function renderProject(id, tab) {
             ${STATUS.map((st) => `<option value="${st.value}" ${st.value === p.status ? 'selected' : ''}>${st.label}</option>`).join('')}
           </select>
           ${p.category ? `<span class="badge">${esc(p.category)}</span>` : ''}
+          ${(p.teamIds || []).map((id) => data.teams.find((tm) => tm.id === id)).filter(Boolean).map(teamBadge).join('')}
           ${healthBadge(s)}
         </div>
       </div>
@@ -1884,6 +1910,15 @@ function renderProjectWidget(id, p, s, cfg) {
       </section>`;
     }
 
+    case 'docs': {
+      const docs = data.docs.filter((d) => d.projectId === p.id).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      if (!docs.length) return '';
+      return `<section class="card">
+        <div class="card-head"><h2>📎 ${tr('Dokumente')}</h2><a class="btn small" href="#/projekt/${p.id}/dokumente">${tr('Alle')}</a></div>
+        <ul class="list doc-list">${docs.slice(0, 6).map((d) => docRow(d, { compact: true })).join('')}</ul>
+      </section>`;
+    }
+
     case 'invest': {
       const items = data.investments.filter((e) => e.projectId === p.id);
       const byCat = {};
@@ -1908,11 +1943,12 @@ function recentActivity(pid) {
 }
 
 function projectTasks(p) {
-  const tasks = data.tasks.filter((t) => t.projectId === p.id);
+  const tasks = data.tasks.filter((t) => t.projectId === p.id && matchesWho(t, taskWhoFilter));
   const open = sortTasks(tasks.filter((t) => !t.done));
   const done = tasks.filter((t) => t.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
   return `<section class="card">
     <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
+    ${whoFilterChips(p)}
     ${open.length ? PRIORITIES.map(({ value, label }) => {
       const group = open.filter((t) => (t.priority || 'mittel') === value);
       return group.length ? `<h3 class="task-group"><span class="badge ${value}">${label}</span> <span class="muted small">${group.length}</span></h3>
@@ -2208,7 +2244,35 @@ function renderWeeklyGoalSettings() {
     </form>`;
 }
 
-const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'pomodoro', 'erinnerungen', 'erfolge', 'sicherung', 'sync'];
+const SECTION_IDS = ['darstellung', 'uebersicht', 'wochenziel', 'pomodoro', 'erinnerungen', 'erfolge', 'team', 'app', 'sicherung', 'sync'];
+
+/* ---------------------------- Installierbare App (PWA) -------------------- */
+let installPrompt = null; // von Chrome/Edge angebotene Installation
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; if (parseRoute().view === 'einstellungen') render(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; toast(tr('📲 Protrac wurde als App installiert.')); });
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+// Service Worker: offline nutzbar & installierbar (nur über https bzw. localhost, nicht als lokale Datei)
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
+  navigator.serviceWorker.register('sw.js').catch(() => { /* ohne Service Worker läuft alles wie bisher */ });
+}
+
+function renderAppSettings() {
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const mac = !ios && /Macintosh/.test(ua);
+  const steps = [
+    ['📱', 'iPhone & iPad', tr('In Safari auf <i>Teilen</i> tippen › <i>Zum Home-Bildschirm</i>. Danach Protrac immer über das Symbol öffnen.'), ios],
+    ['💻', 'Mac (Safari)', tr('Menü <i>Ablage</i> › <i>Zum Dock hinzufügen</i> (ab macOS Sonoma).'), mac],
+    ['🖥️', 'Windows (Edge) & Chrome', tr('In der Adressleiste auf das Symbol <i>App installieren</i> klicken oder Menü ⋯ › <i>Apps</i> › <i>Diese Website als App installieren</i>.'), !ios && !mac],
+    ['🤖', 'Android (Chrome)', tr('Menü ⋮ › <i>App installieren</i> bzw. <i>Zum Startbildschirm hinzufügen</i>.'), /Android/.test(ua)],
+  ];
+  return `<p class="small muted">${tr('Protrac lässt sich wie eine App installieren: mit eigenem Fenster ohne Browserleiste, eigenem Symbol und Start auch ohne Internetverbindung. Es ist dieselbe Version wie im Browser – Updates kommen automatisch, deine Daten bleiben, wo sie sind. Die Browserversion kannst du weiterhin parallel nutzen.')}</p>
+    ${isStandalone() ? `<div class="callout next">✅ ${tr('Du nutzt Protrac gerade als installierte App.')}</div>`
+      : installPrompt ? `<div class="btn-row" style="margin-bottom:12px"><button class="btn primary" data-action="installApp">📲 ${tr('Jetzt als App installieren')}</button></div>` : ''}
+    <ul class="app-steps">${steps.map(([ico, name, text, mine]) => `<li class="${mine ? 'mine' : ''}"><span>${ico}</span><div><b>${name}</b>${mine ? ` <span class="badge aktiv">${tr('dieses Gerät')}</span>` : ''}<div class="small muted">${text}</div></div></li>`).join('')}</ul>
+    <p class="small muted">${tr('Hinweis: Jede installierte App und jeder Browser hat einen eigenen Speicher. Ohne eigenen Server überträgst du die Daten wie gewohnt per Sicherung.')}</p>`;
+}
 
 /** Ein-/Aus-Schalter für eine Einstellung (wird sofort gespeichert) */
 function settingToggle(key, on, label, hint) {
@@ -2320,6 +2384,15 @@ function renderSettings() {
       set.remindersOn === false ? `<span class="badge">${tr('Ausgeschaltet')}</span>` : `${tr('nach {n} Tagen', { n: esc(set.staleDays) })} · ${trp(texts.length, '{n} Text', '{n} Texte')}`,
       renderReminderSettings())}
 
+    ${settingsSection('team', '👥', tr('Team & Personen'),
+      data.people.length || data.teams.length ? `${trp(data.people.length, '{n} Person', '{n} Personen')} · ${trp(data.teams.length, '{n} Team', '{n} Teams')}${currentPerson() ? ` · ${tr('ich')}: ${esc(currentPerson().name)}` : ''}`
+        : tr('Personen und Teams anlegen und Aufgaben zuweisen'),
+      renderTeamSettings())}
+
+    ${settingsSection('app', '📲', tr('App installieren'),
+      isStandalone() ? `<span class="badge aktiv">${tr('Als App geöffnet')}</span>` : tr('Eigenes Fenster, eigenes Symbol, auch offline'),
+      renderAppSettings())}
+
     ${settingsSection('erfolge', '🏅', tr('Erfolge'),
       set.achievementsOn === false ? `<span class="badge">${tr('Ausgeschaltet')}</span>`
         : tr('{n} von {all} erreicht', { n: ACHIEVEMENTS.filter((a) => (data.achievements || {})[a.id]).length, all: ACHIEVEMENTS.length }),
@@ -2366,6 +2439,13 @@ function fieldHTML(f) {
   const req = f.required ? 'required' : '';
   const hint = f.hint ? `<span class="hint">${esc(f.hint)}</span>` : '';
   let input;
+  if (f.type === 'checks') {
+    const vals = new Set(v || []);
+    return `<div class="field"><div class="field-label">${esc(f.label)}</div>
+      <div class="check-chips" data-checks="${f.name}">${f.options.map((o) => (o.group
+        ? `<span class="check-group small muted">${esc(o.group)}</span>`
+        : `<label class="check-chip"><input type="checkbox" value="${esc(o.value)}" ${vals.has(o.value) ? 'checked' : ''}><span>${o.html || esc(o.label)}</span></label>`)).join('')}</div>${hint}</div>`;
+  }
   if (f.type === 'subtasks') {
     return `<div class="field"><div class="field-label">${esc(f.label)}</div>
       <div class="subtasks-editor" data-subtasks="${f.name}">
@@ -2433,6 +2513,10 @@ function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide
     const fd = new FormData(form);
     const values = {};
     for (const f of fields) {
+      if (f.type === 'checks') {
+        values[f.name] = [...form.querySelectorAll(`[data-checks="${f.name}"] input:checked`)].map((i) => i.value);
+        continue;
+      }
       if (f.type === 'subtasks') {
         const before = new Map((f.value || []).map((st) => [st.id, st]));
         values[f.name] = [...form.querySelectorAll(`[data-subtasks="${f.name}"] .subtask-row`)]
@@ -2554,6 +2638,13 @@ const actions = {
     if (!wasDone && status === 'abgeschlossen') celebrateProject(p);
     else toast(tr('Status: {s}', { s: statusLabel(status) }));
   },
+  async installApp() {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch { /* abgebrochen */ }
+    installPrompt = null;
+    render();
+  },
   setChartPeriod({ id }) {
     if (!CHART_PERIODS.includes(id)) return;
     chartPeriod = id;
@@ -2607,7 +2698,7 @@ const actions = {
     const p = getProject(id);
     if (!confirm(tr('Projekt „{name}“ inklusive aller Zeiten, Investitionen, Aufgaben und Meilensteine löschen?', { name: p.name }))) return;
     data.projects = data.projects.filter((x) => x.id !== id);
-    for (const k of ['timeEntries', 'investments', 'milestones', 'tasks', 'notes']) data[k] = data[k].filter((x) => x.projectId !== id);
+    for (const k of ['timeEntries', 'investments', 'milestones', 'tasks', 'notes', 'docs']) data[k] = data[k].filter((x) => x.projectId !== id);
     if (data.timer?.projectId === id) data.timer = null;
     save();
     location.hash = '#/projekte';
@@ -2668,6 +2759,7 @@ const actions = {
   deleteTask({ id }) {
     if (!confirm(tr('Aufgabe löschen?'))) return;
     data.tasks = data.tasks.filter((t) => t.id !== id);
+    data.docs.forEach((d) => { if (d.taskId === id) d.taskId = null; }); // Dokument bleibt beim Projekt
     commit();
   },
 
@@ -2707,6 +2799,7 @@ const actions = {
     if (!confirm(tr('Meilenstein löschen? Zugeordnete Aufgaben bleiben erhalten.'))) return;
     data.milestones = data.milestones.filter((m) => m.id !== id);
     data.tasks.forEach((t) => { if (t.milestoneId === id) t.milestoneId = null; });
+    data.docs.forEach((d) => { if (d.milestoneId === id) d.milestoneId = null; });
     commit();
   },
 
@@ -2928,6 +3021,8 @@ function projectForm(p) {
       { name: 'staleDays', label: tr('Erinnern nach … Tagen'), type: 'number', value: p.staleDays, w: 1,
         placeholder: tr('Standard: {n}', { n: data.settings.staleDays }), hint: tr('ohne Aktivität; leer = Standard') },
       { name: 'color', label: tr('Farbe'), type: 'color', value: p.color, w: 1 },
+      ...(data.teams.length ? [{ name: 'teamIds', label: tr('Projektteams'), type: 'checks', w: 4, value: p.teamIds || [],
+        options: data.teams.map((tm) => ({ value: tm.id, html: teamBadge(tm) })), hint: tr('Mitglieder dieser Teams stehen bei der Zuweisung von Aufgaben oben.') }] : []),
     ],
     onSubmit(v) {
       if (isNew) {
@@ -2960,6 +3055,7 @@ function taskForm(t) {
     const opts = data.milestones.filter((m) => m.projectId === pid && (!m.done || m.id === t.milestoneId));
     fields.push({ name: 'milestoneId', label: tr('Meilenstein'), type: 'select', value: t.milestoneId || '', options: [{ value: '', label: tr('– keiner –') }, ...opts.map((m) => ({ value: m.id, label: m.title }))] });
   }
+  if (data.people.length || data.teams.length) fields.push({ name: 'assignees', label: tr('Zuständig'), type: 'checks', options: assigneeOptions(pid), value: t.assignees || [] });
   fields.push({ name: 'subtasks', label: tr('Unterpunkte'), type: 'subtasks', value: t.subtasks || [],
     hint: tr('Die Aufgabe ist erst fertig, wenn alle Unterpunkte abgehakt sind. Eingabetaste = nächster Unterpunkt.') });
   fields.push({ name: 'notes', label: tr('Notiz'), type: 'textarea', value: t.notes });
@@ -2986,6 +3082,7 @@ function milestoneForm(m) {
       { name: 'title', label: tr('Meilenstein'), required: true, value: m.title, placeholder: tr('z. B. Prototyp fertig') },
       { name: 'dueDate', label: tr('Zieldatum'), type: 'date', value: m.dueDate, half: true },
       { name: 'doneAt', label: tr('Erreicht am'), type: 'date', value: m.done ? m.doneAt : '', half: true },
+      ...(data.people.length || data.teams.length ? [{ name: 'assignees', label: tr('Zuständig'), type: 'checks', options: assigneeOptions(m.projectId), value: m.assignees || [] }] : []),
       { name: 'description', label: tr('Beschreibung / Kriterien'), type: 'textarea', value: m.description,
         hint: tr('„Erreicht am“ nur ausfüllen, wenn der Meilenstein schon geschafft ist – z. B. beim Nachtragen früherer Etappen. Leer = noch offen.') },
     ],
@@ -3504,6 +3601,27 @@ function hadWeekend() {
   const days = new Set(data.timeEntries.filter((e) => e.minutes > 0).map((e) => e.date));
   return [...days].some((d) => parseISO(d).getDay() === 6 && days.has(toISO(addDays(parseISO(d), 1))));
 }
+/** Kennzahlen für die Team-Erfolge */
+function teamStats() {
+  const teamAssigned = (x) => (x.assignees || []).some((a) => a.startsWith('t:'));
+  const me = currentPerson();
+  const perDay = {};
+  data.tasks.filter((t) => t.done && t.doneAt && teamAssigned(t)).forEach((t) => { perDay[t.doneAt] = (perDay[t.doneAt] || 0) + 1; });
+  return {
+    teams: data.teams.length,
+    people: data.people.length,
+    projectTeams: data.projects.filter((p) => (p.teamIds || []).length).length,
+    assignedTasks: data.tasks.filter((t) => (t.assignees || []).length).length,
+    teamTasksDone: data.tasks.filter((t) => t.done && teamAssigned(t)).length,
+    myTasksDone: me ? data.tasks.filter((t) => t.done && isMine(t, me)).length : 0,
+    docs: data.docs.length,
+    teamMilestones: data.milestones.filter((m) => m.done && teamAssigned(m)).length,
+    maxTeamsPerPerson: Math.max(0, ...data.people.map((p) => teamsOf(p.id).length)),
+    biggestTeam: Math.max(0, ...data.teams.map((tm) => (tm.memberIds || []).length)),
+    teamDay: Math.max(0, ...Object.values(perDay)),
+  };
+}
+
 /** Zählt Ereignisse für geheime Erfolge (Werte werden beim Abgleich mehrerer Geräte addiert) */
 function countEvent(key) {
   data.counters[key] = (data.counters[key] || 0) + 1;
@@ -3551,6 +3669,14 @@ const ACHIEVEMENTS = [
   { id: 'notes_10', icon: '📓', get name() { return tr('Chronist'); }, get desc() { return tr('10 Notizen im Logbuch'); }, goal: 10, val: (x) => x.notes },
   { id: 'invest_1', icon: '💶', get name() { return tr('Investor'); }, get desc() { return tr('Erste Investition erfasst'); }, goal: 1, val: (x) => x.investments },
   { id: 'week_goal_4', icon: '📈', get name() { return tr('Beständig'); }, get desc() { return tr('In 4 Wochen das Wochenziel erreicht'); }, goal: 4, val: (x) => x.weekGoals },
+  // Zusammenarbeit & Dokumente
+  { id: 'team_1', icon: '👥', get name() { return tr('Teamplayer'); }, get desc() { return tr('Erstes Team angelegt'); }, goal: 1, val: (x) => x.teams },
+  { id: 'people_5', icon: '🤝', get name() { return tr('Netzwerker'); }, get desc() { return tr('5 Personen angelegt'); }, goal: 5, val: (x) => x.people },
+  { id: 'project_team', icon: '🏗️', get name() { return tr('Projektcrew'); }, get desc() { return tr('Einem Projekt ein Projektteam zugeordnet'); }, goal: 1, val: (x) => x.projectTeams },
+  { id: 'assign_10', icon: '📌', get name() { return tr('Delegierer'); }, get desc() { return tr('10 Aufgaben Personen oder Teams zugewiesen'); }, goal: 10, val: (x) => x.assignedTasks },
+  { id: 'team_done_10', icon: '🚣', get name() { return tr('Gemeinsam stark'); }, get desc() { return tr('10 Team-Aufgaben erledigt'); }, goal: 10, val: (x) => x.teamTasksDone },
+  { id: 'mine_done_10', icon: '🙋', get name() { return tr('Zuverlässig'); }, get desc() { return tr('10 dir zugewiesene Aufgaben erledigt'); }, goal: 10, val: (x) => x.myTasksDone },
+  { id: 'docs_10', icon: '📚', get name() { return tr('Archivar'); }, get desc() { return tr('10 Dokumente verknüpft'); }, goal: 10, val: (x) => x.docs },
   // Geheime Erfolge – Name und Bedingung werden erst beim Erreichen verraten
   { id: 's_night', icon: '🦉', get name() { return tr('Nachteule'); }, get desc() { return tr('Einen Timer zwischen 22 und 4 Uhr gestartet'); }, goal: 1, val: (x) => x.nightStarts, secret: true },
   { id: 's_early', icon: '🐦', get name() { return tr('Früher Vogel'); }, get desc() { return tr('Einen Timer zwischen 5 und 7 Uhr gestartet'); }, goal: 1, val: (x) => x.earlyStarts, secret: true },
@@ -3562,6 +3688,10 @@ const ACHIEVEMENTS = [
   { id: 's_phoenix', icon: '🌅', get name() { return tr('Phönix aus der Asche'); }, get desc() { return tr('Ein pausiertes Projekt wieder aktiviert'); }, goal: 1, val: (x) => x.reactivated, secret: true },
   { id: 's_perfect', icon: '💎', get name() { return tr('Perfektionist'); }, get desc() { return tr('Alle (mindestens 5) Aufgaben eines Projekts erledigt'); }, goal: 1, val: (x) => x.perfectProject, secret: true },
   { id: 's_holiday', icon: '🎄', get name() { return tr('Feiertagsfleiß'); }, get desc() { return tr('An Heiligabend, den Weihnachtstagen oder Neujahr aktiv gewesen'); }, goal: 1, val: (x) => x.holiday, secret: true },
+  { id: 's_allhands', icon: '🙌', get name() { return tr('Alle Mann an Deck'); }, get desc() { return tr('Einen Meilenstein erreicht, der einem Team zugewiesen war'); }, goal: 1, val: (x) => x.teamMilestones, secret: true },
+  { id: 's_bridge', icon: '🌉', get name() { return tr('Brückenbauer'); }, get desc() { return tr('Eine Person gehört zu 3 Teams'); }, goal: 3, val: (x) => x.maxTeamsPerPerson, secret: true },
+  { id: 's_bigteam', icon: '🏟️', get name() { return tr('Volles Haus'); }, get desc() { return tr('Ein Team mit mindestens 8 Mitgliedern'); }, goal: 8, val: (x) => x.biggestTeam, secret: true },
+  { id: 's_teamday', icon: '🎊', get name() { return tr('Teamtag'); }, get desc() { return tr('An einem Tag 5 Team-Aufgaben erledigt'); }, goal: 5, val: (x) => x.teamDay, secret: true },
 ];
 
 function achievementStats() {
@@ -3592,6 +3722,7 @@ function achievementStats() {
     doubleGoal: weeks.double ? 1 : 0,
     reactivated: c.reactivated || 0,
     perfectProject: data.projects.some((p) => { const ts = data.tasks.filter((t) => t.projectId === p.id); return ts.length >= 5 && ts.every((t) => t.done); }) ? 1 : 0,
+    ...teamStats(),
     holiday: Object.keys(days).some((d) => ['12-24', '12-25', '12-26', '01-01'].includes(d.slice(5))) ? 1 : 0,
   };
 }
@@ -3707,6 +3838,7 @@ function taskMenuHTML(t) {
   return `<div class="pop-title">${esc(t.title)}</div>
     <button class="pop-item" data-action="toggleTask" data-id="${t.id}">${t.done ? `↺ ${tr('Wieder öffnen')}` : `✓ ${tr('Erledigt')}`}</button>
     <button class="pop-item" data-action="editTask" data-id="${t.id}">✎ ${tr('Bearbeiten')}</button>
+    <button class="pop-item" data-action="addDoc" data-id="${t.projectId}" data-task="${t.id}">📎 ${tr('Dokument verknüpfen')}</button>
     ${t.done ? '' : `<button class="pop-item" data-action="addSubtask" data-id="${t.id}">＋ ${tr('Unterpunkt')}</button>`}
     ${p ? `<button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 ${tr('Pomodoro für {name}', { name: esc(p.name) })}</button>` : ''}
     <div class="pop-sep"></div>
@@ -3791,6 +3923,10 @@ function paletteCommands() {
       add('✅', tr('Aufgabe anlegen: {name}', { name: p.name }), () => actions.addTask({ id: p.id }));
       add('📝', tr('Notiz: {name}', { name: p.name }), () => actions.addNote({ id: p.id }));
     }
+  });
+  data.docs.forEach((d) => {
+    const u = safeUrl(d.url);
+    if (u) add(docInfo(u).icon, tr('Dokument: {title}', { title: d.title || u }), () => window.open(u, '_blank', 'noopener'), getProject(d.projectId)?.name || '');
   });
   sortTasks(data.tasks.filter((t) => !t.done)).forEach((t) => {
     add('☐', tr('Erledigen: {title}', { title: t.title }), () => actions.toggleTask({ id: t.id }), getProject(t.projectId)?.name || '');
@@ -4997,6 +5133,352 @@ Object.assign(actions, {
     const log = await loadChangelog();
     const next = (log?.entries || []).filter((e) => cmpVersion(e.version, APP_VERSION) > 0).sort((a, b) => cmpVersion(b.version, a.version));
     showChangelogDialog(next, { title: tr('🆕 Neu in Version {v}', { v: id }), repo: log?.repo || REPO_URL, updateTo: id });
+  },
+});
+
+/* ------------------------------------------------------------------------
+   Personen & Teams (Stufe A: Zuständigkeiten planen)
+   Vorbereitung Stufe B (eigene Logins mit Server): Personen haben ein Feld
+   accountId und optional eine E-Mail für Einladungen; „Ich“ kommt dann aus dem
+   Login statt aus der Geräte-Einstellung (siehe currentPerson()).
+   ------------------------------------------------------------------------ */
+const ME_KEY = 'projekttracker.ui.me'; // „Das bin ich“ – pro Gerät (später: aus dem Login)
+let taskWhoFilter = 'all';             // Filter im Aufgaben-Reiter: all | me | none | p:<id> | t:<id>
+
+function currentPerson() {
+  // Stufe B: hier künftig zuerst die Person des angemeldeten Kontos (server.account?.personId)
+  let id = null;
+  try { id = localStorage.getItem(ME_KEY); } catch { /* ignorieren */ }
+  return data.people.find((x) => x.id === id) || null;
+}
+const personById = (id) => data.people.find((x) => x.id === id);
+const teamById = (id) => data.teams.find((x) => x.id === id);
+const initialsOf = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+const teamsOf = (personId) => data.teams.filter((tm) => (tm.memberIds || []).includes(personId));
+
+/** Ist ein Eintrag mir zugewiesen – direkt oder über eines meiner Teams? */
+function isMine(item, me = currentPerson()) {
+  if (!me || !item.assignees?.length) return false;
+  if (item.assignees.includes(`p:${me.id}`)) return true;
+  return teamsOf(me.id).some((tm) => item.assignees.includes(`t:${tm.id}`));
+}
+function matchesWho(item, filter) {
+  if (filter === 'all') return true;
+  if (filter === 'me') return isMine(item);
+  if (filter === 'none') return !item.assignees?.length;
+  if (filter.startsWith('p:')) return (item.assignees || []).includes(filter) || teamsOf(filter.slice(2)).some((tm) => (item.assignees || []).includes(`t:${tm.id}`));
+  return (item.assignees || []).includes(filter);
+}
+
+function personAvatar(p, size = '') {
+  return `<span class="avatar ${size}" style="--av:${esc(p.color || 'var(--primary)')}" title="${esc(p.name)}${p.email ? ` · ${esc(p.email)}` : ''}">${esc(p.short || initialsOf(p.name))}</span>`;
+}
+function teamBadge(tm) {
+  return `<span class="team-badge" style="--av:${esc(tm.color || 'var(--primary)')}" title="${esc(tm.name)}: ${esc((tm.memberIds || []).map((id) => personById(id)?.name).filter(Boolean).join(', '))}">👥 ${esc(tm.name)}</span>`;
+}
+/** Zuständige als Avatare (Personen) bzw. Abzeichen (Teams) */
+function assigneeBadges(list) {
+  if (!list?.length) return '';
+  const html = list.map((a) => {
+    const id = a.slice(2);
+    if (a.startsWith('p:')) { const p = personById(id); return p ? personAvatar(p, 'small') : ''; }
+    const tm = teamById(id); return tm ? teamBadge(tm) : '';
+  }).join('');
+  return html ? `<span class="assignees">${html}</span>` : '';
+}
+
+/** Auswahl für „Zuständig“: Teams und Personen; Projektteams und deren Mitglieder zuerst */
+function assigneeOptions(pid) {
+  const projTeams = new Set(getProject(pid)?.teamIds || []);
+  const projPeople = new Set(data.teams.filter((tm) => projTeams.has(tm.id)).flatMap((tm) => tm.memberIds || []));
+  const teams = [...data.teams].sort((a, b) => Number(projTeams.has(b.id)) - Number(projTeams.has(a.id)) || a.name.localeCompare(b.name));
+  const people = [...data.people].sort((a, b) => Number(projPeople.has(b.id)) - Number(projPeople.has(a.id)) || a.name.localeCompare(b.name));
+  return [
+    ...(teams.length ? [{ group: tr('Teams') }, ...teams.map((tm) => ({ value: `t:${tm.id}`, html: teamBadge(tm) }))] : []),
+    ...(people.length ? [{ group: tr('Personen') }, ...people.map((p) => ({ value: `p:${p.id}`, html: `${personAvatar(p, 'small')} ${esc(p.name)}` }))] : []),
+  ];
+}
+
+/** Filter-Chips im Aufgaben-Reiter */
+function whoFilterChips(p) {
+  if (!data.people.length && !data.teams.length) return '';
+  const projTeams = (p.teamIds || []).map(teamById).filter(Boolean);
+  const ids = new Set(projTeams.flatMap((tm) => tm.memberIds || []));
+  data.tasks.filter((t) => t.projectId === p.id).forEach((t) => (t.assignees || []).forEach((a) => { if (a.startsWith('p:')) ids.add(a.slice(2)); }));
+  const people = [...ids].map(personById).filter(Boolean);
+  const teams = [...new Set([...projTeams, ...data.tasks.filter((t) => t.projectId === p.id).flatMap((t) => (t.assignees || []).filter((a) => a.startsWith('t:')).map((a) => teamById(a.slice(2))))])].filter(Boolean);
+  const chip = (value, html) => `<button type="button" class="chip ${taskWhoFilter === value ? 'active' : ''}" data-action="setWhoFilter" data-id="${esc(value)}">${html}</button>`;
+  return `<div class="chips who-filter" role="group" aria-label="${tr('Zuständig')}">
+    ${chip('all', tr('Alle'))}${currentPerson() ? chip('me', `🙋 ${tr('Meine')}`) : ''}
+    ${teams.map((tm) => chip(`t:${tm.id}`, `👥 ${esc(tm.name)}`)).join('')}
+    ${people.map((x) => chip(`p:${x.id}`, `${personAvatar(x, 'small')} ${esc(x.name)}`)).join('')}
+    ${chip('none', tr('Ohne Zuständige'))}
+  </div>`;
+}
+
+/* Einstellungen › Team */
+function renderTeamSettings() {
+  const me = currentPerson();
+  const myTasksVisible = dashboardConfig().widgets.find((w) => w.id === 'myTasks')?.visible;
+  return `<p class="small muted">${tr('Lege Personen und Teams an und weise sie Aufgaben und Meilensteinen zu. Teams kannst du Projekten zuordnen. Die Personen arbeiten vorerst nicht selbst im Tool – mit eigenem Server bekommen sie später einen eigenen Login (die E-Mail-Adresse wird dann für die Einladung verwendet).')}</p>
+    <div class="form" style="padding:0;margin-bottom:16px">
+      <label>${tr('Das bin ich (auf diesem Gerät)')}
+        <select data-me-select>
+          <option value="">${tr('– niemand ausgewählt –')}</option>
+          ${data.people.map((p) => `<option value="${p.id}" ${me?.id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+        </select>
+        <span class="hint">${tr('Bestimmt, was unter „Meine Aufgaben“ erscheint.')}</span>
+      </label>
+      ${me && !myTasksVisible ? `<div><button type="button" class="btn small" data-action="showMyTasks">🙋 ${tr('„Meine Aufgaben“ auf der Übersicht anzeigen')}</button></div>` : ''}
+    </div>
+    <div class="grid-2">
+      <div>
+        <div class="card-head"><h3 style="margin:0">${tr('Personen ({n})', { n: data.people.length })}</h3><button type="button" class="btn small primary" data-action="addPerson">${tr('+ Person')}</button></div>
+        ${data.people.length ? `<ul class="list">${data.people.map((p) => `<li>${personAvatar(p)}
+          <div class="grow"><div class="title">${esc(p.name)}${me?.id === p.id ? ` <span class="badge aktiv">${tr('ich')}</span>` : ''}</div>
+            <div class="meta">${p.email ? `<span>${esc(p.email)}</span>` : ''}${teamsOf(p.id).map(teamBadge).join('')}
+              <span>${trp(openAssigned(`p:${p.id}`), '{n} offene Aufgabe', '{n} offene Aufgaben')}</span></div></div>
+          <div class="actions"><button class="btn ghost icon" data-action="editPerson" data-id="${p.id}" title="${tr('Bearbeiten')}">✎</button>
+            <button class="btn ghost icon danger" data-action="deletePerson" data-id="${p.id}" title="${tr('Löschen')}">🗑</button></div></li>`).join('')}</ul>`
+          : `<div class="empty">${tr('Noch keine Personen.')}</div>`}
+      </div>
+      <div>
+        <div class="card-head"><h3 style="margin:0">${tr('Teams ({n})', { n: data.teams.length })}</h3><button type="button" class="btn small primary" data-action="addTeam">${tr('+ Team')}</button></div>
+        ${data.teams.length ? `<ul class="list">${data.teams.map((tm) => `<li><span class="dot-color" style="background:${esc(tm.color)}"></span>
+          <div class="grow"><div class="title">${esc(tm.name)}</div>
+            <div class="meta"><span class="assignees">${(tm.memberIds || []).map(personById).filter(Boolean).map((p) => personAvatar(p, 'small')).join('') || `<span class="muted">${tr('keine Mitglieder')}</span>`}</span>
+              <span>${trp(data.projects.filter((p) => (p.teamIds || []).includes(tm.id)).length, '{n} Projekt', '{n} Projekte')}</span></div></div>
+          <div class="actions"><button class="btn ghost icon" data-action="editTeam" data-id="${tm.id}" title="${tr('Bearbeiten')}">✎</button>
+            <button class="btn ghost icon danger" data-action="deleteTeam" data-id="${tm.id}" title="${tr('Löschen')}">🗑</button></div></li>`).join('')}</ul>`
+          : `<div class="empty">${tr('Noch keine Teams.')}</div>`}
+      </div>
+    </div>`;
+}
+const openAssigned = (key) => data.tasks.filter((t) => !t.done && (t.assignees || []).includes(key)).length;
+
+function personForm(p) {
+  const isNew = !p;
+  p = p || { color: COLORS[data.people.length % COLORS.length] };
+  openForm({
+    title: isNew ? tr('Neue Person') : tr('Person bearbeiten'),
+    fields: [
+      { name: 'name', label: tr('Name'), required: true, value: p.name, half: true },
+      { name: 'short', label: tr('Kürzel'), value: p.short, placeholder: tr('z. B. AB'), hint: tr('Leer = Anfangsbuchstaben'), half: true },
+      { name: 'email', label: tr('E-Mail (optional)'), type: 'email', value: p.email, hint: tr('Wird später für die Einladung mit eigenem Login verwendet.') },
+      ...(data.teams.length ? [{ name: 'teamIds', label: tr('Teams'), type: 'checks', value: teamsOf(p.id).map((tm) => tm.id), options: data.teams.map((tm) => ({ value: tm.id, html: teamBadge(tm) })) }] : []),
+      { name: 'color', label: tr('Farbe'), type: 'color', value: p.color },
+    ],
+    onSubmit(v) {
+      const short = (v.short || '').slice(0, 3).toUpperCase();
+      const person = isNew ? { id: uid(), createdAt: new Date().toISOString(), accountId: null } : p;
+      Object.assign(person, { name: v.name, short, email: v.email || '', color: v.color });
+      if (isNew) data.people.push(person);
+      if (v.teamIds) data.teams.forEach((tm) => {
+        const set = new Set(tm.memberIds || []);
+        if (v.teamIds.includes(tm.id)) set.add(person.id); else set.delete(person.id);
+        tm.memberIds = [...set];
+      });
+      commit();
+    },
+  });
+}
+
+function teamForm(tm) {
+  const isNew = !tm;
+  tm = tm || { color: COLORS[(data.teams.length + 3) % COLORS.length], memberIds: [] };
+  openForm({
+    title: isNew ? tr('Neues Team') : tr('Team bearbeiten'),
+    fields: [
+      { name: 'name', label: tr('Name'), required: true, value: tm.name, placeholder: tr('z. B. Marketing') },
+      { name: 'memberIds', label: tr('Mitglieder'), type: 'checks', value: tm.memberIds || [],
+        options: data.people.map((p) => ({ value: p.id, html: `${personAvatar(p, 'small')} ${esc(p.name)}` })),
+        hint: data.people.length ? '' : tr('Lege zuerst Personen an – oder später über „Person bearbeiten“.') },
+      { name: 'color', label: tr('Farbe'), type: 'color', value: tm.color },
+    ],
+    onSubmit(v) {
+      if (isNew) data.teams.push({ id: uid(), createdAt: new Date().toISOString(), name: v.name, color: v.color, memberIds: v.memberIds });
+      else Object.assign(tm, { name: v.name, color: v.color, memberIds: v.memberIds });
+      commit();
+    },
+  });
+}
+
+/** Zuweisungen entfernen (beim Löschen von Personen oder Teams) */
+function unassign(key) {
+  [...data.tasks, ...data.milestones].forEach((x) => { if (x.assignees?.includes(key)) x.assignees = x.assignees.filter((a) => a !== key); });
+}
+
+Object.assign(actions, {
+  addPerson() { personForm(null); },
+  editPerson({ id }) { personForm(personById(id)); },
+  deletePerson({ id }) {
+    const p = personById(id);
+    if (!p || !confirm(tr('„{name}“ löschen? Die Person wird aus allen Teams und Zuweisungen entfernt.', { name: p.name }))) return;
+    data.people = data.people.filter((x) => x.id !== id);
+    data.teams.forEach((tm) => { tm.memberIds = (tm.memberIds || []).filter((m) => m !== id); });
+    unassign(`p:${id}`);
+    try { if (localStorage.getItem(ME_KEY) === id) localStorage.removeItem(ME_KEY); } catch { /* ignorieren */ }
+    commit();
+  },
+  addTeam() { teamForm(null); },
+  editTeam({ id }) { teamForm(teamById(id)); },
+  deleteTeam({ id }) {
+    const tm = teamById(id);
+    if (!tm || !confirm(tr('Team „{name}“ löschen? Die Personen bleiben erhalten.', { name: tm.name }))) return;
+    data.teams = data.teams.filter((x) => x.id !== id);
+    data.projects.forEach((p) => { if (p.teamIds) p.teamIds = p.teamIds.filter((x) => x !== id); });
+    unassign(`t:${id}`);
+    commit();
+  },
+  setWhoFilter({ id }) { taskWhoFilter = id; render(); },
+  showMyTasks() {
+    const cfg = structuredClone(dashboardConfig());
+    const w = cfg.widgets.find((x) => x.id === 'myTasks');
+    w.visible = true;
+    // direkt hinter „Heute“ bzw. an den Anfang
+    cfg.widgets = [...cfg.widgets.filter((x) => x !== w)];
+    const i = cfg.widgets.findIndex((x) => x.id === 'today');
+    cfg.widgets.splice(i >= 0 ? i + 1 : 0, 0, w);
+    data.settings.dashboard = cfg;
+    commit();
+    toast(tr('🙋 „Meine Aufgaben“ wird jetzt auf der Übersicht angezeigt.'));
+  },
+});
+document.addEventListener('change', (e) => {
+  if (!e.target.matches('[data-me-select]')) return;
+  try { if (e.target.value) localStorage.setItem(ME_KEY, e.target.value); else localStorage.removeItem(ME_KEY); } catch { /* ignorieren */ }
+  render();
+});
+// Link „Team einrichten“: Bereich in den Einstellungen gleich öffnen
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('[data-open-section]');
+  if (a) { openSections = new Set([a.dataset.openSection]); rememberSections(); }
+});
+
+/* ---------------------------- Dokumente (Verweise) ----------------------- */
+/* Verweise auf Dateien und Seiten – z. B. iCloud, OneDrive, Google Drive, Dropbox, Notion.
+   Es werden nur Links gespeichert, keine Dateien (Uploads folgen mit eigenem Server). */
+
+/** Nur sichere Link-Arten zulassen; „www.…“ bzw. „beispiel.de/…“ wird zu https:// ergänzt */
+function safeUrl(input) {
+  let u = String(input || '').trim();
+  if (!u) return null;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = /^[\w-]+(\.[\w-]+)+(\/|$)/.test(u) ? `https://${u}` : u;
+  try {
+    const url = new URL(u);
+    return ['http:', 'https:', 'mailto:', 'file:'].includes(url.protocol) ? url.href : null;
+  } catch { return null; }
+}
+
+/** Symbol und Dienst anhand des Links */
+function docInfo(url) {
+  let host = '', path = '';
+  try { const x = new URL(url); host = x.hostname.replace(/^www\./, ''); path = x.pathname.toLowerCase(); if (x.protocol === 'mailto:') return { icon: '✉️', name: 'E-Mail' }; if (x.protocol === 'file:') host = ''; } catch { return { icon: '🔗', name: '' }; }
+  const ext = (path.match(/\.([a-z0-9]{2,5})$/) || [])[1];
+  const byExt = { pdf: ['📕', 'PDF'], doc: ['📘', 'Word'], docx: ['📘', 'Word'], xls: ['📗', 'Excel'], xlsx: ['📗', 'Excel'], csv: ['📗', 'CSV'], ppt: ['📙', 'PowerPoint'], pptx: ['📙', 'PowerPoint'], pages: ['📘', 'Pages'], numbers: ['📗', 'Numbers'], key: ['📙', 'Keynote'], png: ['🖼️', ''], jpg: ['🖼️', ''], jpeg: ['🖼️', ''], gif: ['🖼️', ''], heic: ['🖼️', ''], zip: ['🗜️', 'ZIP'], txt: ['📄', ''], md: ['📄', ''] };
+  const services = [
+    [/docs\.google\.com$/, path.includes('/spreadsheets') ? '📗' : path.includes('/presentation') ? '📙' : '📘', 'Google Docs'],
+    [/drive\.google\.com$/, '🗂️', 'Google Drive'], [/icloud\.com$/, '☁️', 'iCloud'],
+    [/(onedrive\.live\.com|1drv\.ms)$/, '☁️', 'OneDrive'], [/sharepoint\.com$/, '🟦', 'SharePoint'],
+    [/dropbox\.com$/, '📦', 'Dropbox'], [/notion\.(so|site)$/, '📓', 'Notion'], [/figma\.com$/, '🎨', 'Figma'],
+    [/miro\.com$/, '🧠', 'Miro'], [/github\.com$/, '🐙', 'GitHub'], [/(youtube\.com|youtu\.be)$/, '▶️', 'YouTube'],
+    [/trello\.com$/, '📋', 'Trello'], [/canva\.com$/, '🎨', 'Canva'],
+  ];
+  const svc = services.find(([re]) => re.test(host));
+  if (ext && byExt[ext]) return { icon: byExt[ext][0], name: svc ? svc[2] : byExt[ext][1] || host };
+  if (svc) return { icon: svc[1], name: svc[2] };
+  return { icon: host ? '🔗' : '📄', name: host || tr('Datei') };
+}
+
+function docLink(d) {
+  const url = safeUrl(d.url);
+  const info = docInfo(url || '');
+  const title = d.title || url || '–';
+  return url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="doc-link">${info.icon} ${esc(title)}</a>` : `<span class="doc-link">🔗 ${esc(title)}</span>`;
+}
+
+/** Kleine Link-Chips an Aufgaben und Meilensteinen */
+function docChips(docs, block = false) {
+  if (!docs.length) return '';
+  const shown = docs.slice(0, 3).map((d) => docLink(d)).join('');
+  return `<${block ? 'div' : 'span'} class="doc-chips">${shown}${docs.length > 3 ? `<a class="doc-more" href="#/projekt/${docs[0].projectId}/dokumente">+${docs.length - 3}</a>` : ''}</${block ? 'div' : 'span'}>`;
+}
+
+function docRow(d, { compact = false } = {}) {
+  const url = safeUrl(d.url);
+  const info = docInfo(url || '');
+  const task = d.taskId ? data.tasks.find((t) => t.id === d.taskId) : null;
+  const ms = d.milestoneId ? data.milestones.find((m) => m.id === d.milestoneId) : null;
+  return `<li>
+    <span class="doc-ico" aria-hidden="true">${info.icon}</span>
+    <div class="grow">
+      <div class="title">${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(d.title || url)}</a>` : esc(d.title || d.url)}</div>
+      <div class="meta">${info.name ? `<span>${esc(info.name)}</span>` : ''}
+        ${task ? `<span>✅ ${esc(task.title)}</span>` : ''}${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
+        ${!compact && d.note ? `<span>${esc(d.note)}</span>` : ''}</div>
+    </div>
+    ${compact ? '' : `<div class="actions">
+      <button class="btn ghost icon" data-action="editDoc" data-id="${d.id}" title="${tr('Bearbeiten')}">✎</button>
+      <button class="btn ghost icon danger" data-action="deleteDoc" data-id="${d.id}" title="${tr('Löschen')}">🗑</button>
+    </div>`}
+  </li>`;
+}
+
+function projectDocs(p) {
+  const docs = data.docs.filter((d) => d.projectId === p.id).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const general = docs.filter((d) => !d.taskId && !d.milestoneId);
+  const linked = docs.filter((d) => d.taskId || d.milestoneId);
+  return `<section class="card">
+    <div class="card-head"><h2>📎 ${tr('Dokumente')}</h2><button class="btn primary small" data-action="addDoc" data-id="${p.id}">${tr('+ Dokument')}</button></div>
+    <p class="small muted">${tr('Verweise auf Dateien und Seiten, die zum Projekt gehören – z. B. aus iCloud, OneDrive, SharePoint, Google Drive, Dropbox oder Notion. Gespeichert wird nur der Link; die Datei bleibt, wo sie ist. Tipp: In der Cloud-App „Link teilen“ bzw. „Link kopieren“ wählen und hier einfügen.')}</p>
+    ${docs.length ? `
+      ${general.length ? `<h3 class="task-group">${tr('Zum Projekt')} <span class="muted small">${general.length}</span></h3><ul class="list doc-list">${general.map((d) => docRow(d)).join('')}</ul>` : ''}
+      ${linked.length ? `<h3 class="task-group">${tr('Zu Aufgaben & Meilensteinen')} <span class="muted small">${linked.length}</span></h3><ul class="list doc-list">${linked.map((d) => docRow(d)).join('')}</ul>` : ''}`
+      : `<div class="empty">${tr('Noch keine Dokumente verknüpft.')}</div>`}
+  </section>`;
+}
+
+function docForm(d) {
+  const isNew = !d.id;
+  const pid = d.projectId;
+  const opts = [{ value: '', label: tr('Projekt allgemein') }];
+  sortMilestonesOf(pid).forEach((m) => opts.push({ value: `m:${m.id}`, label: `🏁 ${m.title}` }));
+  sortTasks(data.tasks.filter((t) => t.projectId === pid)).forEach((t) => opts.push({ value: `t:${t.id}`, label: `✅ ${t.title}${t.done ? ' ✓' : ''}` }));
+  const current = d.taskId ? `t:${d.taskId}` : d.milestoneId ? `m:${d.milestoneId}` : '';
+  openForm({
+    title: isNew ? tr('Dokument verknüpfen') : tr('Dokument bearbeiten'),
+    fields: [
+      { name: 'url', label: tr('Link'), required: true, value: d.url, placeholder: 'https://…',
+        hint: tr('Freigabe-Link aus iCloud, OneDrive, Google Drive, Dropbox … oder eine beliebige Webadresse.') },
+      { name: 'title', label: tr('Titel'), value: d.title, placeholder: tr('z. B. Angebot Druckerei'), hint: tr('Leer = wird aus dem Link übernommen.') },
+      { name: 'link', label: tr('Gehört zu'), type: 'select', options: opts, value: current },
+      { name: 'note', label: tr('Notiz'), type: 'textarea', value: d.note },
+    ],
+    onSubmit(v) {
+      const url = safeUrl(v.url);
+      if (!url) return tr('Bitte einen gültigen Link angeben (z. B. https://…).');
+      let title = v.title;
+      if (!title) {
+        try { const x = new URL(url); title = decodeURIComponent(x.pathname.split('/').filter(Boolean).pop() || '') || x.hostname.replace(/^www\./, ''); } catch { title = url; }
+        // lange IDs und allgemeine Wörter aus Cloud-Links (…/edit, …/view) durch den Dienstnamen ersetzen
+        if (title.length > 60 || /^[\w-]{20,}$/.test(title) || /^(edit|view|preview|open|share|sharing|index\.html?|s)$/i.test(title)) title = docInfo(url).name || title;
+      }
+      const out = { url, title, note: v.note || '', taskId: v.link.startsWith('t:') ? v.link.slice(2) : null, milestoneId: v.link.startsWith('m:') ? v.link.slice(2) : null };
+      if (isNew) data.docs.push({ id: uid(), projectId: pid, createdAt: new Date().toISOString(), ...out });
+      else Object.assign(d, out);
+      commit();
+      if (isNew) toast(tr('📎 Dokument verknüpft'));
+    },
+  });
+}
+
+Object.assign(actions, {
+  addDoc({ id, task, ms }) { docForm({ projectId: id, taskId: task || null, milestoneId: ms || null }); },
+  editDoc({ id }) { const d = data.docs.find((x) => x.id === id); if (d) docForm(d); },
+  deleteDoc({ id }) {
+    if (!confirm(tr('Verweis auf das Dokument entfernen? Die Datei selbst bleibt unverändert.'))) return;
+    data.docs = data.docs.filter((d) => d.id !== id);
+    commit();
   },
 });
 

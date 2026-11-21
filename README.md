@@ -39,8 +39,8 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - ⋯ **Schnellaktionen** pro Projekt (Pomodoro, Stoppuhr, Zeit, Aufgabe, Notiz, Status) in Tabelle, Kacheln und „Braucht Aufmerksamkeit“
 - **Klickbare Diagramme:** Tag bzw. Woche anklicken öffnet die Einträge (mit Bearbeiten). Projekte in der Legende ein- und ausblenden.
 - 📈 **Verlaufslinien** in den Kennzahlen (Wochen bzw. Monate)
-- 🏅 **Erfolge:** 30 Abzeichen (Stunden, Serien, aktive Tage, Pomodoros, Aufgaben, Unterpunkte, Meilensteine, Notizen …) mit Fortschritt, sortiert von erreicht über Fortschritt bis offen. Neue Erfolge werden gefeiert.
-- 🤫 **10 geheime Erfolge:** Name und Bedingung bleiben verborgen (🔒 ???), bis du sie zufällig erreichst. Dann werden sie mit einer eigenen Meldung enthüllt und golden hervorgehoben.
+- 🏅 **Erfolge:** 37 Abzeichen für Stunden, Serien, aktive Tage, Pomodoros, Aufgaben, Unterpunkte, Meilensteine, Notizen sowie Zusammenarbeit und Dokumente (z. B. Teamplayer, Delegierer, Gemeinsam stark, Archivar), mit Fortschritt, sortiert von erreicht über Fortschritt bis offen. Neue Erfolge werden gefeiert.
+- 🤫 **14 geheime Erfolge** (davon 4 rund ums Team): Name und Bedingung bleiben verborgen (🔒 ???), bis du sie zufällig erreichst. Dann werden sie mit einer eigenen Meldung enthüllt und golden hervorgehoben.
 - 🔎 **Befehlspalette** am Computer mit ⌘K bzw. Strg+K: Seiten, Projekte, Pomodoro, Zeit, Aufgaben, Darstellung …
 - 👆 **Wischgesten** auf dem iPhone: Aufgabe nach rechts wischen = erledigt, nach links = Optionen
 - **Anpassbare Übersicht und Projektansicht** direkt auf der Seite (⚙️ Anpassen bzw. ✏️ Ansicht anpassen): Bereiche per **Drag-and-drop** am ⠿-Griff verschieben (Maus, Finger oder Pfeiltasten) mit sofortiger Vorschau, Breite **¼ Viertel / ½ Halb / ¾ Dreiviertel / voll** (4-Spalten-Raster), ausblenden ✕, wieder einblenden, Kennzahlen-Kacheln wählen. **✂ Aufteilen** zerlegt die Kennzahlen in einzelne Kacheln, die sich frei anordnen lassen. Die Projektansicht gilt wahlweise **für alle Projekte** oder **nur für ein Projekt**. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche (gestapelt nach Projekt), letzte Aktivitäten, Projektkacheln, offene Aufgaben, Investitionen nach Kategorie.
@@ -51,6 +51,38 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - Aktivitäts-Heatmap (12 Wochen): Überfahren bzw. Antippen eines Tages zeigt, was an diesem Tag erledigt wurde (Zeiten, Aufgaben, Unterpunkte, Meilensteine, Investitionen, Notizen)
 - Stunden-Diagramm (gesamt und je Projekt) wahlweise **pro Tag, Woche, Monat oder Jahr**
 - Konfetti und Erfolgsmeldungen, wenn du Meilensteine erreichst oder Projekte abschließt
+
+## Team, Dokumente & App
+
+**👥 Personen & Teams** (Einstellungen › Team & Personen)
+- Personen (Name, Kürzel, Farbe, optional E-Mail) und Teams mit Mitgliedern anlegen.
+- Aufgaben und Meilensteine einer oder mehreren Personen bzw. Teams zuweisen (**„Zuständig“**). Die Zuständigen erscheinen als Avatar bzw. 👥-Abzeichen.
+- Projekten **Projektteams** zuordnen. Deren Mitglieder stehen bei der Zuweisung oben.
+- **„Das bin ich“** pro Gerät wählen. Der Bereich **🙋 Meine Aufgaben** auf der Übersicht zeigt alles, was dir direkt oder über deine Teams zugewiesen ist.
+- Im Aufgaben-Reiter lässt sich nach Zuständigen filtern: Alle, Meine, Team, Person oder ohne Zuständige.
+
+**📎 Dokumente**
+- Links zu Dateien und Seiten (iCloud, OneDrive, SharePoint, Google Drive/Docs, Dropbox, Notion, Figma …) im neuen Projekt-Reiter *Dokumente*, optional einer Aufgabe oder einem Meilenstein zugeordnet.
+- Gespeichert wird nur der Link, die Datei bleibt, wo sie ist.
+
+**📲 Als App installieren** (Einstellungen › App installieren)
+- Protrac ist eine installierbare Web-App (PWA): eigenes Fenster, eigenes Symbol, Start auch offline.
+- Installation unter iPhone/iPad über *Teilen › Zum Home-Bildschirm*, auf dem Mac über *Ablage › Zum Dock hinzufügen*, unter Windows/Chrome über *App installieren*.
+- Die Browserversion bleibt unverändert nutzbar. Jede installierte App hat ihren eigenen Speicher.
+
+### Ausblick: eigene Logins für Teammitglieder (Stufe B)
+
+Damit Teammitglieder selbst im Tool arbeiten, braucht es die Server-Version (siehe unten), weil GitHub Pages keine Konten speichern kann. Vorbereitet ist bereits:
+- Personen haben die Felder `email` (für Einladungen) und `accountId` (Verknüpfung mit einem Login). Zuweisungen verweisen auf Personen-IDs und bleiben deshalb gültig.
+- „Ich“ wird über `currentPerson()` bestimmt. Heute kommt das aus der Geräte-Einstellung, später aus dem Login.
+- Die Server-Schnittstelle meldet ihre Fähigkeiten (`features.accounts`).
+- Der Abgleich mehrerer Geräte führt gleichzeitige Änderungen bereits automatisch zusammen. Genau das braucht auch ein gemeinsamer Arbeitsbereich mehrerer Personen.
+
+Geplant für Stufe B:
+- Benutzerkonten mit eigenem Passwort
+- Einladungslinks per E-Mail, die eine Person mit einem Konto verknüpfen
+- Gemeinsame Arbeitsbereiche mit Rollen (Besitzer, Bearbeiter, Leser)
+- Später: Benachrichtigungen bei Zuweisungen und Datei-Uploads
 
 ## Daten & mehrere Geräte
 

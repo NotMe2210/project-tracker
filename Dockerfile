@@ -5,7 +5,7 @@ RUN docker-php-ext-install pdo_mysql \
  && a2enmod headers \
  && sed -ri 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
 
-COPY index.html app.js i18n.js lang-en.js styles.css version.json changelog.json manifest.webmanifest icon-180.png icon-512.png api.php .htaccess /var/www/html/
+COPY index.html app.js i18n.js lang-en.js styles.css version.json changelog.json sw.js manifest.webmanifest icon-180.png icon-512.png api.php .htaccess /var/www/html/
 COPY data/.htaccess data/index.html /var/www/html/data/
 
 RUN chown -R www-data:www-data /var/www/html/data
