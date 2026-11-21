@@ -1391,4 +1391,8 @@ I18N.en = {
   "bis Meilenstein „{title}“ ({date})": "until milestone “{title}” ({date})",
   "bis zum Zieltermin ({date})": "until the target date ({date})",
   "bis zum voraussichtlichen Projektende ({date})": "until the expected project end ({date})",
+  "Schon mit Protrac gearbeitet?": "Already used Protrac?",
+  "Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>projekttracker-backup-….json</code>), z. B. aus {svc}. Auch verschlüsselte Sicherungen funktionieren.": "Bring your projects over from another device: choose the latest backup (<code>projekttracker-backup-….json</code>), e.g. from {svc}. Encrypted backups work too.",
+  "Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>projekttracker-backup-….json</code>). Auch verschlüsselte Sicherungen funktionieren.": "Bring your projects over from another device: choose the latest backup (<code>projekttracker-backup-….json</code>). Encrypted backups work too.",
+  "Wie geht das?": "How does it work?",
 };

@@ -1395,3 +1395,9 @@ div.doc-chips { margin-top: 6px; }
 @media (max-width: 640px) { .quick-help code { white-space: normal; } .quick-help td:first-child { width: 48%; } }
 @media (max-width: 640px) { .quick > * { flex-shrink: 0; } }
 .plan-table .crit-why { font-weight: 400; color: var(--bad); margin-top: 2px; max-width: 420px; }
+
+/* ---- Willkommen: Sicherung importieren ---- */
+.welcome-import { margin: 28px auto 0; padding-top: 22px; border-top: 1px solid var(--border); max-width: 520px; }
+.welcome-import h2 { font-size: 1.05rem; margin: 0 0 6px; }
+.welcome-import p { font-size: .92rem; margin-bottom: 14px; }
+.welcome-import code { font-size: .82rem; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }

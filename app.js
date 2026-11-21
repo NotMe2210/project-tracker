@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-9';
+const APP_VERSION = '2026.11.21-10';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -1151,6 +1151,16 @@ function renderDashboard() {
       <div class="btn-row">
         <button class="btn primary" data-action="newProject">${tr('Erstes Projekt anlegen')}</button>
         <button class="btn" data-action="loadDemo">${tr('Beispieldaten ansehen')}</button>
+      </div>
+      <div class="welcome-import">
+        <h2>${tr('Schon mit Protrac gearbeitet?')}</h2>
+        <p>${syncService().cloud
+          ? tr('Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>projekttracker-backup-….json</code>), z. B. aus {svc}. Auch verschlüsselte Sicherungen funktionieren.', { svc: esc(syncService().name) })
+          : tr('Hol deine Projekte von einem anderen Gerät: Wähle die neueste Sicherung (<code>projekttracker-backup-….json</code>). Auch verschlüsselte Sicherungen funktionieren.')}</p>
+        <div class="btn-row">
+          <button class="btn" data-action="importData">⬆ ${tr('Sicherung importieren')}</button>
+          ${isServerMode() ? '' : `<a class="btn ghost" href="#/einstellungen" data-open-section="sync">${tr('Wie geht das?')}</a>`}
+        </div>
       </div>
     </div>`;
   }

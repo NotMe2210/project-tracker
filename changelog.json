@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-10",
+      "date": "2026-11-21",
+      "de": [
+        "⬆ Auf einem neuen Gerät lässt sich direkt auf der Willkommensseite eine Sicherung importieren – auch verschlüsselte"
+      ],
+      "en": [
+        "⬆ On a new device you can import a backup right from the welcome page – encrypted ones too"
+      ]
+    },
+    {
       "version": "2026.11.21-9",
       "date": "2026-11-21",
       "de": [
