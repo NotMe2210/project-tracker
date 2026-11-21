@@ -46,6 +46,7 @@ const DEFAULT_DATA = {
   docs: [], // Dokument-Verweise { id, projectId, taskId, milestoneId, title, url, note, createdAt }
   reviews: {}, // Wochenrückblicke { 'YYYY-MM-DD' (Wochenbeginn): { good, blockers, savedAt } }
   weekFocus: {}, // Wochenfokus { 'YYYY-MM-DD' (Wochenbeginn): [Aufgaben-IDs] }
+  templates: [], // eigene Projektvorlagen { id, name, icon, createdAt, bp }
   people: [], // Personen { id, name, short, color, email, accountId (später: Login-Konto), createdAt }
   teams: [], // Teams { id, name, color, memberIds: [Personen-IDs], createdAt }
   timer: null,
@@ -1915,6 +1916,7 @@ function renderProject(id, tab) {
         <button class="btn" data-action="addTime" data-id="${p.id}">${tr('+ Zeit')}</button>
         <button class="btn" data-action="editProject" data-id="${p.id}">${tr('Bearbeiten')}</button>
         <button class="btn danger" data-action="deleteProject" data-id="${p.id}">${tr('Löschen')}</button>
+        ${qaButton(p)}
       </div>
     </div>
     <nav class="tabs">
@@ -2525,6 +2527,10 @@ function renderSettings() {
         : tr('Personen und Teams anlegen und Aufgaben zuweisen'),
       renderTeamSettings())}
 
+    ${settingsSection('vorlagen', '📋', tr('Projektvorlagen'),
+      (data.templates || []).length ? trp(data.templates.length, '{n} eigene Vorlage', '{n} eigene Vorlagen') : tr('Mitgelieferte Vorlagen und eigene Vorlagen verwalten'),
+      renderTemplateSettings())}
+
     ${settingsSection('app', '📲', tr('App installieren'),
       isStandalone() ? `<span class="badge aktiv">${tr('Als App geöffnet')}</span>` : tr('Eigenes Fenster, eigenes Symbol, auch offline'),
       renderAppSettings())}
@@ -2766,6 +2772,14 @@ const actions = {
     if (p) openPopover(lastQaButton || btn, projectMenuHTML(p));
   },
   goProject({ id }) { location.hash = `#/projekt/${id}`; },
+  duplicateProject({ id }) { const p = getProject(id); if (p) duplicateForm(p); },
+  saveTemplate({ id }) { const p = getProject(id); if (p) saveTemplateForm(p); },
+  deleteTemplate({ id }) {
+    const t = (data.templates || []).find((x) => x.id === id);
+    if (!t || !confirm(tr('Vorlage „{name}“ löschen? Projekte, die daraus entstanden sind, bleiben erhalten.', { name: t.name }))) return;
+    data.templates = data.templates.filter((x) => x.id !== id);
+    commit();
+  },
   setProjectStatus({ id, status }) {
     const p = getProject(id);
     const wasDone = p.status === 'abgeschlossen';
@@ -3149,6 +3163,9 @@ function projectForm(p) {
     submitLabel: isNew ? tr('Anlegen') : tr('Speichern'),
     wide: true,
     fields: [
+      ...(isNew ? [{ name: 'template', label: tr('Vorlage'), type: 'select', w: 4, value: '',
+        options: [{ value: '', label: tr('Leeres Projekt') }, ...allTemplates().map((t) => ({ value: t.id, label: `${t.icon || '📋'} ${t.name}` }))],
+        hint: tr('Übernimmt Meilensteine und Aufgaben; Termine beginnen heute.') }] : []),
       { name: 'name', label: tr('Name'), required: true, value: p.name, w: 2 },
       { name: 'status', label: tr('Status'), type: 'select', options: STATUS, value: p.status, w: 1 },
       { name: 'category', label: tr('Kategorie'), value: p.category, list: cats, placeholder: tr('z. B. Beruf, Hobby'), w: 1 },
@@ -3172,7 +3189,11 @@ function projectForm(p) {
     ],
     onSubmit(v) {
       if (isNew) {
+        const tplId = v.template;
+        delete v.template;
         const np = { id: uid(), createdAt: todayISO(), ...v };
+        const tpl = tplId && templateById(tplId);
+        if (tpl) applyBlueprint(np, tpl.bp, todayISO());
         data.projects.push(np);
         save();
         location.hash = `#/projekt/${np.id}`;
@@ -4029,6 +4050,9 @@ function projectMenuHTML(p) {
     <button class="pop-item" data-action="addTask" data-id="${p.id}">✅ ${tr('Aufgabe anlegen')}</button>
     <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 ${tr('Notiz')}</button>
     <button class="pop-item" data-action="goProject" data-id="${p.id}">🗂️ ${tr('Projekt öffnen')}</button>
+    <div class="pop-sep"></div>
+    <button class="pop-item" data-action="duplicateProject" data-id="${p.id}">⧉ ${tr('Projekt duplizieren')}</button>
+    <button class="pop-item" data-action="saveTemplate" data-id="${p.id}">📋 ${tr('Als Vorlage speichern')}</button>
     <div class="pop-sep"></div>
     <div class="pop-label">${tr('Status')}</div>
     <div class="pop-chips">${STATUS.map((st) => `<button class="chip ${p.status === st.value ? 'active' : ''}" data-action="setProjectStatus" data-id="${p.id}" data-status="${st.value}">${st.label}</button>`).join('')}</div>`;
@@ -5547,6 +5571,163 @@ function projectSchedule(p) {
     </table></div>
     ${pl.used ? '' : `<div class="callout">💡 ${tr('Noch keine Planungsdaten: Öffne eine Aufgabe und trage Dauer und Vorgänger ein. Bis dahin gilt jede Aufgabe als 1 Tag ab heute.')}</div>`}
   </section>`;
+}
+
+/* ---------------------------- Vorlagen & Duplizieren --------------------- */
+/* Gemeinsames „Bauplan“-Format: Termine als Tage relativ zum Projektstart. */
+const BUILTIN_TEMPLATES = [
+  { id: 'learn', icon: '🎓', builtin: true, get name() { return tr('Lernprojekt'); }, get desc() { return tr('Etwas Neues lernen – mit Plan, festen Lernzeiten und eigenem Übungsprojekt.'); },
+    get bp() { return { project: { color: '#7c3aed', weeklyHours: 3, description: tr('Etwas Neues lernen – mit Plan, festen Lernzeiten und eigenem Übungsprojekt.') },
+      milestones: [{ k: 'm1', title: tr('Grundlagen verstanden'), due: 14 }, { k: 'm2', title: tr('Eigenes Übungsprojekt fertig'), due: 42 }],
+      tasks: [
+        { k: 't1', title: tr('Lernziel und Material festlegen'), priority: 'hoch', due: 2, ms: 'm1', estimate: 60 },
+        { k: 't2', title: tr('Lernplan mit festen Zeiten erstellen'), priority: 'hoch', due: 3, ms: 'm1', deps: ['t1'], estimate: 30 },
+        { k: 't3', title: tr('Wöchentliche Lerneinheit'), priority: 'mittel', due: 7, repeat: 'weekly', estimate: 120 },
+        { k: 't4', title: tr('Übungsprojekt planen'), priority: 'mittel', due: 21, ms: 'm2', deps: ['t2'] },
+        { k: 't5', title: tr('Übungsprojekt umsetzen'), priority: 'mittel', due: 38, ms: 'm2', deps: ['t4'] },
+        { k: 't6', title: tr('Gelerntes zusammenfassen'), priority: 'niedrig', due: 42, ms: 'm2', deps: ['t5'] },
+      ] }; } },
+  { id: 'website', icon: '🌐', builtin: true, get name() { return tr('Website'); }, get desc() { return tr('Eine eigene Website von der Idee bis zur Veröffentlichung.'); },
+    get bp() { return { project: { color: '#0ea5e9', weeklyHours: 4, description: tr('Eine eigene Website von der Idee bis zur Veröffentlichung.') },
+      milestones: [{ k: 'm1', title: tr('Konzept steht'), due: 7 }, { k: 'm2', title: tr('Website online'), due: 30 }],
+      tasks: [
+        { k: 't1', title: tr('Ziele und Zielgruppe festlegen'), priority: 'hoch', due: 2, ms: 'm1' },
+        { k: 't2', title: tr('Seitenstruktur skizzieren'), priority: 'hoch', due: 5, ms: 'm1', deps: ['t1'] },
+        { k: 't3', title: tr('Domain & Hosting wählen'), priority: 'mittel', due: 7, ms: 'm1' },
+        { k: 't4', title: tr('Texte schreiben'), priority: 'mittel', due: 18, ms: 'm2', deps: ['t2'] },
+        { k: 't5', title: tr('Bilder auswählen'), priority: 'niedrig', due: 18, ms: 'm2', deps: ['t2'] },
+        { k: 't6', title: tr('Impressum & Datenschutzerklärung'), priority: 'hoch', due: 24, ms: 'm2' },
+        { k: 't7', title: tr('Website veröffentlichen'), priority: 'hoch', due: 30, ms: 'm2', deps: ['t3', 't4', 't5', 't6'] },
+      ] }; } },
+  { id: 'event', icon: '🎉', builtin: true, get name() { return tr('Veranstaltung'); }, get desc() { return tr('Ein Fest, Workshop oder Treffen planen – von der Idee bis zum Dankeschön.'); },
+    get bp() { return { project: { color: '#f59e0b', weeklyHours: 2, description: tr('Ein Fest, Workshop oder Treffen planen – von der Idee bis zum Dankeschön.') },
+      milestones: [{ k: 'm1', title: tr('Rahmen steht'), due: 14 }, { k: 'm2', title: tr('Veranstaltungstag'), due: 60 }],
+      tasks: [
+        { k: 't1', title: tr('Datum & Budget festlegen'), priority: 'hoch', due: 3, ms: 'm1' },
+        { k: 't2', title: tr('Ort buchen'), priority: 'hoch', due: 10, ms: 'm1', deps: ['t1'] },
+        { k: 't3', title: tr('Gästeliste erstellen'), priority: 'mittel', due: 10, ms: 'm1' },
+        { k: 't4', title: tr('Einladungen verschicken'), priority: 'hoch', due: 21, ms: 'm2', deps: ['t2', 't3'] },
+        { k: 't5', title: tr('Programm planen'), priority: 'mittel', due: 35, ms: 'm2', deps: ['t2'] },
+        { k: 't6', title: tr('Catering organisieren'), priority: 'mittel', due: 45, ms: 'm2', deps: ['t4'] },
+        { k: 't7', title: tr('Nachbereitung & Dank'), priority: 'niedrig', due: 63, deps: ['t5', 't6'] },
+      ] }; } },
+];
+const dayOffset = (base, iso) => (iso ? Math.round((parseISO(iso) - parseISO(base)) / 864e5) : null);
+const fromOffset = (start, off) => (off === null || off === undefined ? null : toISO(addDays(parseISO(start), off)));
+const PROJECT_COPY_FIELDS = ['description', 'why', 'goal', 'category', 'weeklyHours', 'hourGoal', 'budget', 'color', 'staleDays', 'reminderText', 'teamIds', 'msSort'];
+
+/** Bauplan aus einem bestehenden Projekt (ohne Zeiten, Investitionen, Logbuch) */
+function projectBlueprint(p) {
+  const base = p.createdAt?.slice(0, 10) || todayISO();
+  const project = { targetOffset: dayOffset(base, p.targetDate) };
+  PROJECT_COPY_FIELDS.forEach((f) => { if (p[f] !== undefined && p[f] !== null && p[f] !== '') project[f] = structuredClone(p[f]); });
+  return {
+    project,
+    milestones: sortMilestonesOf(p.id).map((m) => ({ k: m.id, title: m.title, description: m.description || '', due: dayOffset(base, m.dueDate), assignees: m.assignees || [] })),
+    tasks: data.tasks.filter((t) => t.projectId === p.id).map((t) => ({
+      k: t.id, title: t.title, priority: t.priority, notes: t.notes || '', estimate: t.estimate || null, duration: t.duration || null, repeat: t.repeat || null,
+      assignees: t.assignees || [], ms: t.milestoneId || null, deps: t.dependsOn || [], subtasks: (t.subtasks || []).map((st) => st.title),
+      due: dayOffset(base, t.dueDate), start: dayOffset(base, t.startAfter),
+    })),
+    docs: data.docs.filter((d) => d.projectId === p.id).map((d) => ({ title: d.title, url: d.url, note: d.note || '', task: d.taskId, ms: d.milestoneId })),
+  };
+}
+
+/** Bauplan in ein (neues) Projekt übernehmen; leere Projektfelder werden aus dem Bauplan gefüllt */
+function applyBlueprint(np, bp, start) {
+  const pr = bp.project || {};
+  PROJECT_COPY_FIELDS.forEach((f) => { if ((np[f] === undefined || np[f] === null || np[f] === '') && pr[f] !== undefined) np[f] = structuredClone(pr[f]); });
+  if (!np.targetDate && pr.targetOffset !== undefined) np.targetDate = fromOffset(start, pr.targetOffset);
+  const msMap = {}, tMap = {};
+  const msList = (bp.milestones || []).map((m, i) => {
+    msMap[m.k] = uid();
+    return { id: msMap[m.k], projectId: np.id, title: m.title, description: m.description || '', dueDate: fromOffset(start, m.due),
+      assignees: [...(m.assignees || [])], done: false, doneAt: null, order: i, createdAt: new Date().toISOString() };
+  });
+  (bp.tasks || []).forEach((t) => { tMap[t.k] = uid(); });
+  const tasks = (bp.tasks || []).map((t) => ({
+    id: tMap[t.k], projectId: np.id, title: t.title, priority: t.priority || 'mittel', notes: t.notes || '', estimate: t.estimate || null,
+    duration: t.duration || null, repeat: t.repeat || null, assignees: [...(t.assignees || [])], milestoneId: msMap[t.ms] || null,
+    dependsOn: (t.deps || []).map((k) => tMap[k]).filter(Boolean), subtasks: (t.subtasks || []).map((title) => ({ id: uid(), title, done: false, doneAt: null })),
+    dueDate: fromOffset(start, t.due), startAfter: fromOffset(start, t.start), done: false, doneAt: null, status: 'open', createdAt: new Date().toISOString(),
+  }));
+  data.milestones.push(...msList);
+  data.tasks.push(...tasks);
+  (bp.docs || []).forEach((d) => data.docs.push({ id: uid(), projectId: np.id, title: d.title, url: d.url, note: d.note, taskId: tMap[d.task] || null, milestoneId: msMap[d.ms] || null, createdAt: new Date().toISOString() }));
+  return { milestones: msList.length, tasks: tasks.length };
+}
+
+function allTemplates() {
+  return [...BUILTIN_TEMPLATES, ...(data.templates || [])];
+}
+const templateById = (id) => allTemplates().find((t) => t.id === id);
+
+function duplicateForm(p) {
+  openForm({
+    title: tr('Projekt duplizieren'),
+    submitLabel: tr('Duplizieren'),
+    fields: [
+      { name: 'name', label: tr('Name'), required: true, value: tr('{name} (Kopie)', { name: p.name }) },
+      { name: 'start', label: tr('Projektstart'), type: 'date', value: todayISO(), required: true,
+        hint: tr('Termine werden relativ zum Start von „{name}“ ({date}) verschoben.', { name: p.name, date: fmtDate(p.createdAt?.slice(0, 10) || todayISO()) }) },
+    ],
+    onSubmit(v) {
+      const np = { id: uid(), name: v.name, status: 'aktiv', createdAt: v.start };
+      const n = applyBlueprint(np, projectBlueprint(p), v.start);
+      np.color = np.color || p.color;
+      data.projects.push(np);
+      commit();
+      location.hash = `#/projekt/${np.id}`;
+      toast(tr('⧉ Kopie angelegt: {t} Aufgaben, {m} Meilensteine.', { t: n.tasks, m: n.milestones }));
+    },
+  });
+}
+
+function saveTemplateForm(p) {
+  openForm({
+    title: tr('Als Vorlage speichern'),
+    fields: [
+      { name: 'name', label: tr('Name der Vorlage'), required: true, value: p.name },
+      { name: 'icon', label: tr('Symbol'), value: '📋', half: true, placeholder: '📋' },
+    ],
+    onSubmit(v) {
+      data.templates ||= [];
+      data.templates.push({ id: uid(), name: v.name, icon: v.icon || '📋', createdAt: new Date().toISOString(), bp: projectBlueprint(p) });
+      commit();
+      toast(tr('📋 Vorlage „{name}“ gespeichert. Du findest sie beim Anlegen eines neuen Projekts.', { name: v.name }));
+    },
+  });
+}
+
+// Neues Projekt: gewählte Vorlage füllt leere Felder sichtbar vor
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'f_template') return;
+  const tpl = templateById(e.target.value);
+  const form = e.target.form, pr = tpl?.bp.project || {};
+  const prev = form.dataset.tplFill ? JSON.parse(form.dataset.tplFill) : {};
+  const fill = {};
+  const set = (name, val) => {
+    const el = form.elements[name];
+    if (!el) return;
+    if (el.value === '' || el.value === prev[name]) { el.value = val ?? ''; fill[name] = el.value; }
+  };
+  set('name', tpl ? tpl.name : '');
+  set('description', pr.description || '');
+  set('weeklyHours', pr.weeklyHours ? decimalValue(pr.weeklyHours) : '');
+  if (pr.color && form.elements.color) form.elements.color.value = pr.color;
+  form.dataset.tplFill = JSON.stringify(fill);
+});
+
+function renderTemplateSettings() {
+  const own = data.templates || [];
+  const row = (t) => {
+    const bp = t.bp;
+    return `<li><span class="today-ico">${esc(t.icon || '📋')}</span><div class="grow"><div class="title">${esc(t.name)}</div>
+      <div class="meta">${trp(bp.tasks?.length || 0, '{n} Aufgabe', '{n} Aufgaben')} · ${trp(bp.milestones?.length || 0, '{n} Meilenstein', '{n} Meilensteine')}${t.builtin ? ` · ${tr('mitgeliefert')}` : ''}</div></div>
+      ${t.builtin ? '' : `<button class="btn ghost icon danger" data-action="deleteTemplate" data-id="${t.id}" title="${tr('Löschen')}">🗑</button>`}</li>`;
+  };
+  return `<p class="small muted" style="margin-top:0">${tr('Vorlagen enthalten Meilensteine, Aufgaben (mit Unterpunkten, Schätzungen und Abhängigkeiten) und Dokument-Verweise – aber keine Zeiten oder Investitionen. Eigene Vorlagen speicherst du in einem Projekt über ⋯ › „Als Vorlage speichern“.')}</p>
+    <ul class="list">${allTemplates().map(row).join('')}</ul>`;
 }
 
 /* ---------------------------- Wochenrückblick & -planung ----------------- */
