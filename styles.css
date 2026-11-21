@@ -1394,3 +1394,4 @@ div.doc-chips { margin-top: 6px; }
 .quick-help code { font-size: .8rem; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; white-space: nowrap; }
 @media (max-width: 640px) { .quick-help code { white-space: normal; } .quick-help td:first-child { width: 48%; } }
 @media (max-width: 640px) { .quick > * { flex-shrink: 0; } }
+.plan-table .crit-why { font-weight: 400; color: var(--bad); margin-top: 2px; max-width: 420px; }

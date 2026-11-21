@@ -5,10 +5,12 @@
       "version": "2026.11.21-7",
       "date": "2026-11-21",
       "de": [
-        "🎨 Neues Protrac-Logo als App-Symbol, Favicon und in der eingeklappten Seitenleiste"
+        "🎨 Neues Protrac-Logo als App-Symbol, Favicon und in der eingeklappten Seitenleiste",
+        "🔴 Kritischer Pfad verständlicher: Nur Aufgaben ohne Puffer gelten als kritisch, der Zeitplan nennt jeweils den Grund (Meilenstein, Zieltermin, Nachfolger oder Projektende)"
       ],
       "en": [
-        "🎨 New Protrac logo as app icon, favicon and in the collapsed sidebar"
+        "🎨 New Protrac logo as app icon, favicon and in the collapsed sidebar",
+        "🔴 Clearer critical path: only tasks without slack count as critical, and the schedule names the reason (milestone, target date, successor or project end)"
       ]
     },
     {
