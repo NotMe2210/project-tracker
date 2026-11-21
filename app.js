@@ -44,6 +44,8 @@ const DEFAULT_DATA = {
   tasks: [],
   notes: [],
   docs: [], // Dokument-Verweise { id, projectId, taskId, milestoneId, title, url, note, createdAt }
+  reviews: {}, // Wochenrückblicke { 'YYYY-MM-DD' (Wochenbeginn): { good, blockers, savedAt } }
+  weekFocus: {}, // Wochenfokus { 'YYYY-MM-DD' (Wochenbeginn): [Aufgaben-IDs] }
   people: [], // Personen { id, name, short, color, email, accountId (später: Login-Konto), createdAt }
   teams: [], // Teams { id, name, color, memberIds: [Personen-IDs], createdAt }
   timer: null,
@@ -674,6 +676,7 @@ function render() {
   if (r.view === 'projekte') html = renderProjects();
   else if (r.view === 'projekt') html = renderProject(r.id, r.tab);
   else if (r.view === 'einstellungen') html = renderSettings();
+  else if (r.view === 'woche') html = renderWeekReview(r.id);
   else html = renderDashboard();
   app.innerHTML = html;
   restoreGanttScroll();
@@ -772,6 +775,7 @@ const WIDGETS = [
   { id: 'attention', get label() { return tr('Braucht Aufmerksamkeit'); }, icon: '⚠️', wide: false, visible: true },
   { id: 'milestones', get label() { return tr('Anstehende Meilensteine'); }, icon: '🏁', wide: false, visible: true },
   { id: 'myTasks', get label() { return tr('Meine Aufgaben'); }, icon: '🙋', wide: false, visible: false },
+  { id: 'weekFocus', get label() { return tr('Wochenfokus'); }, icon: '🎯', wide: false, visible: true },
   { id: 'nextSteps', get label() { return tr('Nächste Schritte'); }, icon: '👉', wide: false, visible: true },
   { id: 'activity', get label() { return tr('Aktivität (12 Wochen)'); }, icon: '📈', wide: false, visible: true },
   { id: 'projects', get label() { return tr('Alle Projekte (Tabelle)'); }, icon: '📋', wide: true, visible: true },
@@ -1182,6 +1186,19 @@ function renderWidget(id, c, cfg) {
 
     case 'today':
       return renderToday(c);
+
+    case 'weekFocus': {
+      const wk = toISO(startOfWeek(new Date()));
+      const ids = data.weekFocus?.[wk] || [];
+      const tasks = ids.map((id) => data.tasks.find((t) => t.id === id)).filter(Boolean);
+      const done = tasks.filter((t) => t.done).length;
+      return card(`🎯 ${tr('Wochenfokus')}`, tasks.length ? `
+        ${progressBar((done / tasks.length) * 100, done === tasks.length ? 'good' : '')}
+        <div class="small muted" style="margin:6px 0 4px">${tr('{done} von {n} Fokus-Aufgaben erledigt', { done, n: tasks.length })}</div>
+        <ul class="list">${sortTasks(tasks.filter((t) => !t.done)).concat(tasks.filter((t) => t.done)).map((t) => taskItem(t, { showProject: true })).join('')}</ul>`
+        : `<div class="empty">${tr('Noch kein Fokus für diese Woche. Wähle im Wochenrückblick 1–3 Aufgaben je Projekt, auf die du dich konzentrieren willst.')}<br><br><a class="btn small primary" href="#/woche/${toISO(addDays(parseISO(wk), -7))}">📝 ${tr('Woche planen')}</a></div>`,
+        `<a class="btn small" href="#/woche">📝 ${tr('Rückblick')}</a>`);
+    }
 
     case 'achievements':
       return data.settings.achievementsOn === false ? '' : renderAchievements();
@@ -3595,6 +3612,16 @@ function renderToday(c) {
       <div class="btn-row"><a class="btn small" href="#/projekt/${risk.p.id}/zeitplan">${tr('Zeitplan')}</a></div>
     </li>`);
   }
+  // 3c) Wochenrückblick (freitags bis montags, solange er fehlt)
+  const reviewWeek = defaultReviewWeek();
+  if (items.length < 3 && [5, 6, 0, 1].includes(new Date().getDay()) && !data.reviews?.[reviewWeek] && data.projects.length) {
+    items.push(`<li>
+      <span class="today-ico">📝</span>
+      <div class="grow"><div class="title">${tr('Zeit für deinen Wochenrückblick')}</div>
+        <div class="meta">${tr('Was hast du geschafft? Worauf konzentrierst du dich nächste Woche?')}</div></div>
+      <div class="btn-row"><a class="btn small primary" href="#/woche/${reviewWeek}">${tr('Los geht’s')}</a></div>
+    </li>`);
+  }
   // 4) Meilenstein in den nächsten 7 Tagen
   const soon = data.milestones.filter((m) => !m.done && m.dueDate && m.dueDate >= today && m.dueDate <= toISO(addDays(new Date(), 7)) && getProject(m.projectId))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
@@ -3663,6 +3690,8 @@ function teamStats() {
     teamTasksDone: data.tasks.filter((t) => t.done && teamAssigned(t)).length,
     myTasksDone: me ? data.tasks.filter((t) => t.done && isMine(t, me)).length : 0,
     docs: data.docs.length,
+    reviews: Object.keys(data.reviews || {}).length,
+    focusWeeks: Object.values(data.weekFocus || {}).filter((ids) => ids.length && ids.every((id) => data.tasks.find((t) => t.id === id)?.done)).length,
     teamMilestones: data.milestones.filter((m) => m.done && teamAssigned(m)).length,
     maxTeamsPerPerson: Math.max(0, ...data.people.map((p) => teamsOf(p.id).length)),
     biggestTeam: Math.max(0, ...data.teams.map((tm) => (tm.memberIds || []).length)),
@@ -3725,6 +3754,9 @@ const ACHIEVEMENTS = [
   { id: 'team_done_10', icon: '🚣', get name() { return tr('Gemeinsam stark'); }, get desc() { return tr('10 Team-Aufgaben erledigt'); }, goal: 10, val: (x) => x.teamTasksDone },
   { id: 'mine_done_10', icon: '🙋', get name() { return tr('Zuverlässig'); }, get desc() { return tr('10 dir zugewiesene Aufgaben erledigt'); }, goal: 10, val: (x) => x.myTasksDone },
   { id: 'docs_10', icon: '📚', get name() { return tr('Archivar'); }, get desc() { return tr('10 Dokumente verknüpft'); }, goal: 10, val: (x) => x.docs },
+  { id: 'review_1', icon: '📝', get name() { return tr('Innehalten'); }, get desc() { return tr('Ersten Wochenrückblick gemacht'); }, goal: 1, val: (x) => x.reviews },
+  { id: 'review_8', icon: '🧘', get name() { return tr('Reflektiert'); }, get desc() { return tr('8 Wochenrückblicke gemacht'); }, goal: 8, val: (x) => x.reviews },
+  { id: 'focus_week', icon: '🎯', get name() { return tr('Fokussiert'); }, get desc() { return tr('Alle Fokus-Aufgaben einer Woche erledigt'); }, goal: 1, val: (x) => x.focusWeeks },
   // Geheime Erfolge – Name und Bedingung werden erst beim Erreichen verraten
   { id: 's_night', icon: '🦉', get name() { return tr('Nachteule'); }, get desc() { return tr('Einen Timer zwischen 22 und 4 Uhr gestartet'); }, goal: 1, val: (x) => x.nightStarts, secret: true },
   { id: 's_early', icon: '🐦', get name() { return tr('Früher Vogel'); }, get desc() { return tr('Einen Timer zwischen 5 und 7 Uhr gestartet'); }, goal: 1, val: (x) => x.earlyStarts, secret: true },
@@ -3962,6 +3994,7 @@ function paletteCommands() {
   add('📅', tr('Termine als Kalender-Datei (.ics)'), () => actions.exportIcs(), tr('Kalender iCal Outlook Termine'));
   add('📄', tr('Zeit & Investitionen aus CSV importieren'), () => actions.importCsv(), 'CSV Excel Import');
   add('🗺️', tr('Roadmap'), () => actions.openRoadmap(), tr('Zeitleiste Gantt Projekte'));
+  add('📝', tr('Wochenrückblick'), () => { location.hash = '#/woche'; }, tr('Woche planen Fokus Reflexion'));
   add('🧩', tr('Übersicht anpassen'), () => actions.customizeDashboard(), 'Layout');
   THEMES.forEach(([v, l]) => add(l.split(' ')[0], tr('Darstellung: {theme}', { theme: tr(l).replace(/^\S+\s/, '') }), () => { data.settings.theme = v; commit(); }, tr('Theme Hell Dunkel')));
   LANGUAGES.forEach(([code, name]) => add('🌐', tr('Sprache: {lang}', { lang: name }), () => { data.settings.language = code; commit(); }, 'Language Sprache'));
@@ -5391,6 +5424,103 @@ function projectSchedule(p) {
     ${pl.used ? '' : `<div class="callout">💡 ${tr('Noch keine Planungsdaten: Öffne eine Aufgabe und trage Dauer und Vorgänger ein. Bis dahin gilt jede Aufgabe als 1 Tag ab heute.')}</div>`}
   </section>`;
 }
+
+/* ---------------------------- Wochenrückblick & -planung ----------------- */
+/* Rückblick auf eine Woche (Stunden, Erledigtes, Erfolge, Notizen) und Planung der
+   Folgewoche: je Projekt 1–3 Fokus-Aufgaben. Route #/woche[/YYYY-MM-DD]. */
+/** Standard: Mo/Di die Vorwoche, sonst die laufende Woche */
+function defaultReviewWeek() {
+  const now = new Date();
+  return toISO(addDays(startOfWeek(now), [1, 2].includes(now.getDay()) ? -7 : 0));
+}
+function isoWeek(d) {
+  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  x.setUTCDate(x.getUTCDate() + 4 - (x.getUTCDay() || 7));
+  return Math.ceil(((x - Date.UTC(x.getUTCFullYear(), 0, 1)) / 864e5 + 1) / 7);
+}
+
+function renderWeekReview(weekParam) {
+  const wk = /^\d{4}-\d{2}-\d{2}$/.test(weekParam || '') ? toISO(startOfWeek(parseISO(weekParam))) : defaultReviewWeek();
+  const start = parseISO(wk), endEx = toISO(addDays(start, 7)), next = toISO(addDays(start, 7)), prev = toISO(addDays(start, -7));
+  const inWeek = (iso) => iso && iso >= wk && iso < endEx;
+  const minutes = minutesInRange(wk, endEx);
+  const goal = weeklyGoal().minutes;
+  const perProject = data.projects.map((p) => ({ p, m: minutesInRange(wk, endEx, p.id) })).filter((x) => x.m > 0).sort((a, b) => b.m - a.m);
+  const max = Math.max(1, ...perProject.map((x) => x.m));
+  const doneTasks = data.tasks.filter((t) => t.done && inWeek(t.doneAt));
+  const msDone = data.milestones.filter((m) => m.done && inWeek(m.doneAt));
+  const ach = ACHIEVEMENTS.filter((a) => inWeek((data.achievements || {})[a.id]));
+  const days = new Set(Object.keys(dayMap()).filter(inWeek)).size;
+  const rev = data.reviews?.[wk] || {};
+  const focusNow = data.weekFocus?.[wk] || [];
+  const focusDone = focusNow.filter((id) => data.tasks.find((t) => t.id === id)?.done).length;
+  const planIds = new Set(data.weekFocus?.[next] || []);
+  const active = data.projects.filter((p) => p.status === 'aktiv' && !p.archived);
+  const range = `${fmtDate(wk)} – ${fmtDate(toISO(addDays(start, 6)))}`;
+  const isCurrent = wk === toISO(startOfWeek(new Date()));
+  const tile = (label, value, sub = '') => `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+
+  return `
+    <div class="page-head">
+      <div><h1>📝 ${tr('Wochenrückblick')}</h1>
+        <p>${tr('KW {w} · {range}', { w: isoWeek(start), range })}${isCurrent ? ` · <span class="badge aktiv">${tr('diese Woche')}</span>` : ''}</p></div>
+      <div class="btn-row">
+        <a class="btn small" href="#/woche/${prev}" aria-label="${tr('Vorherige Woche')}">‹ ${tr('Vorwoche')}</a>
+        ${isCurrent ? '' : `<a class="btn small" href="#/woche/${next}">${tr('Nächste')} ›</a>`}
+      </div>
+    </div>
+    <div class="stats week-stats">
+      ${tile(tr('Zeit'), fmtHours(minutes), goal ? `${tr('Ziel: {goal}', { goal: fmtHours(goal) })} · ${Math.round((minutes / goal) * 100)} %` : '')}
+      ${tile(tr('Aufgaben'), doneTasks.length, tr('erledigt'))}
+      ${tile(tr('Meilensteine'), msDone.length, tr('erreicht'))}
+      ${tile(tr('Aktive Tage'), `${days} / 7`, focusNow.length ? tr('Fokus: {done} von {n}', { done: focusDone, n: focusNow.length }) : '')}
+    </div>
+    <div class="grid-2">
+      <section class="card">
+        <h2>⏱️ ${tr('Zeit je Projekt')}</h2>
+        ${perProject.length ? `<ul class="list">${perProject.map(({ p, m }) => `<li><div class="grow">
+          <div class="row-between"><a href="#/projekt/${p.id}">${esc(p.name)}</a><span class="amount">${fmtDuration(m)}</span></div>
+          <div class="progress" style="margin-top:6px"><span style="width:${(m / max) * 100}%;background:${esc(p.color)}"></span></div></div></li>`).join('')}</ul>`
+          : `<div class="empty">${tr('In dieser Woche wurde keine Zeit erfasst.')}</div>`}
+      </section>
+      <section class="card">
+        <h2>✅ ${tr('Geschafft')}</h2>
+        ${doneTasks.length || msDone.length || ach.length ? `<ul class="list">
+          ${msDone.map((m) => `<li><div class="grow"><div class="title">🏁 ${esc(m.title)}</div><div class="meta">${esc(getProject(m.projectId)?.name || '')}</div></div></li>`).join('')}
+          ${ach.length ? `<li><div class="grow"><div class="meta">${trp(ach.length, '{n} Erfolg freigeschaltet', '{n} Erfolge freigeschaltet')}</div><div class="week-ach">${ach.map((a) => `<span class="chip" title="${esc(a.desc)}">${a.icon} ${esc(a.name)}</span>`).join('')}</div></div></li>` : ''}
+          ${doneTasks.map((t) => `<li><div class="grow"><div class="title">✓ ${esc(t.title)}</div><div class="meta">${esc(getProject(t.projectId)?.name || '')}</div></div></li>`).join('')}
+        </ul>` : `<div class="empty">${tr('Noch nichts abgehakt – das kommt!')}</div>`}
+      </section>
+    </div>
+    <form class="card form week-form" data-form="review" data-week="${wk}" data-next="${next}">
+      <h2>💭 ${tr('Gedanken zur Woche')}</h2>
+      <div class="row2">
+        <label>${tr('Was lief gut?')}<textarea name="good" class="autogrow" rows="3" placeholder="${tr('z. B. Shop-Fotos fertig, 3 Tage in Folge gearbeitet …')}">${esc(rev.good || '')}</textarea></label>
+        <label>${tr('Was hat gebremst?')}<textarea name="blockers" class="autogrow" rows="3" placeholder="${tr('z. B. zu viele Termine, unklare Aufgabe …')}">${esc(rev.blockers || '')}</textarea></label>
+      </div>
+      <h2 style="margin-top:8px">🎯 ${tr('Fokus für KW {w}', { w: isoWeek(parseISO(next)) })}</h2>
+      <p class="small muted" style="margin:0">${tr('Wähle je Projekt 1–3 Aufgaben, auf die du dich in der Woche ab {date} konzentrierst. Sie erscheinen auf der Übersicht unter „Wochenfokus“.', { date: fmtDate(next) })} ${weeklyGoal().minutes ? tr('Wochenziel: {h}', { h: fmtStd(weeklyGoal().minutes / 60) }) : ''}</p>
+      ${active.length ? active.map((p) => {
+        const open = sortTasks(data.tasks.filter((t) => t.projectId === p.id && !t.done)).slice(0, 8);
+        return `<div class="focus-project"><div class="focus-head"><span class="dot-color" style="background:${esc(p.color)}"></span> <b>${esc(p.name)}</b>${projectWeeklyMin(p) ? ` <span class="small muted">${fmtStd(projectWeeklyMin(p) / 60)}</span>` : ''}</div>
+          ${open.length ? `<div class="check-chips">${open.map((t) => `<label class="check-chip"><input type="checkbox" name="focus" value="${t.id}" ${planIds.has(t.id) ? 'checked' : ''}><span>${t.status === 'doing' ? '▶ ' : ''}${esc(t.title)}</span></label>`).join('')}</div>`
+            : `<div class="small muted">${tr('Keine offenen Aufgaben.')} <a href="#" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</a></div>`}</div>`;
+      }).join('') : `<div class="empty">${tr('Noch keine aktiven Projekte.')}</div>`}
+      <div class="form-actions"><button class="btn primary" type="submit">${tr('Rückblick & Planung speichern')}</button></div>
+    </form>`;
+}
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-form="review"]');
+  if (!form) return;
+  e.preventDefault();
+  const fd = new FormData(form);
+  data.reviews ||= {};
+  data.weekFocus ||= {};
+  data.reviews[form.dataset.week] = { good: String(fd.get('good') || '').trim(), blockers: String(fd.get('blockers') || '').trim(), savedAt: new Date().toISOString() };
+  data.weekFocus[form.dataset.next] = fd.getAll('focus').map(String);
+  commit();
+  toast(tr('📝 Gespeichert – viel Erfolg mit deinem Wochenfokus!'));
+});
 
 /* ---------------------------- Kanban-Board -------------------------------- */
 /* Spalten Offen · In Arbeit · Erledigt. Maus: Karten ziehen; Finger: Karte antippen → Status wählen. */

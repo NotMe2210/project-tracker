@@ -1341,3 +1341,13 @@ div.doc-chips { margin-top: 6px; }
 .kb-empty { text-align: center; padding: 18px 6px; border: 2px dashed var(--border); border-radius: 10px; }
 .badge.doing { background: var(--primary-soft); color: var(--primary); }
 @media (max-width: 640px) { .kanban { grid-template-columns: repeat(3, 78vw); scroll-snap-type: x mandatory; } .kb-col { scroll-snap-align: start; } }
+
+/* ---- Wochenrückblick ---- */
+.week-form h2 { margin-bottom: 4px; }
+.focus-project { padding: 10px 0; border-top: 1px solid var(--border); display: grid; gap: 8px; }
+.focus-project:first-of-type { border-top: 0; }
+.focus-head { display: flex; align-items: center; gap: 6px; }
+.week-form .check-chip span { overflow-wrap: anywhere; }
+.week-ach { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.week-ach .chip { cursor: default; }
+@media (max-width: 640px) { .week-stats { grid-template-columns: 1fr 1fr; } }
