@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-17';
+const APP_VERSION = '2026.11.21-18';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2971,7 +2971,8 @@ const actions = {
   testTimerBeep() { unlockAudio(); setTimeout(playTimerBeep, 50); },
   previewTimerSound() {
     const form = document.querySelector('[data-form="pomodoro"]');
-    if (snd.preview || !form) { snd.preview = null; clearTimeout(snd.previewTimer); syncTimerSound(); return render(); }
+    // Kein render(): das würde das Formular mit den gespeicherten Werten neu füllen und die Auswahl verwerfen
+    if (snd.preview || !form) { snd.preview = null; clearTimeout(snd.previewTimer); syncTimerSound(); return updatePreviewButton(); }
     const fd = new FormData(form);
     const source = String(fd.get('timerSound') || 'beep');
     if (source === 'beep') { unlockAudio(); return setTimeout(playTimerBeep, 50); }
@@ -2979,8 +2980,9 @@ const actions = {
     snd.preview = soundCfg({ source, url: String(fd.get('timerSoundUrl') || '').trim(), volume: Number(fd.get('timerSoundVolume') ?? 60) / 100 });
     soundStop(true);
     syncTimerSound();
-    snd.previewTimer = setTimeout(() => { snd.preview = null; syncTimerSound(); if (location.hash.startsWith('#/einstellungen')) render(); }, 20000);
-    render();
+    clearTimeout(snd.previewTimer);
+    snd.previewTimer = setTimeout(() => { snd.preview = null; syncTimerSound(); updatePreviewButton(); }, 20000);
+    updatePreviewButton();
   },
   async removeMusicFile() {
     try { await idb('readwrite', (s) => s.delete('timerMusicFile')); } catch { /* ignorieren */ }
@@ -6248,6 +6250,14 @@ document.addEventListener('change', async (e) => {
   await loadMusicFile();
   data.settings.timerSoundFileName = file.name;
   data.settings.timerSound = 'file'; // wer eine Datei wählt, will sie auch hören
+  // übrige, noch nicht gespeicherte Eingaben übernehmen – sonst gehen sie beim Neuzeichnen verloren
+  const form = input.form;
+  if (form) {
+    const fd = new FormData(form);
+    if (fd.has('timerSoundVolume')) data.settings.timerSoundVolume = Number(fd.get('timerSoundVolume'));
+    if (fd.has('timerSoundUrl')) data.settings.timerSoundUrl = String(fd.get('timerSoundUrl') || '').trim();
+    data.settings.timerSoundBreaks = fd.get('timerSoundBreaks') === 'on';
+  }
   snd.failed = null;
   save();
   render();
@@ -6295,6 +6305,24 @@ function renderTimerSoundSettings(st) {
       <div class="btn-row"><button type="button" class="btn small" data-action="previewTimerSound">${snd.preview ? '■ ' + tr('Vorhören beenden') : '▶ ' + tr('Vorhören')}</button></div>
     </fieldset>`;
 }
+/** Nur die Beschriftung von „Vorhören“ umschalten – ohne das Formular neu zu zeichnen */
+function updatePreviewButton() {
+  const btn = document.querySelector('[data-action="previewTimerSound"]');
+  if (btn) btn.textContent = snd.preview ? `■ ${tr('Vorhören beenden')}` : `▶ ${tr('Vorhören')}`;
+}
+// Während des Vorhörens: Lautstärke sofort anwenden, bei anderer Klangart direkt umschalten
+function previewFromForm(form) {
+  if (!snd.preview || !form) return;
+  const fd = new FormData(form);
+  const source = String(fd.get('timerSound') || 'beep');
+  if (source === 'beep') { snd.preview = null; syncTimerSound(); return updatePreviewButton(); }
+  snd.preview = soundCfg({ source, url: String(fd.get('timerSoundUrl') || '').trim(), volume: Number(fd.get('timerSoundVolume') ?? 60) / 100 });
+  snd.failed = null;
+  syncTimerSound();
+}
+document.addEventListener('input', (e) => { if (e.target.name === 'timerSoundVolume') previewFromForm(e.target.form); });
+document.addEventListener('change', (e) => { if (e.target.name === 'timerSound') previewFromForm(e.target.form); });
+
 const soundLabel = () => (SOUND_SOURCES().find(([v]) => v === (data.settings.timerSound || 'beep')) || SOUND_SOURCES()[0])[1];
 
 /* ---------------------------- Automatische Sicherung in einen Ordner ----- */

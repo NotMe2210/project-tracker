@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-18",
+      "date": "2026-11-21",
+      "de": [
+        "🎵 „Vorhören“ behält die gewählte Klangart (vorher sprang die Auswahl auf den Erinnerungston zurück); Lautstärke und Klangwechsel wirken beim Vorhören sofort"
+      ],
+      "en": [
+        "🎵 “Preview” keeps the selected sound (it used to jump back to the reminder beep); volume and sound changes apply immediately while previewing"
+      ]
+    },
+    {
       "version": "2026.11.21-17",
       "date": "2026-11-21",
       "de": [
