@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-3",
+      "date": "2026-11-21",
+      "de": [
+        "🗓 Zeitplan & kritischer Pfad: Dauer, frühester Start und Vorgänger für Aufgaben; Puffer, kritische Aufgaben und Prognose je Meilenstein",
+        "⚠️ Warnung unter „Heute“, wenn ein Meilenstein laut Zeitplan zu spät fertig wird"
+      ],
+      "en": [
+        "🗓 Schedule & critical path: duration, earliest start and predecessors for tasks; slack, critical tasks and forecast per milestone",
+        "⚠️ Warning under “Today” when a milestone is expected to finish late"
+      ]
+    },
+    {
       "version": "2026.11.21-2",
       "date": "2026-11-21",
       "de": [

@@ -61,6 +61,17 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - **„Das bin ich“** pro Gerät wählen. Der Bereich **🙋 Meine Aufgaben** auf der Übersicht zeigt alles, was dir direkt oder über deine Teams zugewiesen ist.
 - Im Aufgaben-Reiter lässt sich nach Zuständigen filtern: Alle, Meine, Team, Person oder ohne Zuständige.
 
+**🗓 Zeitplan & kritischer Pfad** (Projekt-Reiter *Zeitplan*)
+- Aufgaben bekommen optional eine **Dauer** (Arbeitstage), einen **frühesten Start** und **Vorgänger** („startet erst, wenn … erledigt ist“).
+- Protrac berechnet daraus nach der Critical-Path-Methode:
+  - frühesten und spätesten Start jeder Aufgabe
+  - **Puffer** jeder Aufgabe
+  - den **kritischen Pfad**: die Aufgaben, die das Projektende bzw. einen Meilenstein direkt verschieben, wenn sie sich verzögern
+- Die Rückwärtsrechnung prüft gegen das Zieldatum der Meilensteine und den Zieltermin des Projekts.
+- An jeder Aufgabe stehen Planzeitraum, Puffer bzw. „kritisch“ und „wartet auf …“. Meilensteine zeigen ihre Prognose.
+- **Warnungen:** Ein gefährdeter Meilenstein erscheint unter „Heute“, zum Beispiel „voraussichtlich 2 Arbeitstage zu spät“.
+- Wochenenden zählen standardmäßig nicht, das ist umstellbar. Kreisabhängigkeiten werden beim Speichern verhindert und im Zeitplan gemeldet.
+
 **📎 Dokumente**
 - Links zu Dateien und Seiten (iCloud, OneDrive, SharePoint, Google Drive/Docs, Dropbox, Notion, Figma …) im neuen Projekt-Reiter *Dokumente*, optional einer Aufgabe oder einem Meilenstein zugeordnet.
 - Gespeichert wird nur der Link, die Datei bleibt, wo sie ist.

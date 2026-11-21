@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-2';
+const APP_VERSION = '2026.11.21-3';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -34,6 +34,7 @@ const DEFAULT_DATA = {
     pomoNotify: true,
     language: 'auto', // 'auto' = Gerätesprache, sonst Sprachcode (de, en …)
     remindersOn: true, // Erinnerungen bei eingeschlafenen Projekten
+    planWeekends: false, // Zeitplan: Wochenenden zählen als Arbeitstage
     achievementsOn: true, // Erfolge anzeigen und feiern
   },
   projects: [],
@@ -659,6 +660,7 @@ function parseRoute() {
 }
 
 function render() {
+  planCache.clear(); // Zeitpläne bei jeder Änderung neu berechnen
   applyLanguage();
   applyTheme();
   if (editState && !editMatchesRoute()) editState = null;
@@ -1627,6 +1629,7 @@ function taskItem(t, { showProject = false } = {}) {
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/aufgaben">${esc(p.name)}</a></span>` : ''}
         <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
         ${assigneeBadges(t.assignees)}
+        ${taskPlanBadges(t)}
         ${t.done ? `<span>${tr('erledigt {when}', { when: fmtRelative(t.doneAt) })}</span>` : dueBadge(t.dueDate)}
         ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
         ${t.notes ? `<span>${esc(t.notes)}</span>` : ''}
@@ -1659,6 +1662,7 @@ function milestoneItem(m, { showProject = false, move = null } = {}) {
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/meilensteine">${esc(p.name)}</a></span>` : ''}
         ${m.done ? `<span>${tr('erreicht am {date}', { date: fmtDate(m.doneAt) })}</span>` : m.dueDate ? `${dueBadge(m.dueDate)}<span>(${fmtRelative(m.dueDate)})</span>` : ''}
         ${assigneeBadges(m.assignees)}
+        ${milestonePlanBadge(m)}
       </div>
       ${m.description ? `<div class="small muted">${esc(m.description)}</div>` : ''}
       ${docChips(data.docs.filter((d) => d.milestoneId === m.id), true)}
@@ -1778,12 +1782,12 @@ function renderProject(id, tab) {
     dokumente: data.docs.filter((e) => e.projectId === id).length,
   };
   const tabs = [
-    ['uebersicht', tr('Übersicht')], ['aufgaben', tr('Aufgaben')], ['meilensteine', tr('Meilensteine')],
+    ['uebersicht', tr('Übersicht')], ['aufgaben', tr('Aufgaben')], ['meilensteine', tr('Meilensteine')], ['zeitplan', tr('Zeitplan')],
     ['zeit', tr('Zeit')], ['investitionen', tr('Investitionen')], ['logbuch', tr('Logbuch')], ['dokumente', tr('Dokumente')],
   ];
   const body = {
     uebersicht: projectOverview, aufgaben: projectTasks, meilensteine: projectMilestones,
-    zeit: projectTime, investitionen: projectInvestments, logbuch: projectNotes, dokumente: projectDocs,
+    zeit: projectTime, investitionen: projectInvestments, logbuch: projectNotes, dokumente: projectDocs, zeitplan: projectSchedule,
   }[tab] || projectOverview;
 
   return `
@@ -2759,6 +2763,7 @@ const actions = {
   deleteTask({ id }) {
     if (!confirm(tr('Aufgabe löschen?'))) return;
     data.tasks = data.tasks.filter((t) => t.id !== id);
+    data.tasks.forEach((t) => { if (t.dependsOn?.includes(id)) t.dependsOn = t.dependsOn.filter((x) => x !== id); });
     data.docs.forEach((d) => { if (d.taskId === id) d.taskId = null; }); // Dokument bleibt beim Projekt
     commit();
   },
@@ -3056,6 +3061,13 @@ function taskForm(t) {
     fields.push({ name: 'milestoneId', label: tr('Meilenstein'), type: 'select', value: t.milestoneId || '', options: [{ value: '', label: tr('– keiner –') }, ...opts.map((m) => ({ value: m.id, label: m.title }))] });
   }
   if (data.people.length || data.teams.length) fields.push({ name: 'assignees', label: tr('Zuständig'), type: 'checks', options: assigneeOptions(pid), value: t.assignees || [] });
+  // Planung (optional): Dauer, frühester Start, Vorgänger → Zeitplan & kritischer Pfad
+  fields.push({ name: 'duration', label: tr('Dauer (Arbeitstage)'), type: 'number', value: t.duration, placeholder: '1', half: true,
+    hint: tr('Für Zeitplan & kritischen Pfad – leer = 1 Tag') });
+  fields.push({ name: 'startAfter', label: tr('Frühester Start'), type: 'date', value: t.startAfter, half: true, hint: tr('optional') });
+  const others = sortTasks(data.tasks.filter((x) => x.projectId === pid && x.id !== t.id));
+  if (others.length) fields.push({ name: 'dependsOn', label: tr('Vorgänger – startet erst, wenn diese erledigt sind'), type: 'checks', value: t.dependsOn || [],
+    options: others.map((x) => ({ value: x.id, label: `${x.done ? '✓ ' : ''}${x.title}` })) });
   fields.push({ name: 'subtasks', label: tr('Unterpunkte'), type: 'subtasks', value: t.subtasks || [],
     hint: tr('Die Aufgabe ist erst fertig, wenn alle Unterpunkte abgehakt sind. Eingabetaste = nächster Unterpunkt.') });
   fields.push({ name: 'notes', label: tr('Notiz'), type: 'textarea', value: t.notes });
@@ -3064,6 +3076,9 @@ function taskForm(t) {
     fields,
     onSubmit(v) {
       v.milestoneId = v.milestoneId || null;
+      v.duration = v.duration ? Math.max(1, Math.round(v.duration)) : null;
+      v.startAfter = v.startAfter || null;
+      if (v.dependsOn && t.id && wouldCycle(t.id, v.dependsOn)) return tr('Diese Vorgänger würden eine Kreisabhängigkeit erzeugen (die Aufgaben warten gegenseitig aufeinander).');
       let task = t;
       if (isNew) { task = { id: uid(), projectId: pid, done: false, doneAt: null, createdAt: new Date().toISOString(), ...v }; data.tasks.push(task); }
       else Object.assign(t, v);
@@ -3545,6 +3560,17 @@ function renderToday(c) {
       <div class="grow"><div class="title">${tr('Noch {h} bis zum Wochenziel', { h: fmtHours(rest) })}</div>
         <div class="meta">${tr('ca. {d} pro Tag bis Sonntag', { d: fmtDuration(Math.ceil(rest / daysLeft)) })}${behind && behind.gap > 0 ? ` · ${tr('größter Rückstand: {name}', { name: esc(behind.p.name) })}` : ''}</div></div>
       ${behind ? `<div class="btn-row"><button class="btn small primary" data-action="startPomodoro" data-id="${behind.p.id}">🍅 ${tr('Start')}</button></div>` : ''}
+    </li>`);
+  }
+  // 3b) Meilensteine, die laut Zeitplan zu spät fertig werden
+  if (items.length < 3) {
+    const risk = c.active.flatMap((p) => { const pl = planProject(p.id); return pl.used ? [...pl.milestones.entries()].filter(([, x]) => x.late > 0).map(([id, x]) => ({ p, m: data.milestones.find((m) => m.id === id), ...x })) : []; })
+      .sort((a, b) => b.late - a.late)[0];
+    if (risk) items.push(`<li>
+      <span class="today-ico">⚠️</span>
+      <div class="grow"><div class="title">${tr('Meilenstein „{title}“ ist gefährdet', { title: esc(risk.m.title) })}</div>
+        <div class="meta">${trp(risk.late, 'voraussichtlich {n} Arbeitstag zu spät', 'voraussichtlich {n} Arbeitstage zu spät')} · ${esc(risk.p.name)}</div></div>
+      <div class="btn-row"><a class="btn small" href="#/projekt/${risk.p.id}/zeitplan">${tr('Zeitplan')}</a></div>
     </li>`);
   }
   // 4) Meilenstein in den nächsten 7 Tagen
@@ -5135,6 +5161,208 @@ Object.assign(actions, {
     showChangelogDialog(next, { title: tr('🆕 Neu in Version {v}', { v: id }), repo: log?.repo || REPO_URL, updateTo: id });
   },
 });
+
+/* ------------------------------------------------------------------------
+   Zeitplan & kritischer Pfad (CPM)
+   Aufgaben haben optional Dauer (Arbeitstage), frühesten Start und Vorgänger.
+   Vorwärtsrechnung: frühester Start/Ende; Rückwärtsrechnung gegen Zieldatum des
+   Meilensteins bzw. Zieltermin des Projekts (sonst Projektende): spätester Start/Ende.
+   Puffer = spätester − frühester Start; kritisch = Aufgaben mit dem kleinsten Puffer.
+   ------------------------------------------------------------------------ */
+const planCache = new Map();
+const maxIso = (a, b) => (a > b ? a : b);
+const minIso = (a, b) => (a < b ? a : b);
+function isWorkday(iso) {
+  if (data.settings.planWeekends) return true;
+  const d = parseISO(iso).getDay();
+  return d !== 0 && d !== 6;
+}
+/** nächster Arbeitstag (inklusive = der Tag selbst, falls Arbeitstag) */
+function nextWorkday(iso, inclusive = true) {
+  let d = parseISO(iso);
+  if (!inclusive) d = addDays(d, 1);
+  while (!isWorkday(toISO(d))) d = addDays(d, 1);
+  return toISO(d);
+}
+function prevWorkday(iso, inclusive = true) {
+  let d = parseISO(iso);
+  if (!inclusive) d = addDays(d, -1);
+  while (!isWorkday(toISO(d))) d = addDays(d, -1);
+  return toISO(d);
+}
+function shiftWorkdays(iso, n) {
+  let d = parseISO(iso), k = Math.abs(n);
+  const step = n < 0 ? -1 : 1;
+  while (k > 0) { d = addDays(d, step); if (isWorkday(toISO(d))) k--; }
+  return toISO(d);
+}
+/** Arbeitstage von a nach b (negativ, wenn b vor a liegt) */
+function workdaysBetween(a, b) {
+  if (a === b) return 0;
+  const step = a < b ? 1 : -1;
+  let d = parseISO(a), n = 0, guard = 0;
+  while (toISO(d) !== b && guard++ < 4000) { d = addDays(d, step); if (isWorkday(toISO(d))) n += step; }
+  return n;
+}
+const taskDuration = (t) => Math.max(1, Math.round(Number(t.duration) || 1));
+
+/** Würde eine Aufgabe mit diesen Vorgängern eine Kreisabhängigkeit erzeugen? */
+function wouldCycle(taskId, deps) {
+  const seen = new Set();
+  const stack = [...deps];
+  while (stack.length) {
+    const id = stack.pop();
+    if (id === taskId) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    (data.tasks.find((x) => x.id === id)?.dependsOn || []).forEach((x) => stack.push(x));
+  }
+  return false;
+}
+
+function planProject(pid) {
+  if (planCache.has(pid)) return planCache.get(pid);
+  const p = getProject(pid);
+  const today = nextWorkday(todayISO());
+  const tasks = data.tasks.filter((t) => t.projectId === pid);
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const preds = (t) => (t.dependsOn || []).filter((id) => byId.has(id) && id !== t.id);
+  // Reihenfolge (Vorgänger zuerst) und Kreisabhängigkeiten erkennen
+  const state = new Map(), order = [], cyclic = new Set();
+  const visit = (t, path) => {
+    const s = state.get(t.id);
+    if (s === 2) return;
+    if (s === 1) { path.slice(path.indexOf(t.id)).forEach((id) => cyclic.add(id)); return; }
+    state.set(t.id, 1); path.push(t.id);
+    preds(t).forEach((id) => visit(byId.get(id), path));
+    path.pop(); state.set(t.id, 2); order.push(t);
+  };
+  tasks.forEach((t) => visit(t, []));
+  const okPreds = (t) => (cyclic.has(t.id) ? [] : preds(t).filter((id) => !cyclic.has(id)));
+  const succ = new Map(tasks.map((t) => [t.id, []]));
+  tasks.forEach((t) => okPreds(t).forEach((id) => succ.get(id).push(t.id)));
+
+  // Vorwärts: frühester Start / frühestes Ende
+  const plan = new Map();
+  for (const t of order) {
+    const dur = taskDuration(t);
+    if (t.done) {
+      const ef = prevWorkday(t.doneAt || todayISO());
+      plan.set(t.id, { es: shiftWorkdays(ef, -(dur - 1)), ef, dur, done: true, slack: null });
+      continue;
+    }
+    let es = today;
+    if (t.startAfter) es = maxIso(es, nextWorkday(t.startAfter));
+    okPreds(t).forEach((id) => { const pp = plan.get(id); if (pp) es = maxIso(es, nextWorkday(pp.ef, false)); });
+    plan.set(t.id, { es, ef: shiftWorkdays(es, dur - 1), dur, done: false });
+  }
+  const open = order.filter((t) => !t.done);
+  const end = open.reduce((m, t) => maxIso(m, plan.get(t.id).ef), today);
+
+  // Rückwärts: spätestes Ende / spätester Start
+  for (const t of [...order].reverse()) {
+    if (t.done) continue;
+    const pl = plan.get(t.id);
+    let lf = null;
+    succ.get(t.id).forEach((sid) => { const sp = plan.get(sid); if (sp && !sp.done) lf = lf ? minIso(lf, prevWorkday(sp.ls, false)) : prevWorkday(sp.ls, false); });
+    const ms = t.milestoneId ? data.milestones.find((m) => m.id === t.milestoneId) : null;
+    [ms && !ms.done && ms.dueDate, p?.targetDate].filter(Boolean).forEach((d) => { const dl = prevWorkday(d); lf = lf ? minIso(lf, dl) : dl; });
+    if (!lf) lf = end;
+    pl.lf = lf;
+    pl.ls = shiftWorkdays(lf, -(pl.dur - 1));
+    pl.slack = workdaysBetween(pl.es, pl.ls);
+  }
+  const minSlack = open.length ? Math.min(...open.map((t) => plan.get(t.id).slack)) : 0;
+  // kritisch: verspätete Aufgaben (Puffer < 0) und die Kette mit dem kleinsten Puffer
+  open.forEach((t) => { const x = plan.get(t.id); x.critical = x.slack < 0 || x.slack === minSlack; });
+
+  // Prognose je Meilenstein: Ende der letzten offenen Aufgabe
+  const milestones = new Map();
+  data.milestones.filter((m) => m.projectId === pid && !m.done).forEach((m) => {
+    const mt = open.filter((t) => t.milestoneId === m.id);
+    if (!mt.length) return;
+    const forecast = mt.reduce((mx, t) => maxIso(mx, plan.get(t.id).ef), '0000');
+    const late = m.dueDate && forecast > prevWorkday(m.dueDate) ? workdaysBetween(prevWorkday(m.dueDate), forecast) : 0;
+    milestones.set(m.id, { forecast, late });
+  });
+  const projectLate = p?.targetDate && open.length && end > prevWorkday(p.targetDate) ? workdaysBetween(prevWorkday(p.targetDate), end) : 0;
+  const result = {
+    plan, cyclic, end, minSlack, milestones, projectLate, openCount: open.length,
+    used: tasks.some((t) => t.duration || t.startAfter || (t.dependsOn || []).length),
+    criticalPath: open.filter((t) => plan.get(t.id).critical).sort((a, b) => plan.get(a.id).es.localeCompare(plan.get(b.id).es)),
+  };
+  planCache.set(pid, result);
+  return result;
+}
+
+const fmtShortDate = (iso) => parseISO(iso).toLocaleDateString(LOCALE, { day: '2-digit', month: '2-digit' });
+
+/** Planungsangaben an einer Aufgabe (nur wenn im Projekt geplant wird) */
+function taskPlanBadges(t) {
+  if (t.done) return '';
+  const pl = planProject(t.projectId);
+  if (!pl.used) return '';
+  const x = pl.plan.get(t.id);
+  if (!x) return '';
+  const waiting = (t.dependsOn || []).map((id) => data.tasks.find((o) => o.id === id)).filter((o) => o && !o.done);
+  return `<span class="plan-chip ${x.critical ? 'crit' : ''}" title="${esc(tr('Frühester Start {es}, spätester Start {ls}', { es: fmtDate(x.es), ls: fmtDate(x.ls) }))}">🗓 ${fmtShortDate(x.es)}${x.dur > 1 ? `–${fmtShortDate(x.ef)}` : ''} · ${x.critical ? tr('kritisch') : trp(x.slack, '{n} Tag Puffer', '{n} Tage Puffer')}</span>
+    ${pl.cyclic.has(t.id) ? `<span class="badge overdue">🔁 ${tr('Kreisabhängigkeit')}</span>` : ''}
+    ${waiting.length ? `<span class="small muted">⏳ ${tr('wartet auf: {list}', { list: esc(waiting.map((o) => o.title).join(', ')) })}</span>` : ''}`;
+}
+function milestonePlanBadge(m) {
+  if (m.done) return '';
+  const pl = planProject(m.projectId);
+  const x = pl.used && pl.milestones.get(m.id);
+  if (!x) return '';
+  return x.late > 0
+    ? `<span class="badge overdue">⚠️ ${tr('Prognose {date} · {late}', { date: fmtDate(x.forecast), late: trp(x.late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät') })}</span>`
+    : `<span class="plan-chip ok">🗓 ${tr('Prognose {date}', { date: fmtDate(x.forecast) })}</span>`;
+}
+
+/* Projekt-Reiter „Zeitplan“ */
+function projectSchedule(p) {
+  const pl = planProject(p.id);
+  const tasks = data.tasks.filter((t) => t.projectId === p.id);
+  const rows = tasks.filter((t) => pl.plan.has(t.id)).sort((a, b) => Number(a.done) - Number(b.done) || pl.plan.get(a.id).es.localeCompare(pl.plan.get(b.id).es));
+  const title = (id) => esc(data.tasks.find((x) => x.id === id)?.title || '–');
+  const intro = `<p class="small muted">${tr('Trage bei Aufgaben eine <b>Dauer</b> (Arbeitstage) und <b>Vorgänger</b> ein („startet erst, wenn … erledigt ist“). Protrac berechnet daraus, wann jede Aufgabe frühestens starten kann, wie viel <b>Puffer</b> sie hat und welche Aufgaben auf dem <b>kritischen Pfad</b> liegen – also das Projektende bzw. einen Meilenstein direkt verschieben, wenn sie sich verzögern.')}</p>`;
+  const weekendToggle = settingToggle('planWeekends', !!data.settings.planWeekends, tr('Wochenenden als Arbeitstage zählen'), '');
+  if (!tasks.length) return `<section class="card"><h2>🗓 ${tr('Zeitplan')}</h2>${intro}<div class="empty">${tr('Noch keine Aufgaben.')}</div></section>`;
+  const late = pl.projectLate;
+  const summary = `<div class="plan-summary">
+      <div class="stat"><div class="label">${tr('Voraussichtliches Ende')}</div><div class="value" style="font-size:1.2rem">${pl.openCount ? fmtDate(pl.end) : '–'}</div>
+        <div class="sub">${p.targetDate ? (late > 0 ? `<span style="color:var(--bad)">${tr('Zieltermin {date} · {late}', { date: fmtDate(p.targetDate), late: trp(late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät') })}</span>` : tr('Zieltermin {date} wird gehalten', { date: fmtDate(p.targetDate) })) : tr('kein Zieltermin')}</div></div>
+      <div class="stat"><div class="label">${tr('Kritischer Pfad')}</div><div class="value" style="font-size:1.2rem">${trp(pl.criticalPath.length, '{n} Aufgabe', '{n} Aufgaben')}</div>
+        <div class="sub">${pl.criticalPath.length ? pl.criticalPath.map((t) => esc(t.title)).join(' → ') : '–'}</div></div>
+    </div>`;
+  const msRows = sortMilestonesOf(p.id).map((m) => {
+    const x = pl.milestones.get(m.id);
+    const status = m.done ? `<span class="badge aktiv">✓ ${tr('erreicht am {date}', { date: fmtDate(m.doneAt) })}</span>`
+      : !x ? `<span class="muted small">${tr('keine offenen Aufgaben zugeordnet')}</span>`
+      : x.late > 0 ? `<span class="badge overdue">⚠️ ${trp(x.late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät')}</span>`
+      : `<span class="badge aktiv">${tr('im Plan')}</span>`;
+    return `<tr><td>🏁 ${esc(m.title)}</td><td>${m.dueDate ? fmtDate(m.dueDate) : '–'}</td><td>${x ? fmtDate(x.forecast) : '–'}</td><td>${status}</td></tr>`;
+  }).join('');
+  return `<section class="card">
+    <div class="card-head"><h2>🗓 ${tr('Zeitplan')}</h2><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
+    ${intro}${weekendToggle}
+    ${pl.cyclic.size ? `<div class="callout" style="border-color:var(--bad)">🔁 ${tr('Kreisabhängigkeit gefunden: {list}. Diese Vorgänger werden ignoriert, bis du sie auflöst.', { list: [...pl.cyclic].map(title).join(', ') })}</div>` : ''}
+    ${summary}
+    ${msRows ? `<h3>${tr('Meilensteine')}</h3><div class="table-wrap"><table class="plan-table"><thead><tr><th>${tr('Meilenstein')}</th><th>${tr('Zieldatum')}</th><th>${tr('Prognose')}</th><th>${tr('Status')}</th></tr></thead><tbody>${msRows}</tbody></table></div>` : ''}
+    <h3>${tr('Aufgaben')}</h3>
+    <div class="table-wrap"><table class="plan-table">
+      <thead><tr><th>${tr('Aufgabe')}</th><th class="num">${tr('Dauer')}</th><th>${tr('Start')}</th><th>${tr('Ende')}</th><th class="num">${tr('Puffer')}</th><th>${tr('Vorgänger')}</th><th></th></tr></thead>
+      <tbody>${rows.map((t) => { const x = pl.plan.get(t.id); return `<tr class="${t.done ? 'done' : x.critical ? 'crit' : ''}">
+        <td>${t.done ? '✓ ' : x.critical ? '🔴 ' : ''}${esc(t.title)}${t.milestoneId ? `<div class="small muted">🏁 ${esc(data.milestones.find((m) => m.id === t.milestoneId)?.title || '')}</div>` : ''}</td>
+        <td class="num">${trp(x.dur, '{n} Tag', '{n} Tage')}</td>
+        <td>${fmtDate(x.es)}</td><td>${t.done ? tr('erledigt {when}', { when: fmtDate(t.doneAt) }) : fmtDate(x.ef)}</td>
+        <td class="num">${t.done ? '–' : x.critical ? `<b>${x.slack < 0 ? x.slack : 0}</b>` : x.slack}</td>
+        <td class="small">${(t.dependsOn || []).map(title).join(', ') || '–'}</td>
+        <td><button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button></td></tr>`; }).join('')}</tbody>
+    </table></div>
+    ${pl.used ? '' : `<div class="callout">💡 ${tr('Noch keine Planungsdaten: Öffne eine Aufgabe und trage Dauer und Vorgänger ein. Bis dahin gilt jede Aufgabe als 1 Tag ab heute.')}</div>`}
+  </section>`;
+}
 
 /* ------------------------------------------------------------------------
    Personen & Teams (Stufe A: Zuständigkeiten planen)
