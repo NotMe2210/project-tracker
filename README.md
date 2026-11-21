@@ -79,6 +79,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
   - frühesten und spätesten Start jeder Aufgabe
   - **Puffer** jeder Aufgabe
   - den **kritischen Pfad**: die Aufgaben, die das Projektende bzw. einen Meilenstein direkt verschieben, wenn sie sich verzögern
+  - **Warum kritisch?** Kritisch sind nur Aufgaben ohne Puffer (oder schon zu spät). Der Zeitplan nennt jeweils den Grund: Zieldatum des Meilensteins, Zieltermin des Projekts, ein Nachfolger oder – ohne Termine – das voraussichtliche Projektende.
 - Die Rückwärtsrechnung prüft gegen das Zieldatum der Meilensteine und den Zieltermin des Projekts.
 - An jeder Aufgabe stehen Planzeitraum, Puffer bzw. „kritisch“ und „wartet auf …“. Meilensteine zeigen ihre Prognose.
 - **Gantt-Diagramm** im Reiter *Zeitplan*:

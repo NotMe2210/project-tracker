@@ -5755,18 +5755,23 @@ function planProject(pid) {
   for (const t of [...order].reverse()) {
     if (t.done) continue;
     const pl = plan.get(t.id);
-    let lf = null;
-    succ.get(t.id).forEach((sid) => { const sp = plan.get(sid); if (sp && !sp.done) lf = lf ? minIso(lf, prevWorkday(sp.ls, false)) : prevWorkday(sp.ls, false); });
+    // spätestes Ende = engste Bedingung; welche das ist, wird für die Erklärung gemerkt
+    let lf = null, why = null;
+    const take = (d, w) => { if (!lf || d < lf) { lf = d; why = w; } };
+    succ.get(t.id).forEach((sid) => { const sp = plan.get(sid); if (sp && !sp.done) take(prevWorkday(sp.ls, false), { kind: 'succ', id: sid }); });
     const ms = t.milestoneId ? data.milestones.find((m) => m.id === t.milestoneId) : null;
-    [ms && !ms.done && ms.dueDate, p?.targetDate].filter(Boolean).forEach((d) => { const dl = prevWorkday(d); lf = lf ? minIso(lf, dl) : dl; });
-    if (!lf) lf = end;
+    if (ms && !ms.done && ms.dueDate) take(prevWorkday(ms.dueDate), { kind: 'ms', id: ms.id, date: ms.dueDate });
+    if (p?.targetDate) take(prevWorkday(p.targetDate), { kind: 'target', date: p.targetDate });
+    if (!lf) { lf = end; why = { kind: 'end', date: end }; }
     pl.lf = lf;
+    pl.why = why;
     pl.ls = shiftWorkdays(lf, -(pl.dur - 1));
     pl.slack = workdaysBetween(pl.es, pl.ls);
   }
   const minSlack = open.length ? Math.min(...open.map((t) => plan.get(t.id).slack)) : 0;
-  // kritisch: verspätete Aufgaben (Puffer < 0) und die Kette mit dem kleinsten Puffer
-  open.forEach((t) => { const x = plan.get(t.id); x.critical = x.slack < 0 || x.slack === minSlack; });
+  // kritisch = kein Puffer (0) oder schon zu spät (< 0). Früher galt auch „kleinster Puffer im Projekt“
+  // als kritisch – dann wirkte z. B. eine Aufgabe mit 30 Tagen Puffer bis zum Zieltermin kritisch.
+  open.forEach((t) => { const x = plan.get(t.id); x.critical = x.slack <= 0; });
 
   // Prognose je Meilenstein: Ende der letzten offenen Aufgabe
   const milestones = new Map();
@@ -5789,6 +5794,29 @@ function planProject(pid) {
 
 const fmtShortDate = (iso) => parseISO(iso).toLocaleDateString(LOCALE, { day: '2-digit', month: '2-digit' });
 
+/** Warum eine Aufgabe kritisch ist bzw. was ihren Puffer begrenzt */
+function critReason(x) {
+  const w = x.why;
+  if (!w) return '';
+  const name = (id, list) => list.find((o) => o.id === id)?.title || '–';
+  const base = {
+    succ: () => tr('Nachfolger „{title}“ kann sonst nicht rechtzeitig starten.', { title: name(w.id, data.tasks) }),
+    ms: () => tr('Meilenstein „{title}“ ist am {date} fällig.', { title: name(w.id, data.milestones), date: fmtDate(w.date) }),
+    target: () => tr('Zieltermin des Projekts ist am {date}.', { date: fmtDate(w.date) }),
+    end: () => tr('Längste Kette im Projekt: Jede Verzögerung verschiebt das voraussichtliche Projektende ({date}).', { date: fmtDate(w.date) }),
+  }[w.kind]?.() || '';
+  if (x.slack < 0) return `${trp(-x.slack, '{n} Arbeitstag zu spät:', '{n} Arbeitstage zu spät:')} ${base}`;
+  if (x.slack === 0) return `${tr('Kein Puffer:')} ${base}`;
+  // Mit Puffer: nur sagen, bis wohin er reicht
+  const until = {
+    succ: () => tr('bis Nachfolger „{title}“ starten muss', { title: name(w.id, data.tasks) }),
+    ms: () => tr('bis Meilenstein „{title}“ ({date})', { title: name(w.id, data.milestones), date: fmtDate(w.date) }),
+    target: () => tr('bis zum Zieltermin ({date})', { date: fmtDate(w.date) }),
+    end: () => tr('bis zum voraussichtlichen Projektende ({date})', { date: fmtDate(w.date) }),
+  }[w.kind]?.() || '';
+  return `${trp(x.slack, '{n} Tag Puffer', '{n} Tage Puffer')} ${until}`;
+}
+
 /** Planungsangaben an einer Aufgabe (nur wenn im Projekt geplant wird) */
 function taskPlanBadges(t) {
   if (t.done) return '';
@@ -5797,7 +5825,7 @@ function taskPlanBadges(t) {
   const x = pl.plan.get(t.id);
   if (!x) return '';
   const waiting = (t.dependsOn || []).map((id) => data.tasks.find((o) => o.id === id)).filter((o) => o && !o.done);
-  return `<span class="plan-chip ${x.critical ? 'crit' : ''}" title="${esc(tr('Frühester Start {es}, spätester Start {ls}', { es: fmtDate(x.es), ls: fmtDate(x.ls) }))}">🗓 ${fmtShortDate(x.es)}${x.dur > 1 ? `–${fmtShortDate(x.ef)}` : ''} · ${x.critical ? tr('kritisch') : trp(x.slack, '{n} Tag Puffer', '{n} Tage Puffer')}</span>
+  return `<span class="plan-chip ${x.critical ? 'crit' : ''}" title="${esc(`${tr('Frühester Start {es}, spätester Start {ls}', { es: fmtDate(x.es), ls: fmtDate(x.ls) })}\n${critReason(x)}`)}">🗓 ${fmtShortDate(x.es)}${x.dur > 1 ? `–${fmtShortDate(x.ef)}` : ''} · ${x.critical ? tr('kritisch') : trp(x.slack, '{n} Tag Puffer', '{n} Tage Puffer')}</span>
     ${pl.cyclic.has(t.id) ? `<span class="badge overdue">🔁 ${tr('Kreisabhängigkeit')}</span>` : ''}
     ${waiting.length ? `<span class="small muted">⏳ ${tr('wartet auf: {list}', { list: esc(waiting.map((o) => o.title).join(', ')) })}</span>` : ''}`;
 }
@@ -5817,7 +5845,7 @@ function projectSchedule(p) {
   const tasks = data.tasks.filter((t) => t.projectId === p.id);
   const rows = tasks.filter((t) => pl.plan.has(t.id)).sort((a, b) => Number(a.done) - Number(b.done) || pl.plan.get(a.id).es.localeCompare(pl.plan.get(b.id).es));
   const title = (id) => esc(data.tasks.find((x) => x.id === id)?.title || '–');
-  const intro = `<p class="small muted">${tr('Trage bei Aufgaben eine <b>Dauer</b> (Arbeitstage) und <b>Vorgänger</b> ein („startet erst, wenn … erledigt ist“). Protrac berechnet daraus, wann jede Aufgabe frühestens starten kann, wie viel <b>Puffer</b> sie hat und welche Aufgaben auf dem <b>kritischen Pfad</b> liegen – also das Projektende bzw. einen Meilenstein direkt verschieben, wenn sie sich verzögern.')}</p>`;
+  const intro = `<p class="small muted">${tr('Trage bei Aufgaben eine <b>Dauer</b> (Arbeitstage) und <b>Vorgänger</b> ein („startet erst, wenn … erledigt ist“). Protrac berechnet daraus, wann jede Aufgabe frühestens starten kann, wie viel <b>Puffer</b> sie hat und welche Aufgaben auf dem <b>kritischen Pfad</b> liegen – also das Projektende bzw. einen Meilenstein direkt verschieben, wenn sie sich verzögern.')} ${tr('Puffer zählt bis zum Zieldatum des Meilensteins bzw. Zieltermin des Projekts, sonst bis zum voraussichtlichen Projektende.')}</p>`;
   const weekendToggle = settingToggle('planWeekends', !!data.settings.planWeekends, tr('Wochenenden als Arbeitstage zählen'), '');
   if (!tasks.length) return `<section class="card"><h2>🗓 ${tr('Zeitplan')}</h2>${intro}<div class="empty">${tr('Noch keine Aufgaben.')}</div></section>`;
   const late = pl.projectLate;
@@ -5825,7 +5853,7 @@ function projectSchedule(p) {
       <div class="stat"><div class="label">${tr('Voraussichtliches Ende')}</div><div class="value" style="font-size:1.2rem">${pl.openCount ? fmtDate(pl.end) : '–'}</div>
         <div class="sub">${p.targetDate ? (late > 0 ? `<span style="color:var(--bad)">${tr('Zieltermin {date} · {late}', { date: fmtDate(p.targetDate), late: trp(late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät') })}</span>` : tr('Zieltermin {date} wird gehalten', { date: fmtDate(p.targetDate) })) : tr('kein Zieltermin')}</div></div>
       <div class="stat"><div class="label">${tr('Kritischer Pfad')}</div><div class="value" style="font-size:1.2rem">${trp(pl.criticalPath.length, '{n} Aufgabe', '{n} Aufgaben')}</div>
-        <div class="sub">${pl.criticalPath.length ? pl.criticalPath.map((t) => esc(t.title)).join(' → ') : '–'}</div></div>
+        <div class="sub">${pl.criticalPath.length ? pl.criticalPath.map((t) => esc(t.title)).join(' → ') : pl.openCount ? tr('Keine – alle offenen Aufgaben haben Puffer (mindestens {n} Arbeitstage).', { n: pl.minSlack }) : '–'}</div></div>
     </div>`;
   const msRows = sortMilestonesOf(p.id).map((m) => {
     const x = pl.milestones.get(m.id);
@@ -5846,10 +5874,11 @@ function projectSchedule(p) {
     <div class="table-wrap"><table class="plan-table">
       <thead><tr><th>${tr('Aufgabe')}</th><th class="num">${tr('Dauer')}</th><th>${tr('Start')}</th><th>${tr('Ende')}</th><th class="num">${tr('Puffer')}</th><th>${tr('Vorgänger')}</th><th></th></tr></thead>
       <tbody>${rows.map((t) => { const x = pl.plan.get(t.id); return `<tr class="${t.done ? 'done' : x.critical ? 'crit' : ''}">
-        <td>${t.done ? '✓ ' : x.critical ? '🔴 ' : ''}${esc(t.title)}${t.milestoneId ? `<div class="small muted">🏁 ${esc(data.milestones.find((m) => m.id === t.milestoneId)?.title || '')}</div>` : ''}</td>
+        <td>${t.done ? '✓ ' : x.critical ? '🔴 ' : ''}${esc(t.title)}${t.milestoneId ? `<div class="small muted">🏁 ${esc(data.milestones.find((m) => m.id === t.milestoneId)?.title || '')}</div>` : ''}
+          ${!t.done && x.critical ? `<div class="small crit-why">${esc(critReason(x))}</div>` : ''}</td>
         <td class="num">${trp(x.dur, '{n} Tag', '{n} Tage')}</td>
         <td>${fmtDate(x.es)}</td><td>${t.done ? tr('erledigt {when}', { when: fmtDate(t.doneAt) }) : fmtDate(x.ef)}</td>
-        <td class="num">${t.done ? '–' : x.critical ? `<b>${x.slack < 0 ? x.slack : 0}</b>` : x.slack}</td>
+        <td class="num" title="${t.done ? '' : esc(critReason(x))}">${t.done ? '–' : x.critical ? `<b>${x.slack}</b>` : x.slack}</td>
         <td class="small">${(t.dependsOn || []).map(title).join(', ') || '–'}</td>
         <td><button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button></td></tr>`; }).join('')}</tbody>
     </table></div>
@@ -6557,7 +6586,7 @@ function ganttChart(p, pl) {
     const left = x(pv.es), width = Math.max(px, (daysBetween(pv.es, pv.ef) + 1) * px);
     const slackW = !t.done && pv.slack > 0 ? (daysBetween(pv.ef, pv.lf)) * px : 0;
     const cls = t.done ? 'done' : pv.critical ? 'crit' : '';
-    const tip = `${t.title} · ${fmtDate(pv.es)}${pv.dur > 1 ? ` – ${fmtDate(pv.ef)}` : ''} · ${trp(pv.dur, '{n} Tag', '{n} Tage')}${t.done ? '' : ` · ${pv.critical ? tr('kritisch') : trp(pv.slack, '{n} Tag Puffer', '{n} Tage Puffer')}`}`;
+    const tip = `${t.title} · ${fmtDate(pv.es)}${pv.dur > 1 ? ` – ${fmtDate(pv.ef)}` : ''} · ${trp(pv.dur, '{n} Tag', '{n} Tage')}${t.done ? '' : ` · ${pv.critical ? tr('kritisch') : trp(pv.slack, '{n} Tag Puffer', '{n} Tage Puffer')}\n${critReason(pv)}`}`;
     return `<div class="g-row"><div class="g-label ${cls}" title="${esc(t.title)}">${t.done ? '✓ ' : ''}${esc(t.title)}</div><div class="g-track" style="width:${W}px">
       ${slackW > 0 ? `<span class="g-slack" style="left:${left + width}px;width:${slackW}px" title="${esc(trp(pv.slack, '{n} Tag Puffer', '{n} Tage Puffer'))}"></span>` : ''}
       <span class="g-bar ${cls} ${width < 72 ? 'narrow' : ''}" style="left:${left}px;width:${width}px" ${t.done ? '' : `data-gtask="${t.id}" tabindex="0"`} title="${esc(tip)}">
