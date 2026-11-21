@@ -1166,4 +1166,11 @@ I18N.en = {
   "Meilenstein „{title}“: {late}": "Milestone “{title}”: {late}",
   "Zieltermin {date}: {late}": "Target date {date}: {late}",
   "Zoom": "Zoom",
+  "Termine als Kalender-Datei (.ics)": "Dates as calendar file (.ics)",
+  "Kalender iCal Outlook Termine": "Calendar iCal Outlook dates",
+  "Kalender": "Calendar",
+  "Keine offenen Termine gefunden – trage Fälligkeiten, Meilenstein-Zieldaten oder einen Zieltermin ein.": "No open dates found – add due dates, milestone target dates or a target date.",
+  "Geplant laut Zeitplan": "Planned according to schedule",
+  "📅 {n} Termin exportiert – Datei öffnen, um sie in deinen Kalender zu übernehmen.": "📅 {n} date exported – open the file to add it to your calendar.",
+  "📅 {n} Termine exportiert – Datei öffnen, um sie in deinen Kalender zu übernehmen.": "📅 {n} dates exported – open the file to add them to your calendar.",
 };

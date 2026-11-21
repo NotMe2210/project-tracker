@@ -2427,6 +2427,7 @@ function renderSettings() {
       <div class="btn-row">
         <button class="btn primary" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
         <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
+        <button class="btn" data-action="exportIcs">📅 ${tr('Termine als Kalender-Datei (.ics)')}</button>
         <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
         <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
       </div>
@@ -3946,6 +3947,7 @@ function paletteCommands() {
   if (data.timer) add('■', data.timer.mode === 'pomodoro' ? tr('Pomodoro beenden') : tr('Timer stoppen'), () => actions.stopTimer());
   add('💾', tr('Sicherung exportieren'), () => actions.exportData(), 'Backup');
   add('⬆', tr('Sicherung importieren'), () => actions.importData(), 'Backup');
+  add('📅', tr('Termine als Kalender-Datei (.ics)'), () => actions.exportIcs(), tr('Kalender iCal Outlook Termine'));
   add('📄', tr('Zeit & Investitionen aus CSV importieren'), () => actions.importCsv(), 'CSV Excel Import');
   add('🗺️', tr('Roadmap'), () => actions.openRoadmap(), tr('Zeitleiste Gantt Projekte'));
   add('🧩', tr('Übersicht anpassen'), () => actions.customizeDashboard(), 'Layout');
@@ -4774,6 +4776,7 @@ function renderServerBackupSettings(size) {
     <div class="btn-row">
       <button class="btn" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
       <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
+        <button class="btn" data-action="exportIcs">📅 ${tr('Termine als Kalender-Datei (.ics)')}</button>
         <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
       <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
     </div>
@@ -5356,7 +5359,7 @@ function projectSchedule(p) {
     return `<tr><td>🏁 ${esc(m.title)}</td><td>${m.dueDate ? fmtDate(m.dueDate) : '–'}</td><td>${x ? fmtDate(x.forecast) : '–'}</td><td>${status}</td></tr>`;
   }).join('');
   return `<section class="card">
-    <div class="card-head"><h2>🗓 ${tr('Zeitplan')}</h2><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
+    <div class="card-head"><h2>🗓 ${tr('Zeitplan')}</h2><span class="btn-row"><button class="btn small" data-action="exportIcs" data-id="${p.id}" title="${tr('Termine als Kalender-Datei (.ics)')}">📅 ${tr('Kalender')}</button><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
     ${intro}${weekendToggle}
     ${ganttChart(p, pl)}
     ${pl.cyclic.size ? `<div class="callout" style="border-color:var(--bad)">🔁 ${tr('Kreisabhängigkeit gefunden: {list}. Diese Vorgänger werden ignoriert, bis du sie auflöst.', { list: [...pl.cyclic].map(title).join(', ') })}</div>` : ''}
@@ -5376,6 +5379,56 @@ function projectSchedule(p) {
     ${pl.used ? '' : `<div class="callout">💡 ${tr('Noch keine Planungsdaten: Öffne eine Aufgabe und trage Dauer und Vorgänger ein. Bis dahin gilt jede Aufgabe als 1 Tag ab heute.')}</div>`}
   </section>`;
 }
+
+/* ---------------------------- Kalender-Export (.ics) --------------------- */
+/* Fällige Aufgaben, Meilensteine, Zieltermine und geplante Aufgaben (Zeitplan) als
+   iCalendar-Datei – lässt sich in Apple Kalender, Outlook und Google Kalender importieren.
+   Gleiche UIDs → ein erneuter Import aktualisiert die Termine statt sie zu verdoppeln. */
+function icsText(s) { return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
+function icsFold(line) {
+  const out = [];
+  let rest = line;
+  while (rest.length > 72) { out.push(rest.slice(0, 72)); rest = ' ' + rest.slice(72); }
+  out.push(rest);
+  return out.join('\r\n');
+}
+const icsDate = (iso) => iso.replace(/-/g, '');
+function buildIcs(projectId) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  const projects = data.projects.filter((p) => (!projectId || p.id === projectId) && p.status !== 'abgeschlossen' && !p.archived);
+  const events = [];
+  const ev = (uid, start, end, summary, desc, alarm = true) => events.push([
+    'BEGIN:VEVENT', `UID:${uid}@protrac`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${icsDate(start)}`, `DTEND;VALUE=DATE:${icsDate(toISO(addDays(parseISO(end), 1)))}`,
+    `SUMMARY:${icsText(summary)}`, desc ? `DESCRIPTION:${icsText(desc)}` : '', 'TRANSP:TRANSPARENT',
+    ...(alarm ? ['BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(summary)}`, 'TRIGGER:-PT15H', 'END:VALARM'] : []), 'END:VEVENT',
+  ].filter(Boolean));
+  projects.forEach((p) => {
+    const pl = planProject(p.id);
+    if (p.targetDate) ev(`target-${p.id}`, p.targetDate, p.targetDate, `⚑ ${tr('Zieltermin')}: ${p.name}`, p.goal || '');
+    data.milestones.filter((m) => m.projectId === p.id && !m.done && m.dueDate).forEach((m) => {
+      const f = pl.milestones.get(m.id);
+      ev(`ms-${m.id}`, m.dueDate, m.dueDate, `🏁 ${m.title} · ${p.name}`, [m.description, f?.late > 0 ? `⚠️ ${tr('Prognose {date} · {late}', { date: fmtDate(f.forecast), late: trp(f.late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät') })}` : ''].filter(Boolean).join('\n'));
+    });
+    data.tasks.filter((t) => t.projectId === p.id && !t.done).forEach((t) => {
+      if (t.dueDate) ev(`task-${t.id}`, t.dueDate, t.dueDate, `✅ ${t.title} · ${p.name}`, t.notes || '');
+      else if (pl.used && pl.plan.get(t.id)) {
+        const x = pl.plan.get(t.id);
+        ev(`plan-${t.id}`, x.es, x.ef, `${x.critical ? '🔴' : '🗓'} ${t.title} · ${p.name}`, `${tr('Geplant laut Zeitplan')}${x.critical ? ` · ${tr('kritisch')}` : ` · ${trp(x.slack, '{n} Tag Puffer', '{n} Tage Puffer')}`}`, false);
+      }
+    });
+  });
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//R3DO//Protrac//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    `X-WR-CALNAME:${icsText(projectId ? `Protrac · ${getProject(projectId)?.name}` : 'Protrac')}`, ...events.flat(), 'END:VCALENDAR'];
+  return { text: lines.map(icsFold).join('\r\n') + '\r\n', count: events.length };
+}
+Object.assign(actions, {
+  exportIcs({ id } = {}) {
+    const { text, count } = buildIcs(id && getProject(id) ? id : null);
+    if (!count) return toast(tr('Keine offenen Termine gefunden – trage Fälligkeiten, Meilenstein-Zieldaten oder einen Zieltermin ein.'));
+    download(`protrac-termine${id ? `-${(getProject(id)?.name || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-')}` : ''}.ics`, text, 'text/calendar');
+    toast(trp(count, '📅 {n} Termin exportiert – Datei öffnen, um sie in deinen Kalender zu übernehmen.', '📅 {n} Termine exportiert – Datei öffnen, um sie in deinen Kalender zu übernehmen.'));
+  },
+});
 
 /* ---------------------------- Gantt-Diagramm --------------------------- */
 /* Balken je Aufgabe (gruppiert nach Meilensteinen), ◆ Meilensteine, Pfeile für Vorgänger,
