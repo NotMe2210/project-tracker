@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-9",
+      "date": "2026-11-21",
+      "de": [
+        "🎨 Das neue Logo erscheint jetzt zuverlässig auch im Browser-Tab (Safari hielt noch die Rakete fest)"
+      ],
+      "en": [
+        "🎨 The new logo now reliably appears in the browser tab too (Safari kept showing the rocket)"
+      ]
+    },
+    {
       "version": "2026.11.21-8",
       "date": "2026-11-21",
       "de": [
