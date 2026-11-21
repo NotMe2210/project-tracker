@@ -42,6 +42,7 @@ const DEFAULT_DATA = {
   milestones: [],
   tasks: [],
   notes: [],
+  docs: [], // Dokument-Verweise { id, projectId, taskId, milestoneId, title, url, note, createdAt }
   timer: null,
   counters: { pomodoros: 0 },
   achievements: null, // { id: Datum } – null = noch nie geprüft
@@ -797,6 +798,7 @@ const PROJECT_WIDGETS = [
   { id: 'description', get label() { return tr('Beschreibung'); }, icon: '📝', wide: true, visible: true },
   { id: 'tasks', get label() { return tr('Offene Aufgaben'); }, icon: '✅', wide: false, visible: false },
   { id: 'invest', get label() { return tr('Investitionen nach Kategorie'); }, icon: '💶', wide: false, visible: false },
+  { id: 'docs', get label() { return tr('Dokumente'); }, icon: '📎', wide: false, visible: true },
 ];
 const PROJECT_STATS = [
   { id: 'progress', get label() { return tr('Fortschritt'); }, visible: true },
@@ -1611,6 +1613,7 @@ function taskItem(t, { showProject = false } = {}) {
         ${t.done ? `<span>${tr('erledigt {when}', { when: fmtRelative(t.doneAt) })}</span>` : dueBadge(t.dueDate)}
         ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
         ${t.notes ? `<span>${esc(t.notes)}</span>` : ''}
+        ${docChips(data.docs.filter((d) => d.taskId === t.id))}
       </div>
       ${subs.length ? `<ul class="subtasks">${subs.map((st) => `
         <li class="${st.done ? 'done' : ''}">
@@ -1620,6 +1623,7 @@ function taskItem(t, { showProject = false } = {}) {
       ${t.done || showProject ? '' : `<button class="btn ghost small add-sub" data-action="addSubtask" data-id="${t.id}">${tr('+ Unterpunkt')}</button>`}
     </div>
     <div class="actions">
+      <button class="btn ghost icon" data-action="addDoc" data-id="${t.projectId}" data-task="${t.id}" title="${tr('Dokument verknüpfen')}">📎</button>
       <button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button>
       <button class="btn ghost icon danger" data-action="deleteTask" data-id="${t.id}" title="${tr('Löschen')}">🗑</button>
     </div>
@@ -1639,6 +1643,7 @@ function milestoneItem(m, { showProject = false, move = null } = {}) {
         ${m.done ? `<span>${tr('erreicht am {date}', { date: fmtDate(m.doneAt) })}</span>` : m.dueDate ? `${dueBadge(m.dueDate)}<span>(${fmtRelative(m.dueDate)})</span>` : ''}
       </div>
       ${m.description ? `<div class="small muted">${esc(m.description)}</div>` : ''}
+      ${docChips(data.docs.filter((d) => d.milestoneId === m.id), true)}
       ${tasks.length && !m.done ? `<div style="margin-top:6px;max-width:240px">${progressBar((done / tasks.length) * 100)}</div>` : ''}
       ${tasks.length ? `<details class="ms-tasks" data-ms="${m.id}" ${openMsTasks.has(m.id) ? 'open' : ''}>
         <summary>${tr('{done}/{n} Aufgaben', { done, n: tasks.length })}</summary>
@@ -1653,6 +1658,7 @@ function milestoneItem(m, { showProject = false, move = null } = {}) {
     <div class="actions">
       ${move ? `<button class="btn ghost icon" data-action="moveMilestone" data-id="${m.id}" data-dir="-1" title="${tr('Nach oben')}" ${move.first ? 'disabled' : ''}>↑</button>
       <button class="btn ghost icon" data-action="moveMilestone" data-id="${m.id}" data-dir="1" title="${tr('Nach unten')}" ${move.last ? 'disabled' : ''}>↓</button>` : ''}
+      <button class="btn ghost icon" data-action="addDoc" data-id="${m.projectId}" data-ms="${m.id}" title="${tr('Dokument verknüpfen')}">📎</button>
       <button class="btn ghost icon" data-action="editMilestone" data-id="${m.id}" title="${tr('Bearbeiten')}">✎</button>
       <button class="btn ghost icon danger" data-action="deleteMilestone" data-id="${m.id}" title="${tr('Löschen')}">🗑</button>
     </div>
@@ -1751,14 +1757,15 @@ function renderProject(id, tab) {
     zeit: data.timeEntries.filter((e) => e.projectId === id).length,
     investitionen: data.investments.filter((e) => e.projectId === id).length,
     logbuch: data.notes.filter((e) => e.projectId === id).length,
+    dokumente: data.docs.filter((e) => e.projectId === id).length,
   };
   const tabs = [
     ['uebersicht', tr('Übersicht')], ['aufgaben', tr('Aufgaben')], ['meilensteine', tr('Meilensteine')],
-    ['zeit', tr('Zeit')], ['investitionen', tr('Investitionen')], ['logbuch', tr('Logbuch')],
+    ['zeit', tr('Zeit')], ['investitionen', tr('Investitionen')], ['logbuch', tr('Logbuch')], ['dokumente', tr('Dokumente')],
   ];
   const body = {
     uebersicht: projectOverview, aufgaben: projectTasks, meilensteine: projectMilestones,
-    zeit: projectTime, investitionen: projectInvestments, logbuch: projectNotes,
+    zeit: projectTime, investitionen: projectInvestments, logbuch: projectNotes, dokumente: projectDocs,
   }[tab] || projectOverview;
 
   return `
@@ -1881,6 +1888,15 @@ function renderProjectWidget(id, p, s, cfg) {
       return `<section class="card">
         <div class="card-head"><h2>✅ ${tr('Offene Aufgaben')} (${open.length})</h2><a class="btn small" href="#/projekt/${p.id}/aufgaben">${tr('Alle')}</a></div>
         ${open.length ? `<ul class="list">${open.slice(0, 5).map((x) => taskItem(x)).join('')}</ul>` : `<div class="empty">${tr('Keine offenen Aufgaben. 🎉')}</div>`}
+      </section>`;
+    }
+
+    case 'docs': {
+      const docs = data.docs.filter((d) => d.projectId === p.id).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      if (!docs.length) return '';
+      return `<section class="card">
+        <div class="card-head"><h2>📎 ${tr('Dokumente')}</h2><a class="btn small" href="#/projekt/${p.id}/dokumente">${tr('Alle')}</a></div>
+        <ul class="list doc-list">${docs.slice(0, 6).map((d) => docRow(d, { compact: true })).join('')}</ul>
       </section>`;
     }
 
@@ -2646,7 +2662,7 @@ const actions = {
     const p = getProject(id);
     if (!confirm(tr('Projekt „{name}“ inklusive aller Zeiten, Investitionen, Aufgaben und Meilensteine löschen?', { name: p.name }))) return;
     data.projects = data.projects.filter((x) => x.id !== id);
-    for (const k of ['timeEntries', 'investments', 'milestones', 'tasks', 'notes']) data[k] = data[k].filter((x) => x.projectId !== id);
+    for (const k of ['timeEntries', 'investments', 'milestones', 'tasks', 'notes', 'docs']) data[k] = data[k].filter((x) => x.projectId !== id);
     if (data.timer?.projectId === id) data.timer = null;
     save();
     location.hash = '#/projekte';
@@ -2707,6 +2723,7 @@ const actions = {
   deleteTask({ id }) {
     if (!confirm(tr('Aufgabe löschen?'))) return;
     data.tasks = data.tasks.filter((t) => t.id !== id);
+    data.docs.forEach((d) => { if (d.taskId === id) d.taskId = null; }); // Dokument bleibt beim Projekt
     commit();
   },
 
@@ -2746,6 +2763,7 @@ const actions = {
     if (!confirm(tr('Meilenstein löschen? Zugeordnete Aufgaben bleiben erhalten.'))) return;
     data.milestones = data.milestones.filter((m) => m.id !== id);
     data.tasks.forEach((t) => { if (t.milestoneId === id) t.milestoneId = null; });
+    data.docs.forEach((d) => { if (d.milestoneId === id) d.milestoneId = null; });
     commit();
   },
 
@@ -3746,6 +3764,7 @@ function taskMenuHTML(t) {
   return `<div class="pop-title">${esc(t.title)}</div>
     <button class="pop-item" data-action="toggleTask" data-id="${t.id}">${t.done ? `↺ ${tr('Wieder öffnen')}` : `✓ ${tr('Erledigt')}`}</button>
     <button class="pop-item" data-action="editTask" data-id="${t.id}">✎ ${tr('Bearbeiten')}</button>
+    <button class="pop-item" data-action="addDoc" data-id="${t.projectId}" data-task="${t.id}">📎 ${tr('Dokument verknüpfen')}</button>
     ${t.done ? '' : `<button class="pop-item" data-action="addSubtask" data-id="${t.id}">＋ ${tr('Unterpunkt')}</button>`}
     ${p ? `<button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 ${tr('Pomodoro für {name}', { name: esc(p.name) })}</button>` : ''}
     <div class="pop-sep"></div>
@@ -3830,6 +3849,10 @@ function paletteCommands() {
       add('✅', tr('Aufgabe anlegen: {name}', { name: p.name }), () => actions.addTask({ id: p.id }));
       add('📝', tr('Notiz: {name}', { name: p.name }), () => actions.addNote({ id: p.id }));
     }
+  });
+  data.docs.forEach((d) => {
+    const u = safeUrl(d.url);
+    if (u) add(docInfo(u).icon, tr('Dokument: {title}', { title: d.title || u }), () => window.open(u, '_blank', 'noopener'), getProject(d.projectId)?.name || '');
   });
   sortTasks(data.tasks.filter((t) => !t.done)).forEach((t) => {
     add('☐', tr('Erledigen: {title}', { title: t.title }), () => actions.toggleTask({ id: t.id }), getProject(t.projectId)?.name || '');
@@ -5036,6 +5059,133 @@ Object.assign(actions, {
     const log = await loadChangelog();
     const next = (log?.entries || []).filter((e) => cmpVersion(e.version, APP_VERSION) > 0).sort((a, b) => cmpVersion(b.version, a.version));
     showChangelogDialog(next, { title: tr('🆕 Neu in Version {v}', { v: id }), repo: log?.repo || REPO_URL, updateTo: id });
+  },
+});
+
+/* ---------------------------- Dokumente (Verweise) ----------------------- */
+/* Verweise auf Dateien und Seiten – z. B. iCloud, OneDrive, Google Drive, Dropbox, Notion.
+   Es werden nur Links gespeichert, keine Dateien (Uploads folgen mit eigenem Server). */
+
+/** Nur sichere Link-Arten zulassen; „www.…“ bzw. „beispiel.de/…“ wird zu https:// ergänzt */
+function safeUrl(input) {
+  let u = String(input || '').trim();
+  if (!u) return null;
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = /^[\w-]+(\.[\w-]+)+(\/|$)/.test(u) ? `https://${u}` : u;
+  try {
+    const url = new URL(u);
+    return ['http:', 'https:', 'mailto:', 'file:'].includes(url.protocol) ? url.href : null;
+  } catch { return null; }
+}
+
+/** Symbol und Dienst anhand des Links */
+function docInfo(url) {
+  let host = '', path = '';
+  try { const x = new URL(url); host = x.hostname.replace(/^www\./, ''); path = x.pathname.toLowerCase(); if (x.protocol === 'mailto:') return { icon: '✉️', name: 'E-Mail' }; if (x.protocol === 'file:') host = ''; } catch { return { icon: '🔗', name: '' }; }
+  const ext = (path.match(/\.([a-z0-9]{2,5})$/) || [])[1];
+  const byExt = { pdf: ['📕', 'PDF'], doc: ['📘', 'Word'], docx: ['📘', 'Word'], xls: ['📗', 'Excel'], xlsx: ['📗', 'Excel'], csv: ['📗', 'CSV'], ppt: ['📙', 'PowerPoint'], pptx: ['📙', 'PowerPoint'], pages: ['📘', 'Pages'], numbers: ['📗', 'Numbers'], key: ['📙', 'Keynote'], png: ['🖼️', ''], jpg: ['🖼️', ''], jpeg: ['🖼️', ''], gif: ['🖼️', ''], heic: ['🖼️', ''], zip: ['🗜️', 'ZIP'], txt: ['📄', ''], md: ['📄', ''] };
+  const services = [
+    [/docs\.google\.com$/, path.includes('/spreadsheets') ? '📗' : path.includes('/presentation') ? '📙' : '📘', 'Google Docs'],
+    [/drive\.google\.com$/, '🗂️', 'Google Drive'], [/icloud\.com$/, '☁️', 'iCloud'],
+    [/(onedrive\.live\.com|1drv\.ms)$/, '☁️', 'OneDrive'], [/sharepoint\.com$/, '🟦', 'SharePoint'],
+    [/dropbox\.com$/, '📦', 'Dropbox'], [/notion\.(so|site)$/, '📓', 'Notion'], [/figma\.com$/, '🎨', 'Figma'],
+    [/miro\.com$/, '🧠', 'Miro'], [/github\.com$/, '🐙', 'GitHub'], [/(youtube\.com|youtu\.be)$/, '▶️', 'YouTube'],
+    [/trello\.com$/, '📋', 'Trello'], [/canva\.com$/, '🎨', 'Canva'],
+  ];
+  const svc = services.find(([re]) => re.test(host));
+  if (ext && byExt[ext]) return { icon: byExt[ext][0], name: svc ? svc[2] : byExt[ext][1] || host };
+  if (svc) return { icon: svc[1], name: svc[2] };
+  return { icon: host ? '🔗' : '📄', name: host || tr('Datei') };
+}
+
+function docLink(d) {
+  const url = safeUrl(d.url);
+  const info = docInfo(url || '');
+  const title = d.title || url || '–';
+  return url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="doc-link">${info.icon} ${esc(title)}</a>` : `<span class="doc-link">🔗 ${esc(title)}</span>`;
+}
+
+/** Kleine Link-Chips an Aufgaben und Meilensteinen */
+function docChips(docs, block = false) {
+  if (!docs.length) return '';
+  const shown = docs.slice(0, 3).map((d) => docLink(d)).join('');
+  return `<${block ? 'div' : 'span'} class="doc-chips">${shown}${docs.length > 3 ? `<a class="doc-more" href="#/projekt/${docs[0].projectId}/dokumente">+${docs.length - 3}</a>` : ''}</${block ? 'div' : 'span'}>`;
+}
+
+function docRow(d, { compact = false } = {}) {
+  const url = safeUrl(d.url);
+  const info = docInfo(url || '');
+  const task = d.taskId ? data.tasks.find((t) => t.id === d.taskId) : null;
+  const ms = d.milestoneId ? data.milestones.find((m) => m.id === d.milestoneId) : null;
+  return `<li>
+    <span class="doc-ico" aria-hidden="true">${info.icon}</span>
+    <div class="grow">
+      <div class="title">${url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(d.title || url)}</a>` : esc(d.title || d.url)}</div>
+      <div class="meta">${info.name ? `<span>${esc(info.name)}</span>` : ''}
+        ${task ? `<span>✅ ${esc(task.title)}</span>` : ''}${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
+        ${!compact && d.note ? `<span>${esc(d.note)}</span>` : ''}</div>
+    </div>
+    ${compact ? '' : `<div class="actions">
+      <button class="btn ghost icon" data-action="editDoc" data-id="${d.id}" title="${tr('Bearbeiten')}">✎</button>
+      <button class="btn ghost icon danger" data-action="deleteDoc" data-id="${d.id}" title="${tr('Löschen')}">🗑</button>
+    </div>`}
+  </li>`;
+}
+
+function projectDocs(p) {
+  const docs = data.docs.filter((d) => d.projectId === p.id).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  const general = docs.filter((d) => !d.taskId && !d.milestoneId);
+  const linked = docs.filter((d) => d.taskId || d.milestoneId);
+  return `<section class="card">
+    <div class="card-head"><h2>📎 ${tr('Dokumente')}</h2><button class="btn primary small" data-action="addDoc" data-id="${p.id}">${tr('+ Dokument')}</button></div>
+    <p class="small muted">${tr('Verweise auf Dateien und Seiten, die zum Projekt gehören – z. B. aus iCloud, OneDrive, SharePoint, Google Drive, Dropbox oder Notion. Gespeichert wird nur der Link; die Datei bleibt, wo sie ist. Tipp: In der Cloud-App „Link teilen“ bzw. „Link kopieren“ wählen und hier einfügen.')}</p>
+    ${docs.length ? `
+      ${general.length ? `<h3 class="task-group">${tr('Zum Projekt')} <span class="muted small">${general.length}</span></h3><ul class="list doc-list">${general.map((d) => docRow(d)).join('')}</ul>` : ''}
+      ${linked.length ? `<h3 class="task-group">${tr('Zu Aufgaben & Meilensteinen')} <span class="muted small">${linked.length}</span></h3><ul class="list doc-list">${linked.map((d) => docRow(d)).join('')}</ul>` : ''}`
+      : `<div class="empty">${tr('Noch keine Dokumente verknüpft.')}</div>`}
+  </section>`;
+}
+
+function docForm(d) {
+  const isNew = !d.id;
+  const pid = d.projectId;
+  const opts = [{ value: '', label: tr('Projekt allgemein') }];
+  sortMilestonesOf(pid).forEach((m) => opts.push({ value: `m:${m.id}`, label: `🏁 ${m.title}` }));
+  sortTasks(data.tasks.filter((t) => t.projectId === pid)).forEach((t) => opts.push({ value: `t:${t.id}`, label: `✅ ${t.title}${t.done ? ' ✓' : ''}` }));
+  const current = d.taskId ? `t:${d.taskId}` : d.milestoneId ? `m:${d.milestoneId}` : '';
+  openForm({
+    title: isNew ? tr('Dokument verknüpfen') : tr('Dokument bearbeiten'),
+    fields: [
+      { name: 'url', label: tr('Link'), required: true, value: d.url, placeholder: 'https://…',
+        hint: tr('Freigabe-Link aus iCloud, OneDrive, Google Drive, Dropbox … oder eine beliebige Webadresse.') },
+      { name: 'title', label: tr('Titel'), value: d.title, placeholder: tr('z. B. Angebot Druckerei'), hint: tr('Leer = wird aus dem Link übernommen.') },
+      { name: 'link', label: tr('Gehört zu'), type: 'select', options: opts, value: current },
+      { name: 'note', label: tr('Notiz'), type: 'textarea', value: d.note },
+    ],
+    onSubmit(v) {
+      const url = safeUrl(v.url);
+      if (!url) return tr('Bitte einen gültigen Link angeben (z. B. https://…).');
+      let title = v.title;
+      if (!title) {
+        try { const x = new URL(url); title = decodeURIComponent(x.pathname.split('/').filter(Boolean).pop() || '') || x.hostname.replace(/^www\./, ''); } catch { title = url; }
+        // lange IDs und allgemeine Wörter aus Cloud-Links (…/edit, …/view) durch den Dienstnamen ersetzen
+        if (title.length > 60 || /^[\w-]{20,}$/.test(title) || /^(edit|view|preview|open|share|sharing|index\.html?|s)$/i.test(title)) title = docInfo(url).name || title;
+      }
+      const out = { url, title, note: v.note || '', taskId: v.link.startsWith('t:') ? v.link.slice(2) : null, milestoneId: v.link.startsWith('m:') ? v.link.slice(2) : null };
+      if (isNew) data.docs.push({ id: uid(), projectId: pid, createdAt: new Date().toISOString(), ...out });
+      else Object.assign(d, out);
+      commit();
+      if (isNew) toast(tr('📎 Dokument verknüpft'));
+    },
+  });
+}
+
+Object.assign(actions, {
+  addDoc({ id, task, ms }) { docForm({ projectId: id, taskId: task || null, milestoneId: ms || null }); },
+  editDoc({ id }) { const d = data.docs.find((x) => x.id === id); if (d) docForm(d); },
+  deleteDoc({ id }) {
+    if (!confirm(tr('Verweis auf das Dokument entfernen? Die Datei selbst bleibt unverändert.'))) return;
+    data.docs = data.docs.filter((d) => d.id !== id);
+    commit();
   },
 });
 

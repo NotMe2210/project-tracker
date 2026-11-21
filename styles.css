@@ -1170,3 +1170,15 @@ html.side-collapsed .brand .brand-mark { display: grid; }
 .app-steps li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; }
 .app-steps li > span { font-size: 1.3rem; line-height: 1.2; }
 .app-steps li.mine { border-color: var(--primary); background: var(--primary-soft); }
+
+/* Dokumente */
+.doc-list .doc-ico { font-size: 1.3rem; width: 28px; text-align: center; flex: none; }
+.doc-list .title a { overflow-wrap: anywhere; }
+.doc-chips { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; }
+div.doc-chips { margin-top: 6px; }
+.doc-link, .doc-more {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 220px; padding: 1px 8px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border); font-size: .78rem; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none;
+}
+.doc-link:hover, .doc-more:hover { border-color: var(--primary); color: var(--primary); text-decoration: none; }
