@@ -464,6 +464,8 @@ function parseAmount(s) {
 const statusLabel = (v) => (STATUS.find((s) => s.value === v) || {}).label || v;
 const prioLabel = (v) => (PRIORITIES.find((s) => s.value === v) || {}).label || v;
 const getProject = (id) => data.projects.find((p) => p.id === id);
+/** Projekte ohne Archiv – für Übersicht, Listen und Auswahlfelder */
+const liveProjects = () => data.projects.filter((p) => !p.archived);
 
 /* ------------------------------------------------------------------------
    Auswertungen
@@ -639,7 +641,7 @@ function weekMinutes(offset = 0, pid) {
  */
 const projectWeeklyMin = (p) => Math.max(0, Number(p.weeklyHours) || 0) * 60;
 function weeklyGoal() {
-  const projects = data.projects.filter((p) => p.status === 'aktiv' && projectWeeklyMin(p) > 0);
+  const projects = liveProjects().filter((p) => p.status === 'aktiv' && projectWeeklyMin(p) > 0);
   if (projects.length) return { minutes: sum(projects, projectWeeklyMin), source: 'projects', projects };
   return { minutes: Math.max(0, Number(data.settings.weeklyHoursGoal) || 0) * 60, source: 'general', projects: [] };
 }
@@ -1155,9 +1157,9 @@ function renderDashboard() {
 
 function dashboardContext() {
   const today = todayISO();
-  const active = data.projects.filter((p) => p.status === 'aktiv');
+  const active = liveProjects().filter((p) => p.status === 'aktiv');
   const stats = new Map(data.projects.map((p) => [p.id, projectStats(p)]));
-  const openTasks = data.tasks.filter((t) => !t.done && getProject(t.projectId)?.status !== 'abgeschlossen');
+  const openTasks = data.tasks.filter((t) => { const p = getProject(t.projectId); return !t.done && p && p.status !== 'abgeschlossen' && !p.archived; });
   const stale = active
     .map((p) => ({ p, s: stats.get(p.id) }))
     .filter((x) => x.s.health && x.s.health !== 'gut')
@@ -1226,7 +1228,7 @@ function renderWidget(id, c, cfg) {
       const me = currentPerson();
       if (!me) return card(`🙋 ${tr('Meine Aufgaben')}`, `<div class="empty">${tr('Lege unter Einstellungen › Team fest, wer du bist – dann siehst du hier alles, was dir oder deinen Teams zugewiesen ist.')}<br><br><a class="btn small" href="#/einstellungen" data-open-section="team">👥 ${tr('Team einrichten')}</a></div>`);
       const tasks = sortTasks(c.openTasks.filter((t) => isMine(t)));
-      const ms = data.milestones.filter((m) => !m.done && isMine(m) && getProject(m.projectId)?.status !== 'abgeschlossen')
+      const ms = data.milestones.filter((m) => !m.done && isMine(m) && getProject(m.projectId)?.status !== 'abgeschlossen' && !getProject(m.projectId)?.archived)
         .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
       return card(`🙋 ${tr('Meine Aufgaben')}`, tasks.length || ms.length ? `<div class="scroll-list">
           ${tasks.length ? `<ul class="list">${tasks.map((t) => taskItem(t, { showProject: true })).join('')}</ul>` : ''}
@@ -1260,7 +1262,7 @@ function renderWidget(id, c, cfg) {
 
     case 'milestones': {
       const list = data.milestones
-        .filter((m) => !m.done && m.dueDate && getProject(m.projectId) && getProject(m.projectId).status !== 'abgeschlossen')
+        .filter((m) => !m.done && m.dueDate && getProject(m.projectId) && getProject(m.projectId).status !== 'abgeschlossen' && !getProject(m.projectId).archived)
         .sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 6);
       return card(tr('🏁 Anstehende Meilensteine'), list.length ? `<ul class="list">${list.map((m) => milestoneItem(m, { showProject: true })).join('')}</ul>`
         : `<div class="empty">${tr('Keine terminierten Meilensteine.')}</div>`);
@@ -1274,7 +1276,7 @@ function renderWidget(id, c, cfg) {
 
     case 'weekProjects': {
       // Projekte mit Zeit diese Woche oder mit eigenem Wochenziel (aktiv)
-      const rows = data.projects
+      const rows = liveProjects()
         .map((p) => ({ p, min: weekMinutes(0, p.id), goal: p.status === 'aktiv' ? projectWeeklyMin(p) : 0 }))
         .filter((x) => x.min > 0 || x.goal > 0)
         .sort((a, b) => (b.goal ? b.min / b.goal : 0) - (a.goal ? a.min / a.goal : 0) || b.min - a.min);
@@ -1298,7 +1300,7 @@ function renderWidget(id, c, cfg) {
 
     case 'projects': {
       const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
-      const sorted = [...data.projects].sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
+      const sorted = liveProjects().sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
       return card(tr('📋 Alle Projekte'), `<div class="table-wrap"><table>
         <thead><tr><th>${tr('Projekt')}</th><th>${tr('Status')}</th><th>${tr('Fortschritt')}</th><th class="num">${tr('Zeit')}</th><th class="num">${tr('Diese Woche')}</th><th class="num">${tr('Investiert')}</th><th class="num">${tr('Offene Aufg.')}</th><th>${tr('Zuletzt aktiv')}</th></tr></thead>
         <tbody>${sorted.map((p) => {
@@ -1318,7 +1320,7 @@ function renderWidget(id, c, cfg) {
     }
 
     case 'roadmap': {
-      const list = data.projects.filter((p) => p.status === 'aktiv' || p.status === 'pausiert');
+      const list = liveProjects().filter((p) => p.status === 'aktiv' || p.status === 'pausiert');
       if (!list.length) return '';
       return card(`🗺️ ${tr('Roadmap')}`, roadmapChart(list, { compact: true }), `<a class="btn small" href="#/projekte" data-action="openRoadmap">${tr('Alle Projekte')}</a>`);
     }
@@ -1792,11 +1794,12 @@ function milestoneItem(m, { showProject = false, move = null } = {}) {
 /* ---------------------------- Projektliste ------------------------------- */
 
 function renderProjects() {
-  const counts = { alle: data.projects.length };
-  STATUS.forEach((s) => (counts[s.value] = data.projects.filter((p) => p.status === s.value).length));
+  const live = liveProjects();
+  const counts = { alle: live.length, archiv: data.projects.length - live.length };
+  STATUS.forEach((s) => (counts[s.value] = live.filter((p) => p.status === s.value).length));
   if (projectFilter !== 'alle' && !counts[projectFilter] && counts.alle) projectFilter = 'alle';
-  const list = data.projects
-    .filter((p) => projectFilter === 'alle' || p.status === projectFilter)
+  const list = (projectFilter === 'archiv' ? data.projects.filter((p) => p.archived) : live)
+    .filter((p) => projectFilter === 'alle' || projectFilter === 'archiv' || p.status === projectFilter)
     .map((p) => ({ p, s: projectStats(p) }))
     .sort((a, b) => (b.s.last || '').localeCompare(a.s.last || '') || a.p.name.localeCompare(b.p.name));
 
@@ -1809,6 +1812,7 @@ function renderProjects() {
       <div class="chips">
         ${[{ value: 'alle', label: tr('Alle') }, ...STATUS].map((s) =>
           `<button class="chip ${projectFilter === s.value ? 'active' : ''}" data-action="filterProjects" data-id="${s.value}">${s.label} (${counts[s.value]})</button>`).join('')}
+        ${counts.archiv ? `<button class="chip ${projectFilter === 'archiv' ? 'active' : ''}" data-action="filterProjects" data-id="archiv">🗄️ ${tr('Archiv')} (${counts.archiv})</button>` : ''}
       </div>
       <div class="segmented view-toggle" role="group" aria-label="${tr('Ansicht')}">
         <button type="button" class="seg-btn ${projectView === 'grid' ? 'active' : ''}" data-action="setProjectView" data-id="grid" aria-pressed="${projectView === 'grid'}" title="${tr('Kacheln')}">▦ <span>${tr('Kacheln')}</span></button>
@@ -1896,6 +1900,8 @@ function renderProject(id, tab) {
   }[tab] || projectOverview;
 
   return `
+    ${p.archived ? `<div class="banner archived-banner"><span>🗄️ ${tr('Dieses Projekt ist archiviert ({date}). Es erscheint nicht mehr in der Übersicht, in Listen und Auswahlfeldern.', { date: fmtDate(p.archivedAt) })}</span>
+      <button class="btn small primary" data-action="unarchiveProject" data-id="${p.id}">${tr('Wiederherstellen')}</button></div>` : ''}
     <div class="page-head">
       <div>
         <div class="project-title">
@@ -2313,7 +2319,7 @@ function renderReminderSettings() {
 }
 
 function previewProject() {
-  const active = data.projects.filter((p) => p.status === 'aktiv').map((p) => ({ p, s: projectStats(p) }));
+  const active = liveProjects().filter((p) => p.status === 'aktiv').map((p) => ({ p, s: projectStats(p) }));
   active.sort((a, b) => b.s.idle - a.s.idle);
   if (active.length) return { ...active[0], s: { ...active[0].s, idle: Math.max(active[0].s.idle, 14) } };
   return { p: { id: 'preview', name: tr('Mein Projekt'), why: tr('Weil es mir Freude macht.'), goal: tr('Fertig und veröffentlicht') },
@@ -2378,7 +2384,7 @@ function weeklyGoalSummary() {
 function renderWeeklyGoalSettings() {
   const g = weeklyGoal();
   const set = data.settings;
-  const active = data.projects.filter((p) => p.status === 'aktiv');
+  const active = liveProjects().filter((p) => p.status === 'aktiv');
   return `
     <p class="small muted">${tr('Du kannst bei jedem Projekt unter <i>Bearbeiten</i> eine <b>Wochenarbeitszeit</b> eintragen. Dann ist dein Wochenziel die <b>Summe der Wochenzeiten aller aktiven Projekte</b>. Hat kein aktives Projekt eine Wochenzeit, gilt das Standard-Wochenziel.')}</p>
     ${active.length ? `<ul class="list weekly-list">${active.map((p) => `
@@ -2776,7 +2782,7 @@ function unlockScroll() {
 }
 $('#modal').addEventListener('close', unlockScroll);
 
-const projectOptions = () => data.projects
+const projectOptions = () => liveProjects()
   .filter((p) => p.status !== 'abgeschlossen')
   .map((p) => ({ value: p.id, label: p.name }));
 
@@ -2793,6 +2799,23 @@ const actions = {
     if (p) openPopover(lastQaButton || btn, projectMenuHTML(p));
   },
   goProject({ id }) { location.hash = `#/projekt/${id}`; },
+  archiveProject({ id }) {
+    const p = getProject(id);
+    if (!p || !confirm(tr('„{name}“ archivieren?\\n\\nDas Projekt verschwindet aus Übersicht, Listen und Auswahlfeldern. Alle Daten bleiben erhalten und zählen weiter für Statistiken und Erfolge. Du findest es unter Projekte › Archiv.', { name: p.name }))) return;
+    p.archived = true;
+    p.archivedAt = todayISO();
+    if (data.timer?.projectId === id) data.timer = null;
+    commit();
+    toast(tr('🗄️ „{name}“ archiviert.', { name: p.name }));
+  },
+  unarchiveProject({ id }) {
+    const p = getProject(id);
+    if (!p) return;
+    p.archived = false;
+    p.archivedAt = null;
+    commit();
+    toast(tr('♻️ „{name}“ ist wieder da.', { name: p.name }));
+  },
   duplicateProject({ id }) { const p = getProject(id); if (p) duplicateForm(p); },
   saveTemplate({ id }) { const p = getProject(id); if (p) saveTemplateForm(p); },
   deleteTemplate({ id }) {
@@ -3429,6 +3452,7 @@ function noteForm(n) {
 function celebrateProject(p) {
   confetti();
   toast(tr('🎉 „{name}“ abgeschlossen! Großartige Leistung.', { name: p.name }));
+  setTimeout(() => toast(tr('Tipp: Abgeschlossene Projekte kannst du über ⋯ › „Archivieren“ aus dem Blick räumen.')), 1500);
 }
 
 /* ------------------------------------------------------------------------
@@ -3818,7 +3842,7 @@ function renderToday(c) {
     </li>`);
   }
   // 4) Meilenstein in den nächsten 7 Tagen
-  const soon = data.milestones.filter((m) => !m.done && m.dueDate && m.dueDate >= today && m.dueDate <= toISO(addDays(new Date(), 7)) && getProject(m.projectId))
+  const soon = data.milestones.filter((m) => !m.done && m.dueDate && m.dueDate >= today && m.dueDate <= toISO(addDays(new Date(), 7)) && getProject(m.projectId) && !getProject(m.projectId).archived)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
   if (soon && items.length < 3) {
     items.push(`<li>
@@ -4109,6 +4133,8 @@ function projectMenuHTML(p) {
     <div class="pop-sep"></div>
     <button class="pop-item" data-action="duplicateProject" data-id="${p.id}">⧉ ${tr('Projekt duplizieren')}</button>
     <button class="pop-item" data-action="saveTemplate" data-id="${p.id}">📋 ${tr('Als Vorlage speichern')}</button>
+    ${p.archived ? `<button class="pop-item" data-action="unarchiveProject" data-id="${p.id}">♻️ ${tr('Wiederherstellen')}</button>`
+      : `<button class="pop-item" data-action="archiveProject" data-id="${p.id}">🗄️ ${tr('Archivieren')}</button>`}
     <div class="pop-sep"></div>
     <div class="pop-label">${tr('Status')}</div>
     <div class="pop-chips">${STATUS.map((st) => `<button class="chip ${p.status === st.value ? 'active' : ''}" data-action="setProjectStatus" data-id="${p.id}" data-status="${st.value}">${st.label}</button>`).join('')}</div>`;
@@ -4204,8 +4230,8 @@ function paletteCommands() {
   LANGUAGES.forEach(([code, name]) => add('🌐', tr('Sprache: {lang}', { lang: name }), () => { data.settings.language = code; commit(); }, 'Language Sprache'));
   add('↔', tr('Seitenleiste ein-/ausklappen'), () => actions.toggleSidebar(), nav);
   const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
-  [...data.projects].sort((a, b) => order[a.status] - order[b.status]).forEach((p) => {
-    add('🗂️', tr('Öffnen: {name}', { name: p.name }), () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
+  [...data.projects].sort((a, b) => Number(!!a.archived) - Number(!!b.archived) || order[a.status] - order[b.status]).forEach((p) => {
+    add(p.archived ? '🗄️' : '🗂️', tr('Öffnen: {name}', { name: p.name }), () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
     if (p.status !== 'abgeschlossen') {
       add('🍅', tr('Pomodoro: {name}', { name: p.name }), () => actions.startPomodoro({ id: p.id }), 'Timer');
       add('⏱️', tr('Zeit erfassen: {name}', { name: p.name }), () => actions.addTime({ id: p.id }));
@@ -4219,7 +4245,7 @@ function paletteCommands() {
     const u = safeUrl(d.url);
     if (u) add(docInfo(u).icon, tr('Dokument: {title}', { title: d.title || u }), () => window.open(u, '_blank', 'noopener'), getProject(d.projectId)?.name || '');
   });
-  sortTasks(data.tasks.filter((t) => !t.done)).forEach((t) => {
+  sortTasks(data.tasks.filter((t) => !t.done && !getProject(t.projectId)?.archived)).forEach((t) => {
     add('☐', tr('Erledigen: {title}', { title: t.title }), () => actions.toggleTask({ id: t.id }), getProject(t.projectId)?.name || '');
   });
   return cmds;

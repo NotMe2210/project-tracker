@@ -1327,4 +1327,11 @@ I18N.en = {
   "Ein Projekt hat mehr eingebracht als gekostet": "A project earned more than it cost",
   "Investition: {name}": "Investment: {name}",
   "Einnahme: {name}": "Income: {name}",
+  "Archiv": "Archive",
+  "Dieses Projekt ist archiviert ({date}). Es erscheint nicht mehr in der Übersicht, in Listen und Auswahlfeldern.": "This project is archived ({date}). It no longer appears on the overview, in lists or pickers.",
+  "Archivieren": "Archive",
+  "„{name}“ archivieren?\\n\\nDas Projekt verschwindet aus Übersicht, Listen und Auswahlfeldern. Alle Daten bleiben erhalten und zählen weiter für Statistiken und Erfolge. Du findest es unter Projekte › Archiv.": "Archive “{name}”?\\n\\nThe project disappears from the overview, lists and pickers. All data is kept and still counts for statistics and achievements. You’ll find it under Projects › Archive.",
+  "🗄️ „{name}“ archiviert.": "🗄️ “{name}” archived.",
+  "♻️ „{name}“ ist wieder da.": "♻️ “{name}” is back.",
+  "Tipp: Abgeschlossene Projekte kannst du über ⋯ › „Archivieren“ aus dem Blick räumen.": "Tip: You can tidy away completed projects via ⋯ › “Archive”.",
 };

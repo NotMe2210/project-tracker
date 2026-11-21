@@ -1363,3 +1363,6 @@ div.doc-chips { margin-top: 6px; }
 /* ---- Einnahmen & Gewinn/Verlust ---- */
 .value.pos, .amount.pos { color: var(--good); }
 .value.neg { color: var(--bad); }
+
+/* ---- Archiv ---- */
+.archived-banner { margin-bottom: 16px; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
