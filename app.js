@@ -47,6 +47,7 @@ const DEFAULT_DATA = {
   reviews: {}, // Wochenrückblicke { 'YYYY-MM-DD' (Wochenbeginn): { good, blockers, savedAt } }
   weekFocus: {}, // Wochenfokus { 'YYYY-MM-DD' (Wochenbeginn): [Aufgaben-IDs] }
   templates: [], // eigene Projektvorlagen { id, name, icon, createdAt, bp }
+  incomes: [], // Einnahmen { id, projectId, description, amount, date, category }
   people: [], // Personen { id, name, short, color, email, accountId (später: Login-Konto), createdAt }
   teams: [], // Teams { id, name, color, memberIds: [Personen-IDs], createdAt }
   timer: null,
@@ -603,6 +604,7 @@ function projectStats(p) {
   const ms = data.milestones.filter((m) => m.projectId === p.id);
   const minutes = sum(data.timeEntries.filter((e) => e.projectId === p.id), (e) => e.minutes);
   const invested = sum(data.investments.filter((e) => e.projectId === p.id), (e) => e.amount);
+  const income = sum((data.incomes || []).filter((e) => e.projectId === p.id), (e) => e.amount);
   const tasksDone = tasks.filter((t) => t.done).length;
   const msDone = ms.filter((m) => m.done).length;
   let progress = 0;
@@ -612,7 +614,7 @@ function projectStats(p) {
   const last = lastActivity(p);
   const idle = last ? daysBetween(last, todayISO()) : 0;
   return {
-    minutes, invested, progress, last, idle,
+    minutes, invested, income, profit: income - invested, progress, last, idle,
     // Fortschritt ist nur messbar mit Aufgaben oder Meilensteinen (oder wenn das Projekt abgeschlossen ist)
     hasProgress: p.status === 'abgeschlossen' || ms.length > 0 || tasks.length > 0,
     tasksOpen: tasks.length - tasksDone, tasksDone, tasksTotal: tasks.length,
@@ -818,6 +820,7 @@ const PROJECT_STATS = [
   { id: 'total', get label() { return tr('Zeit gesamt'); }, visible: true },
   { id: 'week', get label() { return tr('Diese Woche'); }, visible: true },
   { id: 'invested', get label() { return tr('Investiert'); }, visible: true },
+  { id: 'profit', get label() { return tr('Gewinn/Verlust'); }, visible: false },
   { id: 'openTasks', get label() { return tr('Offene Aufgaben'); }, visible: true },
   { id: 'target', get label() { return tr('Zieltermin'); }, visible: true },
   { id: 'lastActive', get label() { return tr('Zuletzt aktiv'); }, visible: false },
@@ -1879,13 +1882,13 @@ function renderProject(id, tab) {
     aufgaben: s.tasksOpen,
     meilensteine: s.msTotal,
     zeit: data.timeEntries.filter((e) => e.projectId === id).length,
-    investitionen: data.investments.filter((e) => e.projectId === id).length,
+    investitionen: data.investments.filter((e) => e.projectId === id).length + (data.incomes || []).filter((e) => e.projectId === id).length,
     logbuch: data.notes.filter((e) => e.projectId === id).length,
     dokumente: data.docs.filter((e) => e.projectId === id).length,
   };
   const tabs = [
     ['uebersicht', tr('Übersicht')], ['aufgaben', tr('Aufgaben')], ['meilensteine', tr('Meilensteine')], ['zeitplan', tr('Zeitplan')],
-    ['zeit', tr('Zeit')], ['investitionen', tr('Investitionen')], ['logbuch', tr('Logbuch')], ['dokumente', tr('Dokumente')],
+    ['zeit', tr('Zeit')], ['investitionen', tr('Finanzen')], ['logbuch', tr('Logbuch')], ['dokumente', tr('Dokumente')],
   ];
   const body = {
     uebersicht: projectOverview, aufgaben: projectTasks, meilensteine: projectMilestones,
@@ -1954,6 +1957,8 @@ function projectStatTiles(p, s) {
             : `<div class="sub">${tr('kein eigenes Wochenziel')}</div>`}</div>`,
         invested: `<div class="stat"><div class="label">${tr('Investiert')}</div><div class="value">${fmtEUR(s.invested)}</div>
           ${budget ? progressBar((s.invested / budget) * 100, s.invested > budget ? 'over' : '') + `<div class="sub">${tr('Budget {b}', { b: fmtEUR(budget) })} · ${s.invested > budget ? tr('überschritten') : tr('{amount} übrig', { amount: fmtEUR(budget - s.invested) })}</div>` : `<div class="sub">${tr('kein Budget festgelegt')}</div>`}</div>`,
+        profit: `<div class="stat"><div class="label">${tr('Gewinn/Verlust')}</div><div class="value ${s.profit > 0 ? 'pos' : s.profit < 0 ? 'neg' : ''}">${s.profit > 0 ? '+' : ''}${fmtEUR(s.profit)}</div>
+          <div class="sub">${s.income || s.invested ? tr('{inc} Einnahmen · {inv} Ausgaben', { inc: fmtEUR(s.income), inv: fmtEUR(s.invested) }) : tr('noch keine Einnahmen')}</div></div>`,
         openTasks: `<div class="stat"><div class="label">${tr('Offene Aufgaben')}</div><div class="value">${s.tasksOpen}</div><div class="sub">${tr('{n} erledigt', { n: s.tasksDone })}</div></div>`,
         target: `<div class="stat"><div class="label">${tr('Zieltermin')}</div><div class="value" style="font-size:1.15rem">${p.targetDate ? fmtDate(p.targetDate) : '–'}</div><div class="sub">${p.targetDate ? fmtRelative(p.targetDate) : tr('kein Zieltermin')}</div></div>`,
         lastActive: `<div class="stat"><div class="label">${tr('Zuletzt aktiv')}</div><div class="value" style="font-size:1.15rem">${fmtRelative(s.last)}</div><div class="sub">${s.last ? fmtDate(s.last) : ''}</div></div>`,
@@ -2140,10 +2145,25 @@ function projectInvestments(p) {
   const byCat = {};
   items.forEach((i) => (byCat[i.category || tr('Sonstiges')] = (byCat[i.category || tr('Sonstiges')] || 0) + i.amount));
   const budget = Number(p.budget) || 0;
-  return `<div class="grid-2">
+  const incomes = (data.incomes || []).filter((e) => e.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date));
+  const income = sum(incomes, (e) => e.amount), profit = income - total;
+  const hours = sum(data.timeEntries.filter((e) => e.projectId === p.id), (e) => e.minutes) / 60;
+  const tile = (label, value, sub = '', cls = '') => `<div class="stat"><div class="label">${label}</div><div class="value ${cls}">${value}</div><div class="sub">${sub}</div></div>`;
+  return `<div class="stats week-stats">
+    ${tile(tr('Einnahmen'), fmtEUR(income), trp(incomes.length, '{n} Eintrag', '{n} Einträge'))}
+    ${tile(tr('Ausgaben'), fmtEUR(total), budget ? tr('Budget {b}', { b: fmtEUR(budget) }) : '')}
+    ${tile(tr('Gewinn/Verlust'), `${profit > 0 ? '+' : ''}${fmtEUR(profit)}`, total ? tr('Rendite {pct} %', { pct: fmtNum((profit / total) * 100, 0) }) : '', profit > 0 ? 'pos' : profit < 0 ? 'neg' : '')}
+    ${tile(tr('Pro Stunde'), hours >= 0.5 ? fmtEUR(profit / hours) : '–', hours >= 0.5 ? tr('Ergebnis ÷ {h}', { h: fmtHours(hours * 60) }) : tr('noch zu wenig Zeit erfasst'), profit > 0 ? 'pos' : profit < 0 ? 'neg' : '')}
+  </div>
+  ${total && income < total && income > 0 ? `<div class="card"><div class="row-between small"><span>${tr('Bis zur Gewinnschwelle')}</span><span>${fmtEUR(total - income)}</span></div>${progressBar((income / total) * 100)}</div>` : ''}
+  <div class="grid-2">
     <section class="card">
-      <div class="card-head"><h2>${tr('Investitionen')} · ${fmtEUR(total)}</h2><span class="btn-row"><button class="btn small" data-action="importCsv" data-id="${p.id}" title="${tr('Zeit & Investitionen aus CSV importieren')}">⬆ CSV</button><button class="btn primary small" data-action="addInvestment" data-id="${p.id}">${tr('+ Investition')}</button></span></div>
-      ${items.length ? investmentMonths(p.id, items) : `<div class="empty">${tr('Noch keine Investitionen erfasst.')}</div>`}
+      <div class="card-head"><h2>💰 ${tr('Einnahmen')} · ${fmtEUR(income)}</h2><button class="btn primary small" data-action="addIncome" data-id="${p.id}">${tr('+ Einnahme')}</button></div>
+      ${incomes.length ? investmentMonths(p.id, incomes, 'income') : `<div class="empty">${tr('Noch keine Einnahmen erfasst – z. B. Verkäufe, Honorare oder Fördergelder.')}</div>`}
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>💶 ${tr('Investitionen')} · ${fmtEUR(total)}</h2><span class="btn-row"><button class="btn small" data-action="importCsv" data-id="${p.id}" title="${tr('Zeit & Investitionen aus CSV importieren')}">⬆ CSV</button><button class="btn primary small" data-action="addInvestment" data-id="${p.id}">${tr('+ Investition')}</button></span></div>
+      ${items.length ? investmentMonths(p.id, items, 'inv') : `<div class="empty">${tr('Noch keine Investitionen erfasst.')}</div>`}
     </section>
     <section class="card">
       <h2>${tr('Nach Kategorie')}</h2>
@@ -2156,25 +2176,26 @@ function projectInvestments(p) {
 /* Investitionen nach Monat gruppiert: aktueller Monat aufgeklappt, ältere eingeklappt mit Monatssumme.
    Selbst auf- oder zugeklappte Monate bleiben so, bis die Seite neu geladen wird. */
 const invMonthState = new Map(); // `${pid}|YYYY-MM` → true (offen) / false (zu)
-function investmentMonths(pid, items) {
+function investmentMonths(pid, items, kind = 'inv') {
+  const inc = kind === 'income';
   const current = todayISO().slice(0, 7);
   const groups = new Map();
   items.forEach((e) => { const k = (e.date || '').slice(0, 7); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); });
   return `<div class="inv-months">${[...groups.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([month, list]) => {
-    const key = `${pid}|${month}`;
+    const key = `${kind}|${pid}|${month}`;
     const open = invMonthState.has(key) ? invMonthState.get(key) : month === current;
     const name = month ? new Date(`${month}-01T00:00:00`).toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' }) : '–';
     return `<details class="inv-month" data-inv-month="${esc(key)}" ${open ? 'open' : ''}>
       <summary><span class="inv-month-name">${esc(name)}${month === current ? ` <span class="badge aktiv">${tr('aktueller Monat')}</span>` : ''}</span>
-        <span class="small muted">${trp(list.length, '{n} Investition', '{n} Investitionen')}</span>
+        <span class="small muted">${inc ? trp(list.length, '{n} Einnahme', '{n} Einnahmen') : trp(list.length, '{n} Investition', '{n} Investitionen')}</span>
         <span class="amount">${fmtEUR(sum(list, (e) => e.amount))}</span></summary>
       <ul class="list">${list.map((e) => `
         <li>
           <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || tr('Sonstiges'))}</span></div></div>
-          <span class="amount">${fmtEUR(e.amount)}</span>
+          <span class="amount ${inc ? 'pos' : ''}">${inc ? '+' : ''}${fmtEUR(e.amount)}</span>
           <div class="actions">
-            <button class="btn ghost icon" data-action="editInvestment" data-id="${e.id}" title="${tr('Bearbeiten')}">✎</button>
-            <button class="btn ghost icon danger" data-action="deleteInvestment" data-id="${e.id}" title="${tr('Löschen')}">🗑</button>
+            <button class="btn ghost icon" data-action="${inc ? 'editIncome' : 'editInvestment'}" data-id="${e.id}" title="${tr('Bearbeiten')}">✎</button>
+            <button class="btn ghost icon danger" data-action="${inc ? 'deleteIncome' : 'deleteInvestment'}" data-id="${e.id}" title="${tr('Löschen')}">🗑</button>
           </div>
         </li>`).join('')}</ul>
     </details>`;
@@ -2849,7 +2870,7 @@ const actions = {
     const p = getProject(id);
     if (!confirm(tr('Projekt „{name}“ inklusive aller Zeiten, Investitionen, Aufgaben und Meilensteine löschen?', { name: p.name }))) return;
     data.projects = data.projects.filter((x) => x.id !== id);
-    for (const k of ['timeEntries', 'investments', 'milestones', 'tasks', 'notes', 'docs']) data[k] = data[k].filter((x) => x.projectId !== id);
+    for (const k of ['timeEntries', 'investments', 'incomes', 'milestones', 'tasks', 'notes', 'docs']) data[k] = (data[k] || []).filter((x) => x.projectId !== id);
     if (data.timer?.projectId === id) data.timer = null;
     save();
     location.hash = '#/projekte';
@@ -3053,6 +3074,13 @@ const actions = {
 
   /* Investitionen */
   addInvestment({ id }) { investmentForm({ projectId: id }); },
+  addIncome({ id }) { incomeForm({ projectId: id || parseRoute().id || data.projects[0]?.id }); },
+  editIncome({ id }) { incomeForm(data.incomes.find((e) => e.id === id)); },
+  deleteIncome({ id }) {
+    if (!confirm(tr('Einnahme löschen?'))) return;
+    data.incomes = data.incomes.filter((e) => e.id !== id);
+    commit();
+  },
   editInvestment({ id }) { investmentForm(data.investments.find((e) => e.id === id)); },
   deleteInvestment({ id }) {
     if (!confirm(tr('Investition löschen?'))) return;
@@ -3100,6 +3128,7 @@ const actions = {
     const rows = [[tr('Typ'), tr('Datum'), tr('Projekt'), tr('Titel'), tr('Beschreibung'), tr('Kategorie'), tr('Minuten'), tr('Stunden'), tr('Betrag (EUR)')].map(q).join(sep)];
     data.timeEntries.forEach((e) => rows.push([tr('Zeit'), e.date, name(e.projectId), entryTitle(e), e.description, '', e.minutes, dec(e.minutes / 60), ''].map(q).join(sep)));
     data.investments.forEach((e) => rows.push([tr('Investition'), e.date, name(e.projectId), e.description, '', e.category, '', '', dec(e.amount)].map(q).join(sep)));
+    (data.incomes || []).forEach((e) => rows.push([tr('Einnahme'), e.date, name(e.projectId), e.description, '', e.category, '', '', dec(-e.amount)].map(q).join(sep)));
     download(`projekttracker-${todayISO()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv');
   },
   importData() {
@@ -3354,6 +3383,29 @@ function investmentForm(e) {
       if (isNew) data.investments.push({ id: uid(), projectId: e.projectId, ...v });
       else Object.assign(e, v);
       commit();
+    },
+  });
+}
+
+function incomeForm(e) {
+  const isNew = !e.id;
+  const cats = [...new Set([tr('Verkauf'), tr('Honorar'), tr('Förderung'), ...(data.incomes || []).map((x) => x.category).filter(Boolean)])];
+  openForm({
+    title: isNew ? tr('Einnahme erfassen') : tr('Einnahme bearbeiten'),
+    fields: [
+      { name: 'description', label: tr('Woher?'), required: true, value: e.description, placeholder: tr('z. B. Verkauf auf dem Markt, Kundenauftrag …') },
+      { name: 'amount', label: tr('Betrag (€)'), type: 'decimal', required: true, value: e.amount != null ? decimalValue(e.amount) : '', placeholder: `120${DEC()}00`, half: true },
+      { name: 'date', label: tr('Datum'), type: 'date', required: true, value: e.date || todayISO(), half: true },
+      { name: 'category', label: tr('Kategorie'), value: e.category || '', chips: cats, placeholder: tr('Verkauf'), hint: tr('Eigenen Namen eintippen oder einen Vorschlag antippen. Leer = „Sonstiges“.') },
+    ],
+    onSubmit(v) {
+      if (v.amount == null) return tr('Bitte einen Betrag angeben.');
+      v.category = (v.category || '').trim();
+      data.incomes ||= [];
+      if (isNew) data.incomes.push({ id: uid(), projectId: e.projectId, ...v });
+      else Object.assign(e, v);
+      commit();
+      if (isNew) toast(tr('💰 {amount} verbucht – stark!', { amount: fmtEUR(v.amount) }));
     },
   });
 }
@@ -3834,6 +3886,8 @@ function teamStats() {
     myTasksDone: me ? data.tasks.filter((t) => t.done && isMine(t, me)).length : 0,
     docs: data.docs.length,
     reviews: Object.keys(data.reviews || {}).length,
+    incomes: (data.incomes || []).length,
+    profitable: data.projects.filter((p) => { const s = projectStats(p); return s.income > 0 && s.profit > 0; }).length,
     focusWeeks: Object.values(data.weekFocus || {}).filter((ids) => ids.length && ids.every((id) => data.tasks.find((t) => t.id === id)?.done)).length,
     teamMilestones: data.milestones.filter((m) => m.done && teamAssigned(m)).length,
     maxTeamsPerPerson: Math.max(0, ...data.people.map((p) => teamsOf(p.id).length)),
@@ -3897,6 +3951,8 @@ const ACHIEVEMENTS = [
   { id: 'team_done_10', icon: '🚣', get name() { return tr('Gemeinsam stark'); }, get desc() { return tr('10 Team-Aufgaben erledigt'); }, goal: 10, val: (x) => x.teamTasksDone },
   { id: 'mine_done_10', icon: '🙋', get name() { return tr('Zuverlässig'); }, get desc() { return tr('10 dir zugewiesene Aufgaben erledigt'); }, goal: 10, val: (x) => x.myTasksDone },
   { id: 'docs_10', icon: '📚', get name() { return tr('Archivar'); }, get desc() { return tr('10 Dokumente verknüpft'); }, goal: 10, val: (x) => x.docs },
+  { id: 'income_1', icon: '💰', get name() { return tr('Erster Euro'); }, get desc() { return tr('Erste Einnahme erfasst'); }, goal: 1, val: (x) => x.incomes },
+  { id: 'profit_1', icon: '📈', get name() { return tr('Schwarze Zahlen'); }, get desc() { return tr('Ein Projekt hat mehr eingebracht als gekostet'); }, goal: 1, val: (x) => x.profitable },
   { id: 'review_1', icon: '📝', get name() { return tr('Innehalten'); }, get desc() { return tr('Ersten Wochenrückblick gemacht'); }, goal: 1, val: (x) => x.reviews },
   { id: 'review_8', icon: '🧘', get name() { return tr('Reflektiert'); }, get desc() { return tr('8 Wochenrückblicke gemacht'); }, goal: 8, val: (x) => x.reviews },
   { id: 'focus_week', icon: '🎯', get name() { return tr('Fokussiert'); }, get desc() { return tr('Alle Fokus-Aufgaben einer Woche erledigt'); }, goal: 1, val: (x) => x.focusWeeks },
@@ -4155,6 +4211,8 @@ function paletteCommands() {
       add('⏱️', tr('Zeit erfassen: {name}', { name: p.name }), () => actions.addTime({ id: p.id }));
       add('✅', tr('Aufgabe anlegen: {name}', { name: p.name }), () => actions.addTask({ id: p.id }));
       add('📝', tr('Notiz: {name}', { name: p.name }), () => actions.addNote({ id: p.id }));
+      add('💶', tr('Investition: {name}', { name: p.name }), () => actions.addInvestment({ id: p.id }));
+      add('💰', tr('Einnahme: {name}', { name: p.name }), () => actions.addIncome({ id: p.id }));
     }
   });
   data.docs.forEach((d) => {

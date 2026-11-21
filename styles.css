@@ -173,6 +173,8 @@ p { margin: 0 0 .75rem; }
 .page-head p { color: var(--muted); margin: 0; }
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.grid-2 > .card + .card { margin-top: 0; }
+.card + .grid-2, .grid-2 + .card, .grid-2 + .grid-2 { margin-top: 16px; }
 .stack > * + * { margin-top: 16px; }
 @media (max-width: 860px) { .grid-2 { grid-template-columns: 1fr; } }
 
@@ -1357,3 +1359,7 @@ div.doc-chips { margin-top: 6px; }
 .badge.time { font-variant-numeric: tabular-nums; }
 .badge.time.over { background: var(--bad-soft); color: var(--bad); }
 .task .actions .timer-on { color: var(--bad); }
+
+/* ---- Einnahmen & Gewinn/Verlust ---- */
+.value.pos, .amount.pos { color: var(--good); }
+.value.neg { color: var(--bad); }
