@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.20-8';
+const APP_VERSION = '2026.11.21-1';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -43,6 +43,8 @@ const DEFAULT_DATA = {
   tasks: [],
   notes: [],
   docs: [], // Dokument-Verweise { id, projectId, taskId, milestoneId, title, url, note, createdAt }
+  people: [], // Personen { id, name, short, color, email, accountId (später: Login-Konto), createdAt }
+  teams: [], // Teams { id, name, color, memberIds: [Personen-IDs], createdAt }
   timer: null,
   counters: { pomodoros: 0 },
   achievements: null, // { id: Datum } – null = noch nie geprüft
@@ -765,6 +767,7 @@ const WIDGETS = [
   { id: 'stats', get label() { return tr('Kennzahlen'); }, icon: '📊', wide: true, visible: true },
   { id: 'attention', get label() { return tr('Braucht Aufmerksamkeit'); }, icon: '⚠️', wide: false, visible: true },
   { id: 'milestones', get label() { return tr('Anstehende Meilensteine'); }, icon: '🏁', wide: false, visible: true },
+  { id: 'myTasks', get label() { return tr('Meine Aufgaben'); }, icon: '🙋', wide: false, visible: false },
   { id: 'nextSteps', get label() { return tr('Nächste Schritte'); }, icon: '👉', wide: false, visible: true },
   { id: 'activity', get label() { return tr('Aktivität (12 Wochen)'); }, icon: '📈', wide: false, visible: true },
   { id: 'projects', get label() { return tr('Alle Projekte (Tabelle)'); }, icon: '📋', wide: true, visible: true },
@@ -1193,6 +1196,19 @@ function renderWidget(id, c, cfg) {
         </li>`).join('')}</ul>`
         : `<div class="empty">${tr('Alle aktiven Projekte wurden in den letzten Tagen bearbeitet. 🎉')}</div>`);
 
+    case 'myTasks': {
+      const me = currentPerson();
+      if (!me) return card(`🙋 ${tr('Meine Aufgaben')}`, `<div class="empty">${tr('Lege unter Einstellungen › Team fest, wer du bist – dann siehst du hier alles, was dir oder deinen Teams zugewiesen ist.')}<br><br><a class="btn small" href="#/einstellungen" data-open-section="team">👥 ${tr('Team einrichten')}</a></div>`);
+      const tasks = sortTasks(c.openTasks.filter((t) => isMine(t)));
+      const ms = data.milestones.filter((m) => !m.done && isMine(m) && getProject(m.projectId)?.status !== 'abgeschlossen')
+        .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+      return card(`🙋 ${tr('Meine Aufgaben')}`, tasks.length || ms.length ? `<div class="scroll-list">
+          ${tasks.length ? `<ul class="list">${tasks.map((t) => taskItem(t, { showProject: true })).join('')}</ul>` : ''}
+          ${ms.length ? `<div class="list-divider small muted">${tr('Meine Meilensteine ({n})', { n: ms.length })}</div><ul class="list">${ms.map((m) => milestoneItem(m, { showProject: true })).join('')}</ul>` : ''}
+        </div>` : `<div class="empty">${tr('Dir ist gerade nichts zugewiesen. 🎉')}</div>`,
+        `<span class="small muted">${personAvatar(me)} ${esc(me.name)}</span>`);
+    }
+
     case 'nextSteps': {
       // Oben der nächste Schritt jedes aktiven Projekts, darunter alle weiteren offenen Aufgaben (scrollbar)
       const list = c.active.map((p) => c.stats.get(p.id).next).filter(Boolean)
@@ -1610,6 +1626,7 @@ function taskItem(t, { showProject = false } = {}) {
         ${subs.length ? `<span class="badge ${subsDone === subs.length ? 'aktiv' : ''}">☑ ${subsDone}/${subs.length}</span>` : ''}
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/aufgaben">${esc(p.name)}</a></span>` : ''}
         <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
+        ${assigneeBadges(t.assignees)}
         ${t.done ? `<span>${tr('erledigt {when}', { when: fmtRelative(t.doneAt) })}</span>` : dueBadge(t.dueDate)}
         ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
         ${t.notes ? `<span>${esc(t.notes)}</span>` : ''}
@@ -1641,6 +1658,7 @@ function milestoneItem(m, { showProject = false, move = null } = {}) {
       <div class="meta">
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/meilensteine">${esc(p.name)}</a></span>` : ''}
         ${m.done ? `<span>${tr('erreicht am {date}', { date: fmtDate(m.doneAt) })}</span>` : m.dueDate ? `${dueBadge(m.dueDate)}<span>(${fmtRelative(m.dueDate)})</span>` : ''}
+        ${assigneeBadges(m.assignees)}
       </div>
       ${m.description ? `<div class="small muted">${esc(m.description)}</div>` : ''}
       ${docChips(data.docs.filter((d) => d.milestoneId === m.id), true)}
@@ -1780,6 +1798,7 @@ function renderProject(id, tab) {
             ${STATUS.map((st) => `<option value="${st.value}" ${st.value === p.status ? 'selected' : ''}>${st.label}</option>`).join('')}
           </select>
           ${p.category ? `<span class="badge">${esc(p.category)}</span>` : ''}
+          ${(p.teamIds || []).map((id) => data.teams.find((tm) => tm.id === id)).filter(Boolean).map(teamBadge).join('')}
           ${healthBadge(s)}
         </div>
       </div>
@@ -1924,11 +1943,12 @@ function recentActivity(pid) {
 }
 
 function projectTasks(p) {
-  const tasks = data.tasks.filter((t) => t.projectId === p.id);
+  const tasks = data.tasks.filter((t) => t.projectId === p.id && matchesWho(t, taskWhoFilter));
   const open = sortTasks(tasks.filter((t) => !t.done));
   const done = tasks.filter((t) => t.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
   return `<section class="card">
     <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
+    ${whoFilterChips(p)}
     ${open.length ? PRIORITIES.map(({ value, label }) => {
       const group = open.filter((t) => (t.priority || 'mittel') === value);
       return group.length ? `<h3 class="task-group"><span class="badge ${value}">${label}</span> <span class="muted small">${group.length}</span></h3>
@@ -2364,6 +2384,11 @@ function renderSettings() {
       set.remindersOn === false ? `<span class="badge">${tr('Ausgeschaltet')}</span>` : `${tr('nach {n} Tagen', { n: esc(set.staleDays) })} · ${trp(texts.length, '{n} Text', '{n} Texte')}`,
       renderReminderSettings())}
 
+    ${settingsSection('team', '👥', tr('Team & Personen'),
+      data.people.length || data.teams.length ? `${trp(data.people.length, '{n} Person', '{n} Personen')} · ${trp(data.teams.length, '{n} Team', '{n} Teams')}${currentPerson() ? ` · ${tr('ich')}: ${esc(currentPerson().name)}` : ''}`
+        : tr('Personen und Teams anlegen und Aufgaben zuweisen'),
+      renderTeamSettings())}
+
     ${settingsSection('app', '📲', tr('App installieren'),
       isStandalone() ? `<span class="badge aktiv">${tr('Als App geöffnet')}</span>` : tr('Eigenes Fenster, eigenes Symbol, auch offline'),
       renderAppSettings())}
@@ -2414,6 +2439,13 @@ function fieldHTML(f) {
   const req = f.required ? 'required' : '';
   const hint = f.hint ? `<span class="hint">${esc(f.hint)}</span>` : '';
   let input;
+  if (f.type === 'checks') {
+    const vals = new Set(v || []);
+    return `<div class="field"><div class="field-label">${esc(f.label)}</div>
+      <div class="check-chips" data-checks="${f.name}">${f.options.map((o) => (o.group
+        ? `<span class="check-group small muted">${esc(o.group)}</span>`
+        : `<label class="check-chip"><input type="checkbox" value="${esc(o.value)}" ${vals.has(o.value) ? 'checked' : ''}><span>${o.html || esc(o.label)}</span></label>`)).join('')}</div>${hint}</div>`;
+  }
   if (f.type === 'subtasks') {
     return `<div class="field"><div class="field-label">${esc(f.label)}</div>
       <div class="subtasks-editor" data-subtasks="${f.name}">
@@ -2481,6 +2513,10 @@ function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide
     const fd = new FormData(form);
     const values = {};
     for (const f of fields) {
+      if (f.type === 'checks') {
+        values[f.name] = [...form.querySelectorAll(`[data-checks="${f.name}"] input:checked`)].map((i) => i.value);
+        continue;
+      }
       if (f.type === 'subtasks') {
         const before = new Map((f.value || []).map((st) => [st.id, st]));
         values[f.name] = [...form.querySelectorAll(`[data-subtasks="${f.name}"] .subtask-row`)]
@@ -2985,6 +3021,8 @@ function projectForm(p) {
       { name: 'staleDays', label: tr('Erinnern nach … Tagen'), type: 'number', value: p.staleDays, w: 1,
         placeholder: tr('Standard: {n}', { n: data.settings.staleDays }), hint: tr('ohne Aktivität; leer = Standard') },
       { name: 'color', label: tr('Farbe'), type: 'color', value: p.color, w: 1 },
+      ...(data.teams.length ? [{ name: 'teamIds', label: tr('Projektteams'), type: 'checks', w: 4, value: p.teamIds || [],
+        options: data.teams.map((tm) => ({ value: tm.id, html: teamBadge(tm) })), hint: tr('Mitglieder dieser Teams stehen bei der Zuweisung von Aufgaben oben.') }] : []),
     ],
     onSubmit(v) {
       if (isNew) {
@@ -3017,6 +3055,7 @@ function taskForm(t) {
     const opts = data.milestones.filter((m) => m.projectId === pid && (!m.done || m.id === t.milestoneId));
     fields.push({ name: 'milestoneId', label: tr('Meilenstein'), type: 'select', value: t.milestoneId || '', options: [{ value: '', label: tr('– keiner –') }, ...opts.map((m) => ({ value: m.id, label: m.title }))] });
   }
+  if (data.people.length || data.teams.length) fields.push({ name: 'assignees', label: tr('Zuständig'), type: 'checks', options: assigneeOptions(pid), value: t.assignees || [] });
   fields.push({ name: 'subtasks', label: tr('Unterpunkte'), type: 'subtasks', value: t.subtasks || [],
     hint: tr('Die Aufgabe ist erst fertig, wenn alle Unterpunkte abgehakt sind. Eingabetaste = nächster Unterpunkt.') });
   fields.push({ name: 'notes', label: tr('Notiz'), type: 'textarea', value: t.notes });
@@ -3043,6 +3082,7 @@ function milestoneForm(m) {
       { name: 'title', label: tr('Meilenstein'), required: true, value: m.title, placeholder: tr('z. B. Prototyp fertig') },
       { name: 'dueDate', label: tr('Zieldatum'), type: 'date', value: m.dueDate, half: true },
       { name: 'doneAt', label: tr('Erreicht am'), type: 'date', value: m.done ? m.doneAt : '', half: true },
+      ...(data.people.length || data.teams.length ? [{ name: 'assignees', label: tr('Zuständig'), type: 'checks', options: assigneeOptions(m.projectId), value: m.assignees || [] }] : []),
       { name: 'description', label: tr('Beschreibung / Kriterien'), type: 'textarea', value: m.description,
         hint: tr('„Erreicht am“ nur ausfüllen, wenn der Meilenstein schon geschafft ist – z. B. beim Nachtragen früherer Etappen. Leer = noch offen.') },
     ],
@@ -5060,6 +5100,225 @@ Object.assign(actions, {
     const next = (log?.entries || []).filter((e) => cmpVersion(e.version, APP_VERSION) > 0).sort((a, b) => cmpVersion(b.version, a.version));
     showChangelogDialog(next, { title: tr('🆕 Neu in Version {v}', { v: id }), repo: log?.repo || REPO_URL, updateTo: id });
   },
+});
+
+/* ------------------------------------------------------------------------
+   Personen & Teams (Stufe A: Zuständigkeiten planen)
+   Vorbereitung Stufe B (eigene Logins mit Server): Personen haben ein Feld
+   accountId und optional eine E-Mail für Einladungen; „Ich“ kommt dann aus dem
+   Login statt aus der Geräte-Einstellung (siehe currentPerson()).
+   ------------------------------------------------------------------------ */
+const ME_KEY = 'projekttracker.ui.me'; // „Das bin ich“ – pro Gerät (später: aus dem Login)
+let taskWhoFilter = 'all';             // Filter im Aufgaben-Reiter: all | me | none | p:<id> | t:<id>
+
+function currentPerson() {
+  // Stufe B: hier künftig zuerst die Person des angemeldeten Kontos (server.account?.personId)
+  let id = null;
+  try { id = localStorage.getItem(ME_KEY); } catch { /* ignorieren */ }
+  return data.people.find((x) => x.id === id) || null;
+}
+const personById = (id) => data.people.find((x) => x.id === id);
+const teamById = (id) => data.teams.find((x) => x.id === id);
+const initialsOf = (name) => String(name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+const teamsOf = (personId) => data.teams.filter((tm) => (tm.memberIds || []).includes(personId));
+
+/** Ist ein Eintrag mir zugewiesen – direkt oder über eines meiner Teams? */
+function isMine(item, me = currentPerson()) {
+  if (!me || !item.assignees?.length) return false;
+  if (item.assignees.includes(`p:${me.id}`)) return true;
+  return teamsOf(me.id).some((tm) => item.assignees.includes(`t:${tm.id}`));
+}
+function matchesWho(item, filter) {
+  if (filter === 'all') return true;
+  if (filter === 'me') return isMine(item);
+  if (filter === 'none') return !item.assignees?.length;
+  if (filter.startsWith('p:')) return (item.assignees || []).includes(filter) || teamsOf(filter.slice(2)).some((tm) => (item.assignees || []).includes(`t:${tm.id}`));
+  return (item.assignees || []).includes(filter);
+}
+
+function personAvatar(p, size = '') {
+  return `<span class="avatar ${size}" style="--av:${esc(p.color || 'var(--primary)')}" title="${esc(p.name)}${p.email ? ` · ${esc(p.email)}` : ''}">${esc(p.short || initialsOf(p.name))}</span>`;
+}
+function teamBadge(tm) {
+  return `<span class="team-badge" style="--av:${esc(tm.color || 'var(--primary)')}" title="${esc(tm.name)}: ${esc((tm.memberIds || []).map((id) => personById(id)?.name).filter(Boolean).join(', '))}">👥 ${esc(tm.name)}</span>`;
+}
+/** Zuständige als Avatare (Personen) bzw. Abzeichen (Teams) */
+function assigneeBadges(list) {
+  if (!list?.length) return '';
+  const html = list.map((a) => {
+    const id = a.slice(2);
+    if (a.startsWith('p:')) { const p = personById(id); return p ? personAvatar(p, 'small') : ''; }
+    const tm = teamById(id); return tm ? teamBadge(tm) : '';
+  }).join('');
+  return html ? `<span class="assignees">${html}</span>` : '';
+}
+
+/** Auswahl für „Zuständig“: Teams und Personen; Projektteams und deren Mitglieder zuerst */
+function assigneeOptions(pid) {
+  const projTeams = new Set(getProject(pid)?.teamIds || []);
+  const projPeople = new Set(data.teams.filter((tm) => projTeams.has(tm.id)).flatMap((tm) => tm.memberIds || []));
+  const teams = [...data.teams].sort((a, b) => Number(projTeams.has(b.id)) - Number(projTeams.has(a.id)) || a.name.localeCompare(b.name));
+  const people = [...data.people].sort((a, b) => Number(projPeople.has(b.id)) - Number(projPeople.has(a.id)) || a.name.localeCompare(b.name));
+  return [
+    ...(teams.length ? [{ group: tr('Teams') }, ...teams.map((tm) => ({ value: `t:${tm.id}`, html: teamBadge(tm) }))] : []),
+    ...(people.length ? [{ group: tr('Personen') }, ...people.map((p) => ({ value: `p:${p.id}`, html: `${personAvatar(p, 'small')} ${esc(p.name)}` }))] : []),
+  ];
+}
+
+/** Filter-Chips im Aufgaben-Reiter */
+function whoFilterChips(p) {
+  if (!data.people.length && !data.teams.length) return '';
+  const projTeams = (p.teamIds || []).map(teamById).filter(Boolean);
+  const ids = new Set(projTeams.flatMap((tm) => tm.memberIds || []));
+  data.tasks.filter((t) => t.projectId === p.id).forEach((t) => (t.assignees || []).forEach((a) => { if (a.startsWith('p:')) ids.add(a.slice(2)); }));
+  const people = [...ids].map(personById).filter(Boolean);
+  const teams = [...new Set([...projTeams, ...data.tasks.filter((t) => t.projectId === p.id).flatMap((t) => (t.assignees || []).filter((a) => a.startsWith('t:')).map((a) => teamById(a.slice(2))))])].filter(Boolean);
+  const chip = (value, html) => `<button type="button" class="chip ${taskWhoFilter === value ? 'active' : ''}" data-action="setWhoFilter" data-id="${esc(value)}">${html}</button>`;
+  return `<div class="chips who-filter" role="group" aria-label="${tr('Zuständig')}">
+    ${chip('all', tr('Alle'))}${currentPerson() ? chip('me', `🙋 ${tr('Meine')}`) : ''}
+    ${teams.map((tm) => chip(`t:${tm.id}`, `👥 ${esc(tm.name)}`)).join('')}
+    ${people.map((x) => chip(`p:${x.id}`, `${personAvatar(x, 'small')} ${esc(x.name)}`)).join('')}
+    ${chip('none', tr('Ohne Zuständige'))}
+  </div>`;
+}
+
+/* Einstellungen › Team */
+function renderTeamSettings() {
+  const me = currentPerson();
+  const myTasksVisible = dashboardConfig().widgets.find((w) => w.id === 'myTasks')?.visible;
+  return `<p class="small muted">${tr('Lege Personen und Teams an und weise sie Aufgaben und Meilensteinen zu. Teams kannst du Projekten zuordnen. Die Personen arbeiten vorerst nicht selbst im Tool – mit eigenem Server bekommen sie später einen eigenen Login (die E-Mail-Adresse wird dann für die Einladung verwendet).')}</p>
+    <div class="form" style="padding:0;margin-bottom:16px">
+      <label>${tr('Das bin ich (auf diesem Gerät)')}
+        <select data-me-select>
+          <option value="">${tr('– niemand ausgewählt –')}</option>
+          ${data.people.map((p) => `<option value="${p.id}" ${me?.id === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+        </select>
+        <span class="hint">${tr('Bestimmt, was unter „Meine Aufgaben“ erscheint.')}</span>
+      </label>
+      ${me && !myTasksVisible ? `<div><button type="button" class="btn small" data-action="showMyTasks">🙋 ${tr('„Meine Aufgaben“ auf der Übersicht anzeigen')}</button></div>` : ''}
+    </div>
+    <div class="grid-2">
+      <div>
+        <div class="card-head"><h3 style="margin:0">${tr('Personen ({n})', { n: data.people.length })}</h3><button type="button" class="btn small primary" data-action="addPerson">${tr('+ Person')}</button></div>
+        ${data.people.length ? `<ul class="list">${data.people.map((p) => `<li>${personAvatar(p)}
+          <div class="grow"><div class="title">${esc(p.name)}${me?.id === p.id ? ` <span class="badge aktiv">${tr('ich')}</span>` : ''}</div>
+            <div class="meta">${p.email ? `<span>${esc(p.email)}</span>` : ''}${teamsOf(p.id).map(teamBadge).join('')}
+              <span>${trp(openAssigned(`p:${p.id}`), '{n} offene Aufgabe', '{n} offene Aufgaben')}</span></div></div>
+          <div class="actions"><button class="btn ghost icon" data-action="editPerson" data-id="${p.id}" title="${tr('Bearbeiten')}">✎</button>
+            <button class="btn ghost icon danger" data-action="deletePerson" data-id="${p.id}" title="${tr('Löschen')}">🗑</button></div></li>`).join('')}</ul>`
+          : `<div class="empty">${tr('Noch keine Personen.')}</div>`}
+      </div>
+      <div>
+        <div class="card-head"><h3 style="margin:0">${tr('Teams ({n})', { n: data.teams.length })}</h3><button type="button" class="btn small primary" data-action="addTeam">${tr('+ Team')}</button></div>
+        ${data.teams.length ? `<ul class="list">${data.teams.map((tm) => `<li><span class="dot-color" style="background:${esc(tm.color)}"></span>
+          <div class="grow"><div class="title">${esc(tm.name)}</div>
+            <div class="meta"><span class="assignees">${(tm.memberIds || []).map(personById).filter(Boolean).map((p) => personAvatar(p, 'small')).join('') || `<span class="muted">${tr('keine Mitglieder')}</span>`}</span>
+              <span>${trp(data.projects.filter((p) => (p.teamIds || []).includes(tm.id)).length, '{n} Projekt', '{n} Projekte')}</span></div></div>
+          <div class="actions"><button class="btn ghost icon" data-action="editTeam" data-id="${tm.id}" title="${tr('Bearbeiten')}">✎</button>
+            <button class="btn ghost icon danger" data-action="deleteTeam" data-id="${tm.id}" title="${tr('Löschen')}">🗑</button></div></li>`).join('')}</ul>`
+          : `<div class="empty">${tr('Noch keine Teams.')}</div>`}
+      </div>
+    </div>`;
+}
+const openAssigned = (key) => data.tasks.filter((t) => !t.done && (t.assignees || []).includes(key)).length;
+
+function personForm(p) {
+  const isNew = !p;
+  p = p || { color: COLORS[data.people.length % COLORS.length] };
+  openForm({
+    title: isNew ? tr('Neue Person') : tr('Person bearbeiten'),
+    fields: [
+      { name: 'name', label: tr('Name'), required: true, value: p.name, half: true },
+      { name: 'short', label: tr('Kürzel'), value: p.short, placeholder: tr('z. B. AB'), hint: tr('Leer = Anfangsbuchstaben'), half: true },
+      { name: 'email', label: tr('E-Mail (optional)'), type: 'email', value: p.email, hint: tr('Wird später für die Einladung mit eigenem Login verwendet.') },
+      ...(data.teams.length ? [{ name: 'teamIds', label: tr('Teams'), type: 'checks', value: teamsOf(p.id).map((tm) => tm.id), options: data.teams.map((tm) => ({ value: tm.id, html: teamBadge(tm) })) }] : []),
+      { name: 'color', label: tr('Farbe'), type: 'color', value: p.color },
+    ],
+    onSubmit(v) {
+      const short = (v.short || '').slice(0, 3).toUpperCase();
+      const person = isNew ? { id: uid(), createdAt: new Date().toISOString(), accountId: null } : p;
+      Object.assign(person, { name: v.name, short, email: v.email || '', color: v.color });
+      if (isNew) data.people.push(person);
+      if (v.teamIds) data.teams.forEach((tm) => {
+        const set = new Set(tm.memberIds || []);
+        if (v.teamIds.includes(tm.id)) set.add(person.id); else set.delete(person.id);
+        tm.memberIds = [...set];
+      });
+      commit();
+    },
+  });
+}
+
+function teamForm(tm) {
+  const isNew = !tm;
+  tm = tm || { color: COLORS[(data.teams.length + 3) % COLORS.length], memberIds: [] };
+  openForm({
+    title: isNew ? tr('Neues Team') : tr('Team bearbeiten'),
+    fields: [
+      { name: 'name', label: tr('Name'), required: true, value: tm.name, placeholder: tr('z. B. Marketing') },
+      { name: 'memberIds', label: tr('Mitglieder'), type: 'checks', value: tm.memberIds || [],
+        options: data.people.map((p) => ({ value: p.id, html: `${personAvatar(p, 'small')} ${esc(p.name)}` })),
+        hint: data.people.length ? '' : tr('Lege zuerst Personen an – oder später über „Person bearbeiten“.') },
+      { name: 'color', label: tr('Farbe'), type: 'color', value: tm.color },
+    ],
+    onSubmit(v) {
+      if (isNew) data.teams.push({ id: uid(), createdAt: new Date().toISOString(), name: v.name, color: v.color, memberIds: v.memberIds });
+      else Object.assign(tm, { name: v.name, color: v.color, memberIds: v.memberIds });
+      commit();
+    },
+  });
+}
+
+/** Zuweisungen entfernen (beim Löschen von Personen oder Teams) */
+function unassign(key) {
+  [...data.tasks, ...data.milestones].forEach((x) => { if (x.assignees?.includes(key)) x.assignees = x.assignees.filter((a) => a !== key); });
+}
+
+Object.assign(actions, {
+  addPerson() { personForm(null); },
+  editPerson({ id }) { personForm(personById(id)); },
+  deletePerson({ id }) {
+    const p = personById(id);
+    if (!p || !confirm(tr('„{name}“ löschen? Die Person wird aus allen Teams und Zuweisungen entfernt.', { name: p.name }))) return;
+    data.people = data.people.filter((x) => x.id !== id);
+    data.teams.forEach((tm) => { tm.memberIds = (tm.memberIds || []).filter((m) => m !== id); });
+    unassign(`p:${id}`);
+    try { if (localStorage.getItem(ME_KEY) === id) localStorage.removeItem(ME_KEY); } catch { /* ignorieren */ }
+    commit();
+  },
+  addTeam() { teamForm(null); },
+  editTeam({ id }) { teamForm(teamById(id)); },
+  deleteTeam({ id }) {
+    const tm = teamById(id);
+    if (!tm || !confirm(tr('Team „{name}“ löschen? Die Personen bleiben erhalten.', { name: tm.name }))) return;
+    data.teams = data.teams.filter((x) => x.id !== id);
+    data.projects.forEach((p) => { if (p.teamIds) p.teamIds = p.teamIds.filter((x) => x !== id); });
+    unassign(`t:${id}`);
+    commit();
+  },
+  setWhoFilter({ id }) { taskWhoFilter = id; render(); },
+  showMyTasks() {
+    const cfg = structuredClone(dashboardConfig());
+    const w = cfg.widgets.find((x) => x.id === 'myTasks');
+    w.visible = true;
+    // direkt hinter „Heute“ bzw. an den Anfang
+    cfg.widgets = [...cfg.widgets.filter((x) => x !== w)];
+    const i = cfg.widgets.findIndex((x) => x.id === 'today');
+    cfg.widgets.splice(i >= 0 ? i + 1 : 0, 0, w);
+    data.settings.dashboard = cfg;
+    commit();
+    toast(tr('🙋 „Meine Aufgaben“ wird jetzt auf der Übersicht angezeigt.'));
+  },
+});
+document.addEventListener('change', (e) => {
+  if (!e.target.matches('[data-me-select]')) return;
+  try { if (e.target.value) localStorage.setItem(ME_KEY, e.target.value); else localStorage.removeItem(ME_KEY); } catch { /* ignorieren */ }
+  render();
+});
+// Link „Team einrichten“: Bereich in den Einstellungen gleich öffnen
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('[data-open-section]');
+  if (a) { openSections = new Set([a.dataset.openSection]); rememberSections(); }
 });
 
 /* ---------------------------- Dokumente (Verweise) ----------------------- */

@@ -1182,3 +1182,26 @@ div.doc-chips { margin-top: 6px; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none;
 }
 .doc-link:hover, .doc-more:hover { border-color: var(--primary); color: var(--primary); text-decoration: none; }
+
+/* ---------- Personen & Teams ---------- */
+.avatar {
+  display: inline-grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%;
+  background: var(--av); color: #fff; font-size: .78rem; font-weight: 700; letter-spacing: .02em;
+  box-shadow: 0 0 0 2px var(--surface); text-shadow: 0 1px 1px rgba(0,0,0,.25);
+}
+.avatar.small { width: 22px; height: 22px; font-size: .6rem; }
+.assignees { display: inline-flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.team-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: .75rem; font-weight: 600;
+  background: color-mix(in srgb, var(--av) 16%, var(--surface)); color: var(--text); border: 1px solid color-mix(in srgb, var(--av) 45%, transparent);
+}
+.check-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.check-group { flex-basis: 100%; margin-top: 4px; font-weight: 600; }
+.form .check-chip, .check-chip {
+  display: inline-flex; flex-direction: row; align-items: center; gap: 6px; padding: 4px 10px 4px 6px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); cursor: pointer; font-weight: 400;
+}
+.check-chip input { width: 16px; height: 16px; margin: 0; accent-color: var(--primary); }
+.check-chip:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); }
+.who-filter { margin-bottom: 8px; }
+.who-filter .chip { display: inline-flex; align-items: center; gap: 6px; }

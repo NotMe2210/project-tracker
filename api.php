@@ -229,6 +229,8 @@ switch ($action) {
             'authenticated' => $authed,
             'secure' => isHttps() || isLocalhost(),
             'dbError' => $dbError,
+            // Vorbereitung Stufe B: eigene Logins für Teammitglieder (noch nicht aktiv)
+            'features' => ['accounts' => false],
         ]);
     }
 
