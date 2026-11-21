@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-16",
+      "date": "2026-11-21",
+      "de": [
+        "🎨 Logo zusätzlich als favicon.ico – damit Safari das neue Symbol im Tab übernimmt"
+      ],
+      "en": [
+        "🎨 Logo also as favicon.ico – so Safari picks up the new tab icon"
+      ]
+    },
+    {
       "version": "2026.11.21-15",
       "date": "2026-11-21",
       "de": [
