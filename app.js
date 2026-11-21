@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-12';
+const APP_VERSION = '2026.11.21-13';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -229,11 +229,19 @@ let syncHintDismissed = false;
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? normalize(JSON.parse(raw)) : structuredClone(DEFAULT_DATA);
+    return raw ? normalize(JSON.parse(raw)) : freshData();
   } catch (e) {
     console.error(e);
-    return structuredClone(DEFAULT_DATA);
+    return freshData();
   }
+}
+
+/** Start auf einem neuen Gerät: Übersicht und Projektansicht beginnen leer – mit Einführung zum Gestalten */
+function freshData() {
+  const d = structuredClone(DEFAULT_DATA);
+  d.settings.dashboard = { widgets: [] };
+  d.settings.projectLayout = { widgets: [] };
+  return d;
 }
 
 function normalize(d) {
@@ -959,6 +967,32 @@ function renderLayoutGrid(cfg, defs, renderFn, { edit = false, statDefs = [] } =
   return `<div class="wgrid ${edit ? 'editing' : ''}">${items.join('')}</div>${tray}`;
 }
 
+const layoutEmpty = (cfg) => !cfg.widgets.some((w) => w.visible);
+/** Einführung, solange eine Übersicht leer ist: wie man sie selbst gestaltet */
+function layoutIntro(kind, p) {
+  const isProject = kind === 'project';
+  const btn = isProject ? `✏️ ${tr('Ansicht anpassen')}` : `⚙️ ${tr('Anpassen')}`;
+  const shared = isProject && p.layout && !layoutEmpty(layoutConfig(data.settings.projectLayout, PROJECT_DEFS, PROJECT_STATS));
+  return `<section class="card layout-intro">
+    <div class="li-head"><span class="li-ico" aria-hidden="true">✨</span><div>
+      <h2>${isProject ? tr('Gestalte die Projektansicht') : tr('Gestalte deine Übersicht')}</h2>
+      <p>${tr('Hier ist noch nichts eingeblendet – du entscheidest, was du sehen möchtest. So geht’s:')}</p></div></div>
+    <ol class="li-steps">
+      <li>${tr('<b>{btn}</b> antippen', { btn })}</li>
+      <li>${tr('Unter „Ausgeblendet“ die gewünschten Bereiche mit <b>+</b> einblenden')}</li>
+      <li>${tr('Am <b>⠿</b>-Griff verschieben, die Breite mit <b>¼ ½ ¾ voll</b> wählen, mit <b>✕</b> wieder ausblenden')}</li>
+      <li>${tr('<b>Fertig</b> antippen – du kannst alles jederzeit wieder ändern')}</li>
+    </ol>
+    ${isProject ? `<p class="small muted">${tr('Tipp: Beim Speichern wählst du, ob die Anordnung für alle Projekte oder nur für dieses gilt.')}</p>`
+      : `<p class="small muted">${tr('Tipp für den Anfang: „Heute“, „Wochenziel“ und „Nächste Schritte“.')}</p>`}
+    <div class="btn-row">
+      <button class="btn primary" data-action="${isProject ? 'customizeProject' : 'customizeDashboard'}" ${isProject ? `data-id="${p.id}"` : ''}>${tr('Jetzt gestalten')}</button>
+      ${shared ? `<button class="btn" data-action="useSharedLayout" data-id="${p.id}">${tr('Gewohnte Anordnung übernehmen')}</button>` : ''}
+      <button class="btn" data-action="applyRecommendedLayout" data-kind="${kind}" ${isProject ? `data-id="${p.id}"` : ''}>${tr('Empfohlene Auswahl übernehmen')}</button>
+    </div>
+  </section>`;
+}
+
 function editBar() {
   if (!editState) return '';
   const p = editState.kind === 'project' ? getProject(editState.pid) : null;
@@ -1175,8 +1209,8 @@ function renderDashboard() {
       <h1>${tr('Übersicht')}</h1>
       <button class="btn small" data-action="customizeDashboard">⚙️ ${tr('Anpassen')}</button>
     </div>`}
-    ${renderLayoutGrid(cfg, DASH_DEFS, (id) => renderWidget(id, ctx, cfg), { edit: editing, statDefs: STAT_TILES })}
-    ${anyVisible || editing ? '' : `<div class="card empty">${tr('Alle Bereiche sind ausgeblendet.')}<br><br><button class="btn primary" data-action="customizeDashboard">${tr('Übersicht anpassen')}</button></div>`}`;
+    ${!editing && layoutEmpty(cfg) ? layoutIntro('dashboard') : renderLayoutGrid(cfg, DASH_DEFS, (id) => renderWidget(id, ctx, cfg), { edit: editing, statDefs: STAT_TILES })}
+    ${anyVisible || editing || layoutEmpty(cfg) ? '' : `<div class="card empty">${tr('Alle Bereiche sind ausgeblendet.')}<br><br><button class="btn primary" data-action="customizeDashboard">${tr('Übersicht anpassen')}</button></div>`}`;
 }
 
 function dashboardContext() {
@@ -1968,7 +2002,7 @@ function projectOverview(p, s) {
       <span class="small muted">${p.layout ? tr('🎯 Eigene Anordnung für dieses Projekt') : ''}</span>
       <button class="btn small" data-action="customizeProject" data-id="${p.id}">✏️ ${tr('Ansicht anpassen')}</button>
     </div>`}
-    ${renderLayoutGrid(cfg, PROJECT_DEFS, (id) => renderProjectWidget(id, p, s, cfg), { edit: editing, statDefs: PROJECT_STATS })}`;
+    ${!editing && layoutEmpty(cfg) ? layoutIntro('project', p) : renderLayoutGrid(cfg, PROJECT_DEFS, (id) => renderProjectWidget(id, p, s, cfg), { edit: editing, statDefs: PROJECT_STATS })}`;
 }
 
 /** Kennzahl-Kacheln eines Projekts */
@@ -2879,6 +2913,20 @@ const actions = {
   openPalette() { openPalette(); },
   quickAdd() { openQuickAdd(); },
   customizeProject({ id }) { startEdit('project', id); },
+  applyRecommendedLayout({ kind, id }) {
+    if (kind === 'project') {
+      const p = getProject(id);
+      if (p) p.layout = defaultLayout(PROJECT_DEFS, PROJECT_STATS); // nur dieses Projekt
+    } else delete data.settings.dashboard; // Standard-Übersicht
+    commit();
+    toast(tr('✨ Empfohlene Auswahl übernommen – über „Anpassen“ kannst du sie jederzeit ändern.'));
+  },
+  useSharedLayout({ id }) {
+    const p = getProject(id);
+    if (!p) return;
+    delete p.layout;
+    commit();
+  },
   resetProjectLayout({ id }) {
     delete getProject(id).layout;
     commit();
@@ -3228,7 +3276,7 @@ const actions = {
   resetData() {
     if (!confirm(tr('Wirklich ALLE Daten löschen? Das kann nicht rückgängig gemacht werden.'))) return;
     if (!confirm(tr('Letzte Chance: Hast du ein Backup exportiert? Endgültig löschen?'))) return;
-    data = structuredClone(DEFAULT_DATA);
+    data = freshData();
     save();
     location.hash = '#/';
     render();
@@ -3253,6 +3301,9 @@ function projectForm(p) {
     submitLabel: isNew ? tr('Anlegen') : tr('Speichern'),
     wide: true,
     fields: [
+      ...(isNew && !layoutEmpty(layoutConfig(data.settings.projectLayout, PROJECT_DEFS, PROJECT_STATS)) ? [{ name: 'startView', label: tr('Projektansicht'), type: 'select', w: 4, value: 'shared',
+        options: [{ value: 'shared', label: tr('Gewohnte Anordnung übernehmen') }, { value: 'empty', label: tr('Leer starten und selbst gestalten') }],
+        hint: tr('Bestimmt, welche Bereiche im Reiter „Übersicht“ des neuen Projekts erscheinen.') }] : []),
       ...(isNew ? [{ name: 'template', label: tr('Vorlage'), type: 'select', w: 4, value: '',
         options: [{ value: '', label: tr('Leeres Projekt') }, ...allTemplates().map((t) => ({ value: t.id, label: `${t.icon || '📋'} ${t.name}` }))],
         hint: tr('Übernimmt Meilensteine und Aufgaben; Termine beginnen heute.') }] : []),
@@ -3279,9 +3330,11 @@ function projectForm(p) {
     ],
     onSubmit(v) {
       if (isNew) {
-        const tplId = v.template;
+        const tplId = v.template, startView = v.startView;
         delete v.template;
+        delete v.startView;
         const np = { id: uid(), createdAt: todayISO(), ...v };
+        if (startView === 'empty') np.layout = { widgets: [] };
         const tpl = tplId && templateById(tplId);
         if (tpl) applyBlueprint(np, tpl.bp, todayISO());
         data.projects.push(np);
@@ -6213,7 +6266,7 @@ function duplicateForm(p) {
         hint: tr('Termine werden relativ zum Start von „{name}“ ({date}) verschoben.', { name: p.name, date: fmtDate(p.createdAt?.slice(0, 10) || todayISO()) }) },
     ],
     onSubmit(v) {
-      const np = { id: uid(), name: v.name, status: 'aktiv', createdAt: v.start };
+      const np = { id: uid(), name: v.name, status: 'aktiv', createdAt: v.start, ...(p.layout ? { layout: structuredClone(p.layout) } : {}) };
       const n = applyBlueprint(np, projectBlueprint(p), v.start);
       np.color = np.color || p.color;
       data.projects.push(np);

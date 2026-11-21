@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-13",
+      "date": "2026-11-21",
+      "de": [
+        "✨ Neuer Start: Übersicht und Projektansicht beginnen leer, mit kurzer Einführung zum Gestalten – oder einem Klick auf „Empfohlene Auswahl übernehmen“",
+        "🗂️ Neues Projekt: wählen, ob die Projektansicht die gewohnte Anordnung übernimmt oder leer startet"
+      ],
+      "en": [
+        "✨ Fresh start: the overview and project view begin empty, with a short guide to design them – or one click on “Use recommended selection”",
+        "🗂️ New project: choose whether the project view uses your usual layout or starts empty"
+      ]
+    },
+    {
       "version": "2026.11.21-12",
       "date": "2026-11-21",
       "de": [
