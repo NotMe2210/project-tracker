@@ -2,6 +2,30 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-19",
+      "date": "2026-11-21",
+      "de": [
+        "🌊 „Sanftes Rauschen“ wird zu „Meeresrauschen“: Wellen schwellen in unregelmäßigen Abständen an und ab",
+        "🎹 Ruhige Klangfläche mit mehr Abwechslung: acht Akkorde in wechselnder Folge, dazu vereinzelte Glockentöne mit Echo",
+        "🐦 Neu: Vogelgezwitscher"
+      ],
+      "en": [
+        "🌊 “Soft noise” becomes “Ocean waves”: waves swell and fade at irregular intervals",
+        "🎹 Calm ambient pad with more variety: eight chords in changing order plus occasional bell tones with echo",
+        "🐦 New: birdsong"
+      ]
+    },
+    {
+      "version": "2026.11.21-18",
+      "date": "2026-11-21",
+      "de": [
+        "🎵 „Vorhören“ behält die gewählte Klangart (vorher sprang die Auswahl auf den Erinnerungston zurück); Lautstärke und Klangwechsel wirken beim Vorhören sofort"
+      ],
+      "en": [
+        "🎵 “Preview” keeps the selected sound (it used to jump back to the reminder beep); volume and sound changes apply immediately while previewing"
+      ]
+    },
+    {
       "version": "2026.11.21-17",
       "date": "2026-11-21",
       "de": [

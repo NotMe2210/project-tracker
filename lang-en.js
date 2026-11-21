@@ -1452,4 +1452,6 @@ I18N.en = {
   "Timer läuft": "Timer running",
   "Auf diesem Gerät noch nicht gewählt": "Not chosen on this device yet",
   "Noch keine Datei": "No file yet",
+  "🌊 Meeresrauschen": "🌊 Ocean waves",
+  "🐦 Vogelgezwitscher": "🐦 Birdsong",
 };

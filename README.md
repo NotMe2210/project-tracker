@@ -27,7 +27,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
   - 🎵 **Musik statt Ton** (*Einstellungen › Timer & Pomodoro › Klang, solange ein Timer läuft*):
     - **Eigene Musikdatei** (MP3, M4A, WAV, OGG bis 80 MB): bleibt nur im Browser des Geräts, läuft in Dauerschleife, ist nicht Teil der Sicherung.
     - **Internetradio / Audio-Link**: direkte Stream-Adresse, z. B. `https://…/stream.mp3`. Playlist-Dateien (.m3u/.pls) sowie Spotify-, YouTube- und Apple-Music-Links funktionieren nicht.
-    - **Eingebaute Fokus-Klänge**: Regen, sanftes Rauschen, ruhige Klangfläche – im Browser erzeugt, ohne Dateien.
+    - **Eingebaute Fokus-Klänge**: Regen, Meeresrauschen (Wellen schwellen an und ab), ruhige Klangfläche (wechselnde Akkorde mit vereinzelten Glockentönen) und Vogelgezwitscher – im Browser erzeugt, ohne Dateien, nie exakt gleich.
     - Spielt, solange Stoppuhr bzw. Pomodoro-Fokus laufen, blendet weich ein und aus und hält mit dem Timer an; optional auch in Pomodoro-Pausen. Lautstärke-Regler und *Vorhören*. Auf iPhone/iPad regeln die Gerätetasten die Lautstärke von Datei und Radio.
   - 🍅 **Pomodoro-Timer**: 25 Min Fokus, 5 Min Pause, lange Pause nach jedem 4. Pomodoro (alles einstellbar). Mit Pausieren, Überspringen, Ton und Mitteilung. Beim Beenden wird die reine Fokuszeit als Zeiteintrag gespeichert.
   - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
