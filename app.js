@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-18';
+const APP_VERSION = '2026.11.21-19';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -32,7 +32,7 @@ const DEFAULT_DATA = {
     pomoEvery: 4, // lange Pause nach jedem n-ten Pomodoro
     pomoSound: true,
     timerBeep: 15, // Erinnerungston alle … Minuten, solange ein Timer läuft (0 = aus)
-    timerSound: 'beep', // Klang, solange ein Timer läuft: beep | file | url | rain | brown | pad
+    timerSound: 'beep', // Klang, solange ein Timer läuft: beep | file | url | rain | brown (Meer) | pad | birds
     timerSoundUrl: '', // Internetradio / Audio-Link
     timerSoundVolume: 60, // 0–100
     timerSoundBreaks: false, // in Pomodoro-Pausen weiterspielen
@@ -6070,14 +6070,15 @@ function importBackup(parsed) {
    Spielt, solange Stoppuhr bzw. Pomodoro-Fokus laufen; pausiert mit dem Timer, blendet weich
    ein und aus. Browser erlauben Ton erst nach einer Nutzeraktion – deshalb wird nach jedem
    Klick abgeglichen (siehe Klick-Verteiler) und zusätzlich bei der ersten Berührung. */
-const SOUND_GEN = ['rain', 'brown', 'pad'];
+const SOUND_GEN = ['rain', 'brown', 'pad', 'birds']; // 'brown' = Meeresrauschen (Kennung aus Kompatibilität)
 const SOUND_SOURCES = () => [
   ['beep', tr('🔔 Erinnerungston (kurzer Doppel-Ton)')],
   ['file', tr('🎵 Eigene Musikdatei')],
   ['url', tr('📻 Internetradio / Audio-Link')],
   ['rain', tr('🌧 Regen')],
-  ['brown', tr('🌊 Sanftes Rauschen')],
+  ['brown', tr('🌊 Meeresrauschen')],
   ['pad', tr('🎹 Ruhige Klangfläche')],
+  ['birds', tr('🐦 Vogelgezwitscher')],
 ];
 const snd = { key: null, el: null, nodes: [], gain: null, timers: [], fileUrl: null, preview: null, failed: null, noted: null };
 function soundCfg(over = {}) {
@@ -6147,7 +6148,7 @@ function soundVolume(c) {
   if (snd.el && !snd.el._fade) { try { snd.el.volume = c.volume; } catch { /* iOS */ } }
   if (snd.gain && audioCtx) snd.gain.gain.setTargetAtTime(genLevel(c), audioCtx.currentTime, 0.3);
 }
-const genLevel = (c) => c.volume * (c.source === 'pad' ? 0.22 : 0.35);
+const genLevel = (c) => c.volume * ({ pad: 0.3, brown: 0.5, birds: 0.6 }[c.source] || 0.35);
 function soundStop(immediate = false) {
   if (!snd.key && !snd.el && !snd.gain) return;
   const el = snd.el, gain = snd.gain, nodes = snd.nodes, timers = snd.timers;
@@ -6163,13 +6164,31 @@ function soundStop(immediate = false) {
   }
 }
 function noiseBuffer(kind) {
-  const len = audioCtx.sampleRate * 4, buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate), d = buf.getChannelData(0);
-  let last = 0;
+  const len = audioCtx.sampleRate * 6, buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate), d = buf.getChannelData(0);
+  let last = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
   for (let i = 0; i < len; i++) {
     const w = Math.random() * 2 - 1;
-    if (kind === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w;
+    if (kind === 'brown') { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; }
+    else if (kind === 'pink') { // Paul Kellet – weicher als weißes Rauschen
+      b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.969 * b2 + w * 0.153852;
+      b3 = 0.8665 * b3 + w * 0.3104856; b4 = 0.55 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.016898;
+      d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11; b6 = w * 0.115926;
+    } else d[i] = w;
   }
   return buf;
+}
+const rnd = (a, b) => a + Math.random() * (b - a);
+const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
+function panner(ctx, v) {
+  if (!ctx.createStereoPanner) return ctx.createGain();
+  const p = ctx.createStereoPanner(); p.pan.value = v; return p;
+}
+/** Plant Ereignisse vorausschauend (Web-Audio-Zeit), damit sie auch bei gedrosselten Timern sauber klingen */
+function scheduler(ctx, plan, ahead = 3) {
+  let next = ctx.currentTime + 0.2;
+  const tick = () => { while (next < ctx.currentTime + ahead) next = plan(next); };
+  tick();
+  snd.timers.push(setInterval(tick, 400));
 }
 function startGenerated(c) {
   if (!audioCtx) { snd.key = null; return; } // Ton noch nicht freigeschaltet – beim nächsten Antippen erneut
@@ -6179,44 +6198,120 @@ function startGenerated(c) {
   gain.gain.setValueAtTime(0, now);
   gain.connect(ctx.destination);
   const nodes = [];
-  const lfo = (freq, depth, target) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = freq; g.gain.value = depth; o.connect(g).connect(target); o.start(); nodes.push(o, g); };
-  if (c.source === 'rain' || c.source === 'brown') {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(c.source === 'rain' ? 'white' : 'brown');
-    src.loop = true;
-    const hp = ctx.createBiquadFilter(), lp = ctx.createBiquadFilter(), mod = ctx.createGain();
-    hp.type = 'highpass'; hp.frequency.value = c.source === 'rain' ? 400 : 30;
-    lp.type = 'lowpass'; lp.frequency.value = c.source === 'rain' ? 5200 : 700;
+  const keep = (...n) => { nodes.push(...n); return n[0]; };
+  const lfo = (freq, depth, target) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = freq; g.gain.value = depth; o.connect(g).connect(target); o.start(); keep(o, g); };
+  const loopNoise = (kind) => { const s = ctx.createBufferSource(); s.buffer = noiseBuffer(kind); s.loop = true; s.start(); return keep(s); };
+  const filter = (type, f, q = 0.7) => { const b = ctx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; return keep(b); };
+
+  if (c.source === 'rain') {
+    const src = loopNoise('white'), hp = filter('highpass', 400), lp = filter('lowpass', 5200), mod = keep(ctx.createGain());
     mod.gain.value = 0.85;
     src.connect(hp).connect(lp).connect(mod).connect(gain);
-    lfo(c.source === 'rain' ? 0.13 : 0.07, 0.12, mod.gain); // leichtes An- und Abschwellen
-    if (c.source === 'rain') lfo(0.05, 900, lp.frequency);
-    src.start();
-    nodes.push(src, hp, lp, mod);
-  } else {
-    // Klangfläche: weiche Akkorde, die langsam ineinander übergehen
-    const chords = [[220, 277.18, 329.63, 415.3], [196, 246.94, 293.66, 369.99], [174.61, 220, 261.63, 329.63], [196, 246.94, 293.66, 392]];
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 1100; lp.Q.value = 0.7;
-    lp.connect(gain);
-    lfo(0.04, 350, lp.frequency);
-    const voices = chords[0].flatMap((f) => [-5, 5].map((cents) => {
+    lfo(0.13, 0.12, mod.gain);
+    lfo(0.05, 900, lp.frequency);
+  } else if (c.source === 'brown') {
+    // Meeresrauschen: Wellen schwellen an (heller, lauter) und laufen langsam aus – in unregelmäßigen Abständen
+    const bed = loopNoise('brown'), bedLp = filter('lowpass', 320), bedG = keep(ctx.createGain());
+    bedG.gain.value = 0.12;
+    bed.connect(bedLp).connect(bedG).connect(gain);
+    [-0.45, 0.45].forEach((pan) => { // zwei versetzte Brandungen links/rechts für Weite
+      const src = loopNoise('pink'), lp = filter('lowpass', 500), hp = filter('highpass', 90), wg = keep(ctx.createGain()), pn = keep(panner(ctx, pan));
+      wg.gain.value = 0.1;
+      src.connect(hp).connect(lp).connect(wg).connect(pn).connect(gain);
+      let first = true;
+      scheduler(ctx, (t) => {
+        if (first) { first = false; t += pan > 0 ? rnd(2, 4) : 0; }
+        const rise = rnd(2.2, 4.2), fall = rnd(4, 7.5), peak = rnd(0.8, 1.4);
+        wg.gain.setTargetAtTime(peak, t, rise / 3);
+        lp.frequency.setTargetAtTime(rnd(1600, 3200), t, rise / 3);
+        wg.gain.setTargetAtTime(rnd(0.02, 0.06), t + rise, fall / 3.2);
+        lp.frequency.setTargetAtTime(rnd(380, 650), t + rise, fall / 2.5);
+        return t + rise + fall + rnd(-0.8, 2.5);
+      }, 4);
+    });
+  } else if (c.source === 'pad') {
+    // Klangfläche: wechselnde Akkorde in zufälliger Folge und Dauer, dazu vereinzelte Glockentöne mit Echo
+    const chords = [[48, 55, 64, 71, 74], [45, 52, 60, 67, 71], [41, 48, 57, 64, 67], [43, 50, 59, 62, 69],
+      [40, 47, 55, 62, 67], [38, 45, 53, 60, 64], [41, 48, 55, 64, 69], [43, 50, 57, 62, 67]];
+    const lp = filter('lowpass', 1100), out = keep(ctx.createGain());
+    out.gain.value = 1;
+    lp.connect(out).connect(gain);
+    lfo(0.031, 300, lp.frequency);
+    const delay = keep(ctx.createDelay(2)), fb = keep(ctx.createGain()), wet = keep(ctx.createGain());
+    delay.delayTime.value = 0.46; fb.gain.value = 0.38; wet.gain.value = 0.32;
+    delay.connect(fb).connect(delay); delay.connect(wet).connect(gain);
+    let cur = 0;
+    const voices = chords[0].map((m, k) => {
+      const pn = keep(panner(ctx, [-0.5, -0.2, 0.1, 0.35, 0.6][k]));
+      pn.connect(lp);
+      return [-6, 6].map((cents) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = k === 0 ? 'sine' : 'triangle'; o.frequency.value = midiHz(m); o.detune.value = cents;
+        g.gain.value = k === 0 ? 0.16 : 0.085;
+        o.connect(g).connect(pn); o.start(); keep(o, g);
+        return o;
+      });
+    });
+    scheduler(ctx, (t) => { // Akkordwechsel
+      let n; do n = Math.floor(Math.random() * chords.length); while (n === cur);
+      cur = n;
+      const lift = Math.random() < 0.3 ? 12 : 0; // manchmal die oberste Stimme eine Oktave höher
+      voices.forEach((pair, k) => pair.forEach((o) => o.frequency.setTargetAtTime(midiHz(chords[n][k] + (k === 4 ? lift : 0)), t, rnd(1.1, 2.2))));
+      lp.frequency.setTargetAtTime(rnd(800, 1700), t, 3);
+      return t + rnd(7, 14);
+    }, 2);
+    scheduler(ctx, (t) => { // Glockentöne aus dem aktuellen Akkord (pentatonisch ergänzt)
+      if (Math.random() < 0.75) {
+        const notes = [...chords[cur].slice(2).map((m) => m + 12), chords[cur][1] + 24];
+        const count = Math.random() < 0.3 ? 2 : 1;
+        for (let i = 0; i < count; i++) {
+          const at = t + i * rnd(0.35, 0.7), o = ctx.createOscillator(), g = ctx.createGain(), pn = panner(ctx, rnd(-0.7, 0.7));
+          o.type = 'sine'; o.frequency.value = midiHz(notes[Math.floor(Math.random() * notes.length)]);
+          g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(rnd(0.05, 0.09), at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, at + rnd(2.2, 3.5));
+          o.connect(g).connect(pn); pn.connect(gain); pn.connect(delay);
+          o.start(at); o.stop(at + 3.6); o.onended = () => { o.disconnect(); g.disconnect(); pn.disconnect(); };
+        }
+      }
+      return t + rnd(2.5, 7);
+    }, 3);
+  } else if (c.source === 'birds') {
+    // Vogelgezwitscher: verschiedene Rufe (Zwitschern, Triller, Pfiff, Tschilpen) von links/rechts, nah und fern
+    const air = loopNoise('pink'), hp = filter('highpass', 700), alp = filter('lowpass', 3500), ag = keep(ctx.createGain());
+    ag.gain.value = 0.012;
+    air.connect(hp).connect(alp).connect(ag).connect(gain);
+    lfo(0.08, 0.006, ag.gain);
+    const note = (at, f0, f1, dur, amp, pn, shape = 'exp') => {
       const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'triangle'; o.frequency.value = f; o.detune.value = cents; g.gain.value = 0.12;
-      o.connect(g).connect(lp); o.start(); nodes.push(o, g);
-      return o;
-    }));
-    let i = 0;
-    snd.timers.push(setInterval(() => {
-      i = (i + 1) % chords.length;
-      voices.forEach((o, k) => o.frequency.setTargetAtTime(chords[i][k >> 1], ctx.currentTime, 1.6));
-    }, 9000));
-    nodes.push(lp);
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f0, at);
+      if (shape === 'exp') o.frequency.exponentialRampToValueAtTime(f1, at + dur); else o.frequency.linearRampToValueAtTime(f1, at + dur);
+      g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(amp, at + Math.min(0.012, dur / 3)); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+      o.connect(g).connect(pn);
+      o.start(at); o.stop(at + dur + 0.02); o.onended = () => { o.disconnect(); g.disconnect(); };
+    };
+    const calls = {
+      chirp(t, pn, a) { const n = Math.round(rnd(2, 6)), f = rnd(2800, 3800); for (let i = 0; i < n; i++) { const at = t + i * rnd(0.1, 0.16); note(at, f, f * 1.4, 0.05, a, pn); note(at + 0.05, f * 1.4, f * 0.95, 0.05, a * 0.8, pn); } return n * 0.14; },
+      trill(t, pn, a) { const n = Math.round(rnd(8, 18)), f = rnd(3600, 5000), d = rnd(0.035, 0.05); for (let i = 0; i < n; i++) note(t + i * d * 1.15, i % 2 ? f * 1.12 : f, i % 2 ? f : f * 1.12, d, a * (0.6 + 0.4 * Math.sin(Math.PI * i / n)), pn, 'lin'); return n * d * 1.15; },
+      whistle(t, pn, a) { const f = rnd(1900, 2500); note(t, f, f * 0.82, 0.32, a, pn, 'lin'); note(t + 0.45, f * 0.9, f * 1.22, 0.28, a, pn, 'lin'); return 0.8; },
+      tweet(t, pn, a) { const n = Math.round(rnd(2, 4)); for (let i = 0; i < n; i++) note(t + i * rnd(0.22, 0.3), rnd(4800, 5600), rnd(2800, 3300), 0.11, a, pn); return n * 0.28; },
+    };
+    const kinds = Object.keys(calls);
+    scheduler(ctx, (t) => {
+      const near = Math.random() < 0.55, pn = panner(ctx, rnd(-0.85, 0.85)), lpB = ctx.createBiquadFilter();
+      lpB.type = 'lowpass'; lpB.frequency.value = near ? 9000 : 4200; // ferne Vögel klingen dumpfer
+      pn.connect(lpB).connect(gain);
+      const kind = kinds[Math.floor(Math.random() * kinds.length)];
+      const len = calls[kind](t, pn, near ? rnd(0.08, 0.13) : rnd(0.025, 0.05));
+      setTimeout(() => { try { pn.disconnect(); lpB.disconnect(); } catch { /* ignorieren */ } }, (t - ctx.currentTime + len + 2) * 1000);
+      // manchmal antwortet ein zweiter Vogel kurz danach
+      return t + len + (Math.random() < 0.3 ? rnd(0.15, 0.5) : rnd(0.8, 4.5));
+    }, 3);
   }
   gain.gain.setTargetAtTime(genLevel(c), now, 0.8);
   snd.gain = gain;
   snd.nodes = nodes;
 }
+
 /** Sperrbildschirm / Medientasten: Titel anzeigen, Pause hält den Timer an */
 function setMediaSession() {
   if (!('mediaSession' in navigator) || snd.preview) return;
@@ -6297,7 +6392,7 @@ function renderTimerSoundSettings(st) {
           <input type="url" name="timerSoundUrl" value="${esc(st.timerSoundUrl || '')}" placeholder="https://…/stream.mp3" inputmode="url" autocomplete="off"></label>
         <div class="hint">${tr('Direkte Adresse eines Internetradios oder einer Audiodatei (MP3/AAC), am besten mit https. Viele Sender nennen sie auf ihrer Website („Stream-URL“, „Direktlink“). Playlist-Dateien (.m3u/.pls) und Spotify-, YouTube- oder Apple-Music-Links funktionieren nicht.')}</div>
       </div>
-      <div data-sound-show="file url rain brown pad" ${show('file url rain brown pad')}>
+      <div data-sound-show="file url rain brown pad birds" ${show('file url rain brown pad birds')}>
         <label>${tr('Lautstärke')} <input type="range" name="timerSoundVolume" min="0" max="100" step="5" value="${Math.round(soundCfg().volume * 100)}"></label>
         <label class="check-row"><input type="checkbox" name="timerSoundBreaks" ${st.timerSoundBreaks ? 'checked' : ''}> ${tr('Auch in Pomodoro-Pausen weiterspielen')}</label>
         <div class="hint">${tr('Spielt, solange Stoppuhr oder Pomodoro-Fokus laufen, blendet weich ein und aus und hält mit dem Timer an. Auf iPhone/iPad regelst du die Lautstärke von Datei und Radio mit den Gerätetasten.')}</div>
