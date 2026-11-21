@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-5';
+const APP_VERSION = '2026.11.21-6';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -242,6 +242,9 @@ function normalize(d) {
   out.settings = { ...DEFAULT_DATA.settings, ...((d && d.settings) || {}) };
   out.tasks = (out.tasks || []).map((t) => (Array.isArray(t.subtasks) ? t : { ...t, subtasks: [] }));
   out.counters = { pomodoros: 0, ...(out.counters || {}) };
+  // Schlüssel-Wert-Objekte: PHP macht beim Server-Abgleich aus leerem {} ein [] – zurückwandeln
+  if (Array.isArray(out.achievements)) out.achievements = {}; // null bleibt null (= noch nie geprüft)
+  for (const k of ['reviews', 'weekFocus']) if (!out[k] || typeof out[k] !== 'object' || Array.isArray(out[k])) out[k] = {};
   // Neue Übersichts-Bereiche „Heute“ und „Erfolge“ auch in bereits angepassten Layouts einblenden (einmalig)
   const dash = out.settings.dashboard;
   if (dash?.widgets && !(out.settings.layoutRev >= 2)) {
