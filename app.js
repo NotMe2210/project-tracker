@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-3';
+const APP_VERSION = '2026.11.21-4';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -675,6 +675,7 @@ function render() {
   else if (r.view === 'einstellungen') html = renderSettings();
   else html = renderDashboard();
   app.innerHTML = html;
+  restoreGanttScroll();
   growAll(app);
   renderBackupBar();
   document.querySelectorAll('[data-nav]').forEach((a) => {
@@ -5346,6 +5347,7 @@ function projectSchedule(p) {
   return `<section class="card">
     <div class="card-head"><h2>🗓 ${tr('Zeitplan')}</h2><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
     ${intro}${weekendToggle}
+    ${ganttChart(p, pl)}
     ${pl.cyclic.size ? `<div class="callout" style="border-color:var(--bad)">🔁 ${tr('Kreisabhängigkeit gefunden: {list}. Diese Vorgänger werden ignoriert, bis du sie auflöst.', { list: [...pl.cyclic].map(title).join(', ') })}</div>` : ''}
     ${summary}
     ${msRows ? `<h3>${tr('Meilensteine')}</h3><div class="table-wrap"><table class="plan-table"><thead><tr><th>${tr('Meilenstein')}</th><th>${tr('Zieldatum')}</th><th>${tr('Prognose')}</th><th>${tr('Status')}</th></tr></thead><tbody>${msRows}</tbody></table></div>` : ''}
@@ -5363,6 +5365,217 @@ function projectSchedule(p) {
     ${pl.used ? '' : `<div class="callout">💡 ${tr('Noch keine Planungsdaten: Öffne eine Aufgabe und trage Dauer und Vorgänger ein. Bis dahin gilt jede Aufgabe als 1 Tag ab heute.')}</div>`}
   </section>`;
 }
+
+/* ---------------------------- Gantt-Diagramm --------------------------- */
+/* Balken je Aufgabe (gruppiert nach Meilensteinen), ◆ Meilensteine, Pfeile für Vorgänger,
+   kritischer Pfad rot, Puffer hell, Heute-Linie. Ziehen = Start verschieben,
+   rechter Rand = Dauer, ◆ ziehen = Zieldatum, Klick = bearbeiten. */
+const GANTT_PX = { day: 34, week: 14, month: 4.5 };
+const GANTT_ROW = 34;
+let ganttZoom = (() => { try { const v = localStorage.getItem('projekttracker.ui.ganttZoom'); return GANTT_PX[v] ? v : 'day'; } catch { return 'day'; } })();
+const ganttScroll = new Map(); // Scrollposition je Projekt (bleibt beim Neuzeichnen erhalten)
+
+function ganttChart(p, pl) {
+  const px = GANTT_PX[ganttZoom];
+  const today = todayISO();
+  const tasks = data.tasks.filter((t) => t.projectId === p.id && pl.plan.has(t.id))
+    .sort((a, b) => pl.plan.get(a.id).es.localeCompare(pl.plan.get(b.id).es) || Number(a.done) - Number(b.done));
+  if (!tasks.length) return '';
+  const msList = sortMilestonesOf(p.id);
+  const rows = [];
+  msList.forEach((m) => { rows.push({ kind: 'ms', m }); tasks.filter((t) => t.milestoneId === m.id).forEach((t) => rows.push({ kind: 'task', t })); });
+  const rest = tasks.filter((t) => !t.milestoneId || !msList.some((m) => m.id === t.milestoneId));
+  if (rest.length) { if (msList.length) rows.push({ kind: 'group', label: tr('Ohne Meilenstein') }); rest.forEach((t) => rows.push({ kind: 'task', t })); }
+
+  // Zeitraum
+  const dates = [today];
+  tasks.forEach((t) => { const x = pl.plan.get(t.id); dates.push(x.es, x.ef); if (x.lf) dates.push(x.lf); });
+  msList.forEach((m) => { if (m.dueDate) dates.push(m.dueDate); if (m.doneAt) dates.push(m.doneAt); const f = pl.milestones.get(m.id); if (f) dates.push(f.forecast); });
+  if (p.targetDate) dates.push(p.targetDate);
+  let start = addDays(parseISO(dates.reduce(minIso)), -3);
+  let end = addDays(parseISO(dates.reduce(maxIso)), ganttZoom === 'month' ? 21 : 7);
+  if (ganttZoom === 'week') start = startOfWeek(start);
+  if (ganttZoom === 'month') start = new Date(start.getFullYear(), start.getMonth(), 1);
+  const minDays = ganttZoom === 'day' ? 28 : ganttZoom === 'week' ? 84 : 240;
+  if (daysBetween(toISO(start), toISO(end)) < minDays) end = addDays(start, minDays);
+  const startIso = toISO(start);
+  const total = daysBetween(startIso, toISO(end)) + 1;
+  const W = Math.round(total * px);
+  const x = (iso) => daysBetween(startIso, iso) * px;
+
+  // Kopf: Monate und Tage/Wochen
+  const months = [], cells = [], shades = [];
+  for (let i = 0; i < total; i++) {
+    const d = addDays(start, i), iso = toISO(d);
+    if (i === 0 || d.getDate() === 1) months.push({ i, label: d.toLocaleDateString(LOCALE, { month: ganttZoom === 'month' ? 'short' : 'long', year: 'numeric' }) });
+    if (!data.settings.planWeekends && !isWorkday(iso) && ganttZoom !== 'month') shades.push(i);
+    if (ganttZoom === 'day') cells.push(`<span class="g-day ${iso === today ? 'today' : ''} ${isWorkday(iso) ? '' : 'we'}" style="left:${i * px}px;width:${px}px">${d.getDate()}</span>`);
+    if (ganttZoom === 'week' && d.getDay() === 1) cells.push(`<span class="g-day" style="left:${i * px}px;width:${7 * px}px">${fmtShortDate(iso)}</span>`);
+  }
+  const monthHtml = months.map((mo, k) => `<span class="g-month" style="left:${mo.i * px}px;width:${((months[k + 1]?.i ?? total) - mo.i) * px}px">${esc(mo.label)}</span>`).join('');
+
+  // Zeilen
+  const rowIndex = new Map();
+  const bodyRows = rows.map((r, idx) => {
+    if (r.kind === 'group') return `<div class="g-row g-group"><div class="g-label">${esc(r.label)}</div><div class="g-track" style="width:${W}px"></div></div>`;
+    if (r.kind === 'ms') {
+      const m = r.m, f = pl.milestones.get(m.id);
+      const pos = m.done ? m.doneAt : m.dueDate || f?.forecast;
+      const late = f?.late > 0;
+      return `<div class="g-row g-msrow"><div class="g-label" title="${esc(m.title)}">🏁 <b>${esc(m.title)}</b></div><div class="g-track" style="width:${W}px">
+        ${f && m.dueDate && late ? `<span class="g-late" style="left:${x(m.dueDate) + px / 2}px;width:${x(f.forecast) - x(m.dueDate)}px" title="${esc(trp(f.late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät'))}"></span>
+          <span class="g-diamond forecast" style="left:${x(f.forecast) + px / 2}px" title="${esc(tr('Prognose {date}', { date: fmtDate(f.forecast) }))}"></span>` : ''}
+        ${pos ? `<span class="g-diamond ${m.done ? 'done' : late ? 'late' : ''}" style="left:${x(pos) + px / 2}px" ${m.done ? '' : `data-gms="${m.id}" tabindex="0"`}
+          title="${esc(`${m.title} · ${m.done ? tr('erreicht am {date}', { date: fmtDate(m.doneAt) }) : m.dueDate ? `${tr('Zieldatum')}: ${fmtDate(m.dueDate)}` : tr('Prognose {date}', { date: fmtDate(pos) })}`)}"></span>` : ''}
+      </div></div>`;
+    }
+    const t = r.t, pv = pl.plan.get(t.id);
+    rowIndex.set(t.id, idx);
+    const left = x(pv.es), width = Math.max(px, (daysBetween(pv.es, pv.ef) + 1) * px);
+    const slackW = !t.done && pv.slack > 0 ? (daysBetween(pv.ef, pv.lf)) * px : 0;
+    const cls = t.done ? 'done' : pv.critical ? 'crit' : '';
+    const tip = `${t.title} · ${fmtDate(pv.es)}${pv.dur > 1 ? ` – ${fmtDate(pv.ef)}` : ''} · ${trp(pv.dur, '{n} Tag', '{n} Tage')}${t.done ? '' : ` · ${pv.critical ? tr('kritisch') : trp(pv.slack, '{n} Tag Puffer', '{n} Tage Puffer')}`}`;
+    return `<div class="g-row"><div class="g-label ${cls}" title="${esc(t.title)}">${t.done ? '✓ ' : ''}${esc(t.title)}</div><div class="g-track" style="width:${W}px">
+      ${slackW > 0 ? `<span class="g-slack" style="left:${left + width}px;width:${slackW}px" title="${esc(trp(pv.slack, '{n} Tag Puffer', '{n} Tage Puffer'))}"></span>` : ''}
+      <span class="g-bar ${cls} ${width < 72 ? 'narrow' : ''}" style="left:${left}px;width:${width}px" ${t.done ? '' : `data-gtask="${t.id}" tabindex="0"`} title="${esc(tip)}">
+        <span class="g-text">${esc(t.title)}</span>${t.done ? '' : '<span class="g-handle" aria-hidden="true"></span>'}</span>
+    </div></div>`;
+  });
+
+  // Pfeile Vorgänger → Nachfolger
+  const arrows = [];
+  tasks.forEach((t) => (t.dependsOn || []).forEach((pid) => {
+    if (!rowIndex.has(pid) || !rowIndex.has(t.id) || pl.cyclic.has(t.id)) return;
+    const a = pl.plan.get(pid), b = pl.plan.get(t.id);
+    const x1 = x(a.ef) + px, y1 = rowIndex.get(pid) * GANTT_ROW + GANTT_ROW / 2;
+    const x2 = x(b.es), y2 = rowIndex.get(t.id) * GANTT_ROW + GANTT_ROW / 2;
+    const mid = Math.max(x1 + 6, Math.min(x2 - 6, x1 + 10));
+    const crit = b.critical && (a.critical || a.done) ? 'crit' : '';
+    arrows.push(`<path class="g-arrow ${crit}" d="M${x1},${y1} H${mid} V${y2} H${x2 - 2}" marker-end="url(#g-head${crit ? '-crit' : ''})"/>`);
+  }));
+  const H = rows.length * GANTT_ROW;
+  const zoomNames = { day: tr('Tage'), week: tr('Wochen'), month: tr('Monate') };
+  return `<div class="gantt-wrap">
+    <div class="gantt-tools">
+      <div class="segmented" role="group" aria-label= + I('Zoom', 'Zoom') + r>${Object.keys(GANTT_PX).map((z) => `<button type="button" class="seg-btn ${z === ganttZoom ? 'active' : ''}" data-action="setGanttZoom" data-id="${z}" aria-pressed="${z === ganttZoom}">${zoomNames[z]}</button>`).join('')}</div>
+      <button type="button" class="btn small" data-action="ganttToday">${tr('Heute')}</button>
+      <span class="g-legend small muted"><span class="g-key crit"></span>${tr('kritisch')} <span class="g-key"></span>${tr('geplant')} <span class="g-key slack"></span>${tr('Puffer')} <span class="g-key done"></span>${tr('erledigt')} ◆ ${tr('Meilenstein')}</span>
+    </div>
+    <div class="gantt-scroll" data-gantt="${p.id}" data-px="${px}">
+      <div class="gantt" style="--gw:${W}px">
+        <div class="g-row g-head"><div class="g-label"></div><div class="g-track" style="width:${W}px"><div class="g-months">${monthHtml}</div><div class="g-days">${cells.join('')}</div></div></div>
+        <div class="g-body">
+          <div class="g-bg" style="height:${H}px;width:${W}px">${shades.map((i) => `<span style="left:${i * px}px;width:${px}px"></span>`).join('')}
+            <span class="g-today" style="left:${x(today) + px / 2}px" title="${tr('Heute')}"></span>
+            ${p.targetDate ? `<span class="g-target" style="left:${x(p.targetDate) + px}px" title="${esc(`${tr('Zieltermin')}: ${fmtDate(p.targetDate)}`)}"></span>` : ''}</div>
+          <svg class="g-arrows" width="${W}" height="${H}" aria-hidden="true">
+            <defs><marker id="g-head" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="g-ah"/></marker>
+              <marker id="g-head-crit" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="g-ah crit"/></marker></defs>
+            ${arrows.join('')}</svg>
+          ${bodyRows.join('')}
+        </div>
+      </div>
+    </div>
+    <p class="small muted g-hint">${tr('Balken ziehen = Start verschieben · rechten Rand ziehen = Dauer ändern · ◆ ziehen = Zieldatum · antippen = bearbeiten. Nachfolger rücken automatisch mit.')}</p>
+  </div>`;
+}
+
+/** Scrollposition wiederherstellen bzw. beim ersten Öffnen zu „Heute“ springen */
+function restoreGanttScroll(forceToday = false) {
+  const el = document.querySelector('.gantt-scroll');
+  if (!el) return;
+  const pid = el.dataset.gantt;
+  const todayEl = el.querySelector('.g-today');
+  const labelW = el.querySelector('.g-label')?.offsetWidth || 0;
+  if (!forceToday && ganttScroll.has(`${pid}|${ganttZoom}`)) el.scrollLeft = ganttScroll.get(`${pid}|${ganttZoom}`);
+  else if (todayEl) el.scrollLeft = Math.max(0, todayEl.offsetLeft - 3 * Number(el.dataset.px) - 40);
+  el.addEventListener('scroll', () => ganttScroll.set(`${pid}|${ganttZoom}`, el.scrollLeft), { passive: true });
+}
+
+/* Ziehen von Balken, Balkenende und Meilensteinen */
+let gDrag = null;
+document.addEventListener('pointerdown', (e) => {
+  const bar = e.target.closest('[data-gtask], [data-gms]');
+  if (!bar || e.button > 0) return;
+  const px = Number(bar.closest('.gantt-scroll').dataset.px);
+  gDrag = { el: bar, px, x0: e.clientX, moved: false, mode: bar.dataset.gms ? 'ms' : e.target.closest('.g-handle') ? 'resize' : 'move',
+    left: parseFloat(bar.style.left), width: parseFloat(bar.style.width) || 0, id: bar.dataset.gtask || bar.dataset.gms };
+  bar.setPointerCapture?.(e.pointerId);
+  e.preventDefault();
+});
+document.addEventListener('pointermove', (e) => {
+  if (!gDrag) return;
+  const dx = e.clientX - gDrag.x0;
+  if (!gDrag.moved && Math.abs(dx) < 4) return;
+  gDrag.moved = true;
+  const days = Math.round(dx / gDrag.px);
+  gDrag.days = days;
+  gDrag.el.classList.add('dragging');
+  if (gDrag.mode === 'resize') gDrag.el.style.width = `${Math.max(gDrag.px, gDrag.width + days * gDrag.px)}px`;
+  else gDrag.el.style.left = `${gDrag.left + days * gDrag.px}px`;
+  gDrag.el.dataset.delta = days ? `${days > 0 ? '+' : ''}${days} ${tr('T')}` : '';
+});
+function endGanttDrag() {
+  if (!gDrag) return;
+  const { mode, id, moved, days } = gDrag;
+  gDrag = null;
+  if (!moved) return mode === 'ms' ? actions.editMilestone({ id }) : actions.editTask({ id });
+  if (!days) return render();
+  applyGanttChange(mode, id, days);
+}
+document.addEventListener('pointerup', endGanttDrag);
+document.addEventListener('pointercancel', () => { if (gDrag) { gDrag = null; render(); } });
+// Tastatur: Pfeile verschieben, Umschalt+Pfeile ändern die Dauer, Enter bearbeitet
+document.addEventListener('keydown', (e) => {
+  const bar = e.target.closest?.('[data-gtask], [data-gms]');
+  if (!bar) return;
+  const id = bar.dataset.gtask || bar.dataset.gms, mode = bar.dataset.gms ? 'ms' : e.shiftKey ? 'resize' : 'move';
+  if (e.key === 'Enter') { e.preventDefault(); return bar.dataset.gms ? actions.editMilestone({ id }) : actions.editTask({ id }); }
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  e.preventDefault();
+  applyGanttChange(mode, id, e.key === 'ArrowRight' ? 1 : -1);
+  document.querySelector(`[data-gtask="${CSS.escape(id)}"], [data-gms="${CSS.escape(id)}"]`)?.focus();
+});
+
+function applyGanttChange(mode, id, days) {
+  if (mode === 'ms') {
+    const m = data.milestones.find((x) => x.id === id);
+    const pl = planProject(m.projectId);
+    const base = m.dueDate || pl.milestones.get(m.id)?.forecast || todayISO();
+    m.dueDate = toISO(addDays(parseISO(base), days));
+    commit();
+    return toast(tr('🏁 Zieldatum: {date}', { date: fmtDate(m.dueDate) }));
+  }
+  const t = data.tasks.find((x) => x.id === id);
+  const pv = planProject(t.projectId).plan.get(t.id);
+  if (mode === 'resize') {
+    const newEf = prevWorkday(toISO(addDays(parseISO(pv.ef), days)));
+    t.duration = Math.max(1, workdaysBetween(pv.es, maxIso(newEf, pv.es)) + 1);
+    commit();
+    return toast(tr('⏱ Dauer: {d}', { d: trp(t.duration, '{n} Tag', '{n} Tage') }));
+  }
+  // Verschieben setzt den frühesten Start – zurück auf das Mögliche entfernt ihn wieder
+  const want = nextWorkday(toISO(addDays(parseISO(pv.es), days)));
+  const keep = t.startAfter;
+  t.startAfter = null;
+  planCache.clear();
+  const natural = planProject(t.projectId).plan.get(t.id).es;
+  t.startAfter = want > natural ? want : null;
+  if (keep === t.startAfter) { planCache.clear(); return render(); }
+  commit();
+  const now = planProject(t.projectId).plan.get(t.id).es;
+  toast(want < natural ? tr('Früher geht nicht – „{title}“ wartet auf Vorgänger (frühestens {date}).', { title: t.title, date: fmtDate(natural) }) : tr('📅 Start: {date}', { date: fmtDate(now) }));
+}
+
+Object.assign(actions, {
+  setGanttZoom({ id }) {
+    if (!GANTT_PX[id]) return;
+    ganttZoom = id;
+    try { localStorage.setItem('projekttracker.ui.ganttZoom', id); } catch { /* ignorieren */ }
+    render();
+  },
+  ganttToday() { restoreGanttScroll(true); },
+});
 
 /* ------------------------------------------------------------------------
    Personen & Teams (Stufe A: Zuständigkeiten planen)

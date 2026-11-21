@@ -69,6 +69,12 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
   - den **kritischen Pfad**: die Aufgaben, die das Projektende bzw. einen Meilenstein direkt verschieben, wenn sie sich verzögern
 - Die Rückwärtsrechnung prüft gegen das Zieldatum der Meilensteine und den Zieltermin des Projekts.
 - An jeder Aufgabe stehen Planzeitraum, Puffer bzw. „kritisch“ und „wartet auf …“. Meilensteine zeigen ihre Prognose.
+- **Gantt-Diagramm** im Reiter *Zeitplan*:
+  - Balken je Aufgabe, gruppiert nach Meilensteinen, ◆ für Meilensteine (bei Verzug mit gestrichelter Prognose)
+  - Pfeile für die Vorgänger, kritischer Pfad in Rot, Puffer als heller Balken
+  - Linien für Heute und den Zieltermin, Zoom auf Tage, Wochen oder Monate
+  - **Ziehen** verschiebt den Start, der **rechte Rand** ändert die Dauer, **◆ ziehen** setzt das Zieldatum, **Antippen** öffnet die Aufgabe. Nachfolger rücken automatisch mit.
+  - Mit der Tastatur: Pfeiltasten verschieben, Umschalt+Pfeil ändert die Dauer, Enter bearbeitet.
 - **Warnungen:** Ein gefährdeter Meilenstein erscheint unter „Heute“, zum Beispiel „voraussichtlich 2 Arbeitstage zu spät“.
 - Wochenenden zählen standardmäßig nicht, das ist umstellbar. Kreisabhängigkeiten werden beim Speichern verhindert und im Zeitplan gemeldet.
 

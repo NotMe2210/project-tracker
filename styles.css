@@ -1216,3 +1216,82 @@ div.doc-chips { margin-top: 6px; }
 .plan-table tr.crit td { background: color-mix(in srgb, var(--bad) 7%, transparent); }
 .plan-table tr.crit td:first-child { box-shadow: inset 3px 0 0 var(--bad); font-weight: 600; }
 .plan-table tr.done td { color: var(--muted); }
+
+/* ---------- Gantt-Diagramm ---------- */
+.gantt-wrap { margin: 12px 0 18px; }
+.gantt-tools { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 8px; }
+.gantt-tools .seg-btn { padding: 4px 10px; font-size: .82rem; }
+.gantt-scroll { --gl: 220px; overflow-x: auto; overscroll-behavior-x: contain; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.gantt { position: relative; width: calc(var(--gl) + var(--gw)); }
+.g-row { display: flex; height: 34px; }
+.g-label {
+  position: sticky; left: 0; z-index: 5; flex: none; width: var(--gl); padding: 0 10px; line-height: 34px; font-size: .85rem;
+  background: var(--surface); border-right: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.g-label.crit { color: var(--bad); font-weight: 600; }
+.g-label.done { color: var(--muted); }
+.g-group .g-label { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.g-msrow .g-label, .g-msrow .g-track { background: color-mix(in srgb, var(--primary-soft) 55%, var(--surface)); }
+.g-track { position: relative; flex: none; }
+.g-row:not(.g-head) .g-track { border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+.g-head { height: 44px; }
+.g-head .g-label { line-height: 44px; border-bottom: 1px solid var(--border); }
+.g-head .g-track { border-bottom: 1px solid var(--border); }
+.g-months, .g-days { position: relative; height: 22px; }
+.g-month { position: absolute; top: 0; height: 22px; padding: 3px 6px; font-size: .72rem; font-weight: 700; border-left: 1px solid var(--border); white-space: nowrap; overflow: hidden; }
+.g-day { position: absolute; top: 0; height: 22px; line-height: 22px; text-align: center; font-size: .66rem; color: var(--muted); border-left: 1px solid color-mix(in srgb, var(--border) 45%, transparent); white-space: nowrap; overflow: hidden; }
+.g-day.we { background: var(--surface-2); }
+.g-day.today { color: var(--primary); font-weight: 800; }
+.g-body { position: relative; }
+.g-bg, .g-arrows { position: absolute; top: 0; left: var(--gl); pointer-events: none; }
+.g-bg { z-index: 0; }
+.g-bg > span { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--surface-2) 75%, transparent); }
+.g-bg > .g-today { width: 2px; margin-left: -1px; background: var(--primary); z-index: 1; }
+.g-bg > .g-target { width: 0; background: none; border-left: 2px dashed var(--bad); z-index: 1; }
+.g-arrows { z-index: 3; overflow: visible; }
+.g-arrow { fill: none; stroke: var(--muted); stroke-width: 1.4; opacity: .8; }
+.g-arrow.crit { stroke: var(--bad); opacity: 1; }
+.g-ah { fill: var(--muted); }
+.g-ah.crit { fill: var(--bad); }
+.g-bar {
+  position: absolute; top: 7px; height: 20px; z-index: 4; border-radius: 6px; padding: 0 10px 0 6px;
+  background: var(--primary); color: var(--primary-contrast); font-size: .72rem; line-height: 20px; white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.g-bar .g-text { display: block; overflow: hidden; text-overflow: ellipsis; }
+.g-bar.crit { background: var(--bad); color: #fff; }
+.g-bar.done { background: var(--border); color: var(--muted); cursor: default; box-shadow: none; }
+.g-bar:focus-visible, .g-diamond:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.g-handle { position: absolute; right: 0; top: 0; bottom: 0; width: 9px; cursor: ew-resize; border-radius: 0 6px 6px 0; background: rgba(255, 255, 255, .3); }
+.g-bar.dragging, .g-diamond.dragging { cursor: grabbing; opacity: .9; outline: 2px solid var(--text); z-index: 6; }
+.g-bar.dragging::after, .g-diamond.dragging::after {
+  content: attr(data-delta); position: absolute; top: -20px; left: 0; padding: 0 5px; border-radius: 4px;
+  font-size: .7rem; color: var(--text); background: var(--surface); box-shadow: var(--shadow);
+}
+.g-diamond.dragging::after { transform: rotate(-45deg); }
+.g-slack {
+  position: absolute; top: 12px; height: 10px; z-index: 2; border-radius: 0 5px 5px 0;
+  background: color-mix(in srgb, var(--primary) 15%, transparent); border: 1px dashed color-mix(in srgb, var(--primary) 45%, transparent); border-left: none;
+}
+.g-diamond {
+  position: absolute; top: 50%; z-index: 4; width: 14px; height: 14px; transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--primary); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--primary); cursor: grab; touch-action: none;
+}
+.g-diamond.late { background: var(--bad); box-shadow: 0 0 0 1px var(--bad); }
+.g-diamond.done { background: var(--good); box-shadow: 0 0 0 1px var(--good); cursor: default; }
+.g-diamond.forecast { background: var(--surface); border: 2px dashed var(--bad); box-shadow: none; cursor: default; }
+.g-late { position: absolute; top: 50%; z-index: 3; height: 2px; margin-top: -1px; background: var(--bad); }
+.g-legend { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.g-key { display: inline-block; width: 18px; height: 10px; border-radius: 3px; background: var(--primary); vertical-align: middle; }
+.g-key.crit { background: var(--bad); }
+.g-key.slack { background: color-mix(in srgb, var(--primary) 15%, transparent); border: 1px dashed color-mix(in srgb, var(--primary) 45%, transparent); }
+.g-key.done { background: var(--border); }
+.g-hint { margin: 6px 0 0; }
+@media (max-width: 640px) {
+  .gantt-scroll { --gl: 118px; }
+  .g-label { font-size: .76rem; padding: 0 6px; }
+  .g-legend { display: none; }
+}
+/* Kurze Balken: Name rechts neben dem Balken */
+.g-bar.narrow .g-text { position: absolute; left: calc(100% + 6px); top: 0; overflow: visible; color: var(--text); font-weight: 500; pointer-events: none; }
+.g-bar.narrow.done .g-text { color: var(--muted); }
