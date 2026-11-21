@@ -1366,3 +1366,34 @@ div.doc-chips { margin-top: 6px; }
 
 /* ---- Archiv ---- */
 .archived-banner { margin-bottom: 16px; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+
+/* ---- Schnelleingabe ---- */
+.quick-btn { font-size: 1rem; }
+@media (min-width: 1024px) { .quick-btn { display: none; } .quick-cmd { margin-top: -8px; } }
+@media (min-width: 641px) { dialog:has(.quick) { width: min(620px, calc(100vw - 32px)); align-self: start; margin-top: 12vh; } }
+.quick-close { margin-right: 8px; }
+.quick-preview .meta { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: .85rem; color: var(--muted); }
+.quick { display: flex; flex-direction: column; max-height: min(76vh, 620px); }
+@media (max-width: 640px) {
+  .quick { height: 100%; max-height: none; overflow-y: auto; }
+  .quick-head { padding-top: env(safe-area-inset-top); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  .quick-done { max-height: none; overflow: visible; flex: none; }
+  .quick-help + .palette-foot { display: none; }
+}
+.quick-head { display: flex; align-items: center; gap: 4px; padding-left: 16px; border-bottom: 1px solid var(--border); font-size: 1.1rem; }
+.quick-head .palette-input { flex: 1; border-bottom: 0; padding-left: 8px; min-width: 0; }
+.quick-preview { padding: 12px 18px; display: grid; gap: 4px; min-height: 52px; }
+.quick-kind { font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.quick-title { font-weight: 600; overflow-wrap: anywhere; }
+.quick-problem { font-size: .85rem; color: var(--bad); }
+.quick-preview.shake { animation: shake .35s; }
+@keyframes shake { 25% { transform: translateX(-6px); } 50% { transform: translateX(6px); } 75% { transform: translateX(-3px); } }
+.quick-done { margin: 0; padding: 0 12px; overflow-y: auto; max-height: 200px; }
+.quick-done:empty { display: none; }
+.quick-help { padding: 6px 18px 12px; border-top: 1px solid var(--border); }
+.quick-help summary { cursor: pointer; font-size: .85rem; color: var(--muted); padding: 4px 0; }
+.quick-help table { border-collapse: collapse; margin-top: 6px; width: 100%; }
+.quick-help td { padding: 3px 8px 3px 0; vertical-align: top; }
+.quick-help code { font-size: .8rem; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; white-space: nowrap; }
+@media (max-width: 640px) { .quick-help code { white-space: normal; } .quick-help td:first-child { width: 48%; } }
+@media (max-width: 640px) { .quick > * { flex-shrink: 0; } }

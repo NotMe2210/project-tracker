@@ -2862,6 +2862,7 @@ const actions = {
     render();
   },
   openPalette() { openPalette(); },
+  quickAdd() { openQuickAdd(); },
   customizeProject({ id }) { startEdit('project', id); },
   resetProjectLayout({ id }) {
     delete getProject(id).layout;
@@ -4229,6 +4230,174 @@ function openDetail(spec) {
   dlg.showModal();
 }
 
+/* ---------------------------- Schnelleingabe ------------------------------ */
+/* Eine Zeile, alles drin: „Fotos bearbeiten #shop @fr !hoch ~2h“ → Aufgabe,
+   „1:30 Produktfotos #shop“ → Zeit, „12,90€ Holzleim #shop“ → Investition,
+   „+120€ Markt #shop“ → Einnahme, „> Idee …“ → Notiz. Taste N öffnet sie. */
+const QUICK_KEY = 'projekttracker.ui.quickProject';
+const normName = (s) => String(s || '').toLocaleLowerCase('de').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9äöüß]+/g, '');
+function findQuickProject(token) {
+  const t = normName(token);
+  if (!t) return null;
+  const list = liveProjects();
+  return list.find((p) => normName(p.name) === t)
+    || list.find((p) => normName(p.name).startsWith(t))
+    || list.find((p) => p.name.toLocaleLowerCase('de').split(/[\s\-_/]+/).some((w) => normName(w).startsWith(t)))
+    || list.find((p) => normName(p.name).includes(t)) || null;
+}
+const QUICK_DAYS = { so: 0, sun: 0, sonntag: 0, sunday: 0, mo: 1, mon: 1, montag: 1, monday: 1, di: 2, tue: 2, dienstag: 2, tuesday: 2,
+  mi: 3, wed: 3, mittwoch: 3, wednesday: 3, do: 4, thu: 4, donnerstag: 4, thursday: 4, fr: 5, fri: 5, freitag: 5, friday: 5, sa: 6, sat: 6, samstag: 6, saturday: 6 };
+function parseQuickDate(s) {
+  const t = s.toLocaleLowerCase('de').replace(/\.$/, '');
+  const now = new Date();
+  if (['heute', 'today', 'h'].includes(t)) return todayISO();
+  if (['morgen', 'tomorrow', 'm'].includes(t)) return toISO(addDays(now, 1));
+  if (['übermorgen', 'uebermorgen'].includes(t)) return toISO(addDays(now, 2));
+  if (['gestern', 'yesterday'].includes(t)) return toISO(addDays(now, -1));
+  if (t in QUICK_DAYS) { let d = addDays(now, 1); while (d.getDay() !== QUICK_DAYS[t]) d = addDays(d, 1); return toISO(d); }
+  let m;
+  if ((m = t.match(/^\+(\d+)(t|d|w)?$/))) return toISO(addDays(now, +m[1] * (m[2] === 'w' ? 7 : 1)));
+  if ((m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/))) return t;
+  if ((m = t.match(/^(\d{1,2})\.(\d{1,2})\.?(\d{2,4})?$/)) || (m = t.match(/^(\d{1,2})\/(\d{1,2})\/?(\d{2,4})?$/))) {
+    let [, a, b, y] = m;
+    let day = +a, mon = +b;
+    if (t.includes('/') && LANG === 'en' && LOCALE === 'en-US') [day, mon] = [mon, day];
+    let year = y ? (y.length === 2 ? 2000 + +y : +y) : now.getFullYear();
+    let d = new Date(year, mon - 1, day);
+    if (!y && toISO(d) < todayISO()) d = new Date(year + 1, mon - 1, day);
+    return d.getMonth() === mon - 1 ? toISO(d) : null;
+  }
+  return null;
+}
+const QUICK_PRIO = { hoch: 'hoch', high: 'hoch', h: 'hoch', mittel: 'mittel', medium: 'mittel', m: 'mittel', niedrig: 'niedrig', low: 'niedrig', n: 'niedrig', l: 'niedrig' };
+
+function parseQuick(text, defaultPid) {
+  let s = ` ${text} `;
+  const out = { kind: 'task', title: '', projectId: null, priority: null, date: null, minutes: null, estimate: null, amount: null, problems: [] };
+  if (/^\s*>/.test(s)) { out.kind = 'note'; s = s.replace(/^\s*>/, ' '); }
+  s = s.replace(/\s#(\S+)/g, (m, tok) => { const p = findQuickProject(tok); if (p) { out.projectId = p.id; return ' '; } out.problems.push(tr('Kein Projekt passt zu „#{t}“.', { t: tok })); return ' '; });
+  s = s.replace(/\s!(hoch|high|mittel|medium|niedrig|low|[hmnl])?(?=\s)/i, (m, tok) => { out.priority = tok ? QUICK_PRIO[tok.toLowerCase()] : 'hoch'; return ' '; });
+  s = s.replace(/\s@(\S+)/, (m, tok) => { const d = parseQuickDate(tok); if (d) { out.date = d; return ' '; } out.problems.push(tr('Datum „@{t}“ nicht erkannt.', { t: tok })); return ' '; });
+  s = s.replace(/\s~(\S+)(?=\s)/, (m, tok) => { const v = parseDuration(tok); if (v) { out.estimate = v; return ' '; } return m; });
+  if (out.kind !== 'note') {
+    s = s.replace(/\s(\+)?(?:€\s?(\d+(?:[.,]\d{1,2})?)|(\d+(?:[.,]\d{1,2})?)\s?(?:€|eur|euro)(?=\s))/i, (m, plus, a1, a2) => {
+      out.amount = Number(String(a1 || a2).replace(',', '.')); out.kind = plus ? 'income' : 'investment'; return ' ';
+    });
+    if (out.amount === null) {
+      s = s.replace(/\s(\d{1,2}:\d{2}|\d+(?:[.,]\d+)?\s?(?:h|std|min|m))(?=\s)/i, (m, tok) => { const v = parseDuration(tok); if (v) { out.minutes = v; out.kind = 'time'; return ' '; } return m; });
+    }
+  }
+  out.title = s.replace(/\s+/g, ' ').trim();
+  out.projectId ||= defaultPid || null;
+  if (!out.projectId) out.problems.push(tr('Füge ein Projekt mit #name hinzu.'));
+  if (!out.title && !['time'].includes(out.kind)) out.problems.push(tr('Es fehlt noch ein Text.'));
+  return out;
+}
+const QUICK_KINDS = {
+  get task() { return ['✅', tr('Aufgabe')]; }, get time() { return ['⏱️', tr('Zeit')]; }, get investment() { return ['💶', tr('Investition')]; },
+  get income() { return ['💰', tr('Einnahme')]; }, get note() { return ['📝', tr('Notiz')]; },
+};
+function quickPreview(q) {
+  const p = getProject(q.projectId);
+  const [icon, label] = QUICK_KINDS[q.kind];
+  const bits = [];
+  if (p) bits.push(`<span><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</span>`);
+  if (q.kind === 'task') {
+    if (q.date) bits.push(`<span>📅 ${fmtDate(q.date)}</span>`);
+    if (q.priority) bits.push(`<span class="badge ${q.priority}">${prioLabel(q.priority)}</span>`);
+    if (q.estimate) bits.push(`<span class="badge">⏱ ~${fmtDuration(q.estimate)}</span>`);
+  } else {
+    bits.push(`<span>📅 ${fmtDate(q.date || todayISO())}</span>`);
+    if (q.minutes) bits.push(`<b>${fmtDuration(q.minutes)}</b>`);
+    if (q.amount !== null) bits.push(`<b class="${q.kind === 'income' ? 'pos' : ''}">${q.kind === 'income' ? '+' : ''}${fmtEUR(q.amount)}</b>`);
+  }
+  return `<div class="quick-kind">${icon} ${label}</div>
+    <div class="quick-title">${esc(q.title || (q.kind === 'time' ? autoTimeTitle(q.date || todayISO()) : '…'))}</div>
+    <div class="meta">${bits.join('')}</div>
+    ${q.problems.length ? `<div class="quick-problem">⚠️ ${q.problems.map(esc).join(' ')}</div>` : ''}`;
+}
+function createQuick(q) {
+  const id = uid(), now = new Date().toISOString(), date = q.date || todayISO();
+  if (q.kind === 'task') data.tasks.push({ id, projectId: q.projectId, title: q.title, priority: q.priority || 'mittel', dueDate: q.date, estimate: q.estimate,
+    notes: '', subtasks: [], assignees: [], milestoneId: null, done: false, doneAt: null, status: 'open', createdAt: now });
+  else if (q.kind === 'time') data.timeEntries.push({ id, projectId: q.projectId, date, minutes: q.minutes, title: q.title || autoTimeTitle(date), autoTitle: !q.title, description: '' });
+  else if (q.kind === 'investment') data.investments.push({ id, projectId: q.projectId, description: q.title, amount: q.amount, date, category: normalizeCategory('') });
+  else if (q.kind === 'income') { data.incomes ||= []; data.incomes.push({ id, projectId: q.projectId, description: q.title, amount: q.amount, date, category: '' }); }
+  else if (q.kind === 'note') data.notes.push({ id, projectId: q.projectId, date, text: q.title, createdAt: now });
+  try { localStorage.setItem(QUICK_KEY, q.projectId); } catch { /* ignorieren */ }
+  commit();
+}
+function defaultQuickProject() {
+  const r = parseRoute();
+  const live = (id) => { const p = getProject(id); return p && !p.archived ? p.id : null; };
+  let last = null;
+  try { last = localStorage.getItem(QUICK_KEY); } catch { /* ignorieren */ }
+  return (r.view === 'projekt' && live(r.id)) || live(last) || liveProjects().find((p) => p.status === 'aktiv')?.id || liveProjects()[0]?.id || null;
+}
+
+function openQuickAdd(prefill = '') {
+  if ($('#modal').open) return;
+  closePopover(); hideTip();
+  const dlg = $('#modal');
+  dlg.classList.remove('wide');
+  let defPid = defaultQuickProject();
+  dlg.innerHTML = `<div class="quick">
+    <div class="quick-head">⚡ <input type="text" class="palette-input quick-input" placeholder="${tr('z. B. Fotos bearbeiten #shop @fr !hoch')}" aria-label="${tr('Schnelleingabe')}" autocomplete="off" spellcheck="false" enterkeyhint="done">
+      <button type="button" class="btn ghost icon quick-close" aria-label="${tr('Schließen')}" title="${tr('Schließen')}">✕</button></div>
+    <div class="quick-preview" aria-live="polite"></div>
+    <ul class="quick-done list"></ul>
+    <details class="quick-help"><summary>${tr('So funktioniert’s')}</summary>
+      <table class="small"><tbody>
+        <tr><td><code>Text</code></td><td>${tr('Aufgabe')}</td></tr>
+        <tr><td><code>#shop</code></td><td>${tr('Projekt (Anfang des Namens genügt)')}</td></tr>
+        <tr><td><code>@heute @morgen @fr @24.12. @+3</code></td><td>${tr('Fälligkeit bzw. Datum')}</td></tr>
+        <tr><td><code>!hoch !mittel !niedrig</code></td><td>${tr('Priorität (nur ! = hoch)')}</td></tr>
+        <tr><td><code>~2h</code></td><td>${tr('geschätzter Aufwand einer Aufgabe')}</td></tr>
+        <tr><td><code>1:30 · 45min · 2h</code></td><td>${tr('Zeit erfassen')}</td></tr>
+        <tr><td><code>12,90€</code></td><td>${tr('Investition')}</td></tr>
+        <tr><td><code>+120€</code></td><td>${tr('Einnahme')}</td></tr>
+        <tr><td><code>&gt; Text</code></td><td>${tr('Notiz im Logbuch')}</td></tr>
+      </tbody></table></details>
+    <div class="palette-foot small muted">${tr('Enter anlegen · weiter tippen für den nächsten Eintrag · Esc schließen')}</div>
+  </div>`;
+  const input = dlg.querySelector('.quick-input'), prev = dlg.querySelector('.quick-preview'), done = dlg.querySelector('.quick-done');
+  const update = () => {
+    const v = input.value.trim();
+    prev.innerHTML = v ? quickPreview(parseQuick(v, defPid)) : `<div class="small muted">${defPid ? tr('Ohne #projekt landet alles in „{name}“.', { name: esc(getProject(defPid).name) }) : tr('Füge ein Projekt mit #name hinzu.')}</div>`;
+  };
+  input.addEventListener('input', update);
+  dlg.querySelector('.quick-close').addEventListener('click', () => dlg.close());
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    const v = input.value.trim();
+    if (!v) return;
+    const q = parseQuick(v, defPid);
+    if (q.problems.length) { prev.classList.remove('shake'); void prev.offsetWidth; prev.classList.add('shake'); return; }
+    createQuick(q);
+    defPid = q.projectId;
+    const [icon] = QUICK_KINDS[q.kind];
+    const p = getProject(q.projectId);
+    done.insertAdjacentHTML('afterbegin', `<li><span class="today-ico">${icon}</span><div class="grow"><div class="title">${esc(q.title || autoTimeTitle(q.date || todayISO()))}</div>
+      <div class="meta"><span><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</span>${q.minutes ? `<span>${fmtDuration(q.minutes)}</span>` : ''}${q.amount !== null ? `<span>${fmtEUR(q.amount)}</span>` : ''}</div></div><span class="badge aktiv">✓</span></li>`);
+    input.value = '';
+    update();
+  });
+  dlg.addEventListener('close', () => unlockScroll(), { once: true });
+  lockScroll();
+  dlg.showModal();
+  input.value = prefill;
+  update();
+  input.focus();
+}
+// Taste „N“ (außerhalb von Eingabefeldern) öffnet die Schnelleingabe
+document.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() !== 'n' || e.metaKey || e.ctrlKey || e.altKey || $('#modal').open) return;
+  if (e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  e.preventDefault();
+  openQuickAdd();
+});
+
 /* ---------------------------- Befehlspalette (⌘K / Strg+K) ---------------- */
 
 function paletteCommands() {
@@ -4238,6 +4407,7 @@ function paletteCommands() {
   add('📊', tr('Übersicht'), () => { location.hash = '#/'; }, nav);
   add('🗂️', tr('Projekte'), () => { location.hash = '#/projekte'; }, nav);
   add('⚙️', tr('Einstellungen'), () => { location.hash = '#/einstellungen'; }, nav);
+  add('⚡', tr('Schnelleingabe'), () => openQuickAdd(), tr('Aufgabe Zeit schnell anlegen N'));
   add('➕', tr('Neues Projekt'), () => actions.newProject());
   add('⏱️', tr('Zeit erfassen'), () => actions.addTime({}));
   if (data.timer) add('■', data.timer.mode === 'pomodoro' ? tr('Pomodoro beenden') : tr('Timer stoppen'), () => actions.stopTimer());
@@ -4254,7 +4424,7 @@ function paletteCommands() {
   const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
   [...data.projects].sort((a, b) => Number(!!a.archived) - Number(!!b.archived) || order[a.status] - order[b.status]).forEach((p) => {
     add(p.archived ? '🗄️' : '🗂️', tr('Öffnen: {name}', { name: p.name }), () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
-    if (p.status !== 'abgeschlossen') {
+    if (p.status !== 'abgeschlossen' && !p.archived) {
       add('🍅', tr('Pomodoro: {name}', { name: p.name }), () => actions.startPomodoro({ id: p.id }), 'Timer');
       add('⏱️', tr('Zeit erfassen: {name}', { name: p.name }), () => actions.addTime({ id: p.id }));
       add('✅', tr('Aufgabe anlegen: {name}', { name: p.name }), () => actions.addTask({ id: p.id }));
@@ -4309,6 +4479,10 @@ function renderPalette(q, keepList = false) {
   if (!keepList) {
     const words = q.toLocaleLowerCase('de').split(/\s+/).filter(Boolean);
     paletteState.list = paletteState.cmds.filter((c) => words.every((w) => c.key.includes(w))).slice(0, 50);
+    if (/(^|\s)(#\S|@\S|!|~\S|\d+:\d{2}|\+?\d+(?:[.,]\d+)?\s?€|>)/.test(q)) {
+      const text = q.trim();
+      paletteState.list.unshift({ icon: '⚡', label: tr('Schnelleingabe: {text}', { text }), hint: 'Enter', run: () => openQuickAdd(text) });
+    }
   }
   const ul = $('#modal .palette-list');
   ul.innerHTML = paletteState.list.length ? paletteState.list.map((c, i) => `<li data-i="${i}" role="option" class="${i === paletteState.active ? 'active' : ''}" aria-selected="${i === paletteState.active}">
