@@ -2,6 +2,36 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-6",
+      "date": "2026-11-21",
+      "de": [
+        "⚡ Schnelleingabe (Taste N oder ⚡): „Fotos bearbeiten #shop @fr !hoch“ wird zur Aufgabe, „1:30 #shop“ zur Zeit, „12€ #shop“ zur Investition, „+120€ #shop“ zur Einnahme",
+        "🗂️ Kanban-Board für Aufgaben mit neuem Status „In Arbeit“ – Karten per Drag-and-drop verschieben",
+        "⏱ Zeit auf Aufgaben buchen: Timer direkt an der Aufgabe, geschätzter Aufwand und Vergleich „Schätzung vs. Ist“",
+        "🔁 Wiederkehrende Aufgaben (täglich bis jährlich) – beim Abhaken entsteht die nächste automatisch",
+        "📝 Wochenrückblick & Wochenplanung mit Fokus-Aufgaben und neuer Kachel „Wochenfokus“",
+        "💰 Einnahmen und Gewinn/Verlust im neuen Reiter „Finanzen“ – mit Rendite und Ergebnis pro Stunde",
+        "📋 Projektvorlagen (Lernprojekt, Website, Veranstaltung oder eigene) und Projekte duplizieren",
+        "🗄️ Archiv: abgeschlossene Projekte aus dem Blick räumen, ohne Daten zu verlieren",
+        "📅 Termine als Kalender-Datei (.ics) für Outlook, Apple und Google Kalender",
+        "🔒 Verschlüsselte Sicherungen mit Passwort und 📁 automatische Sicherung in einen Ordner (Edge/Chrome)",
+        "🏅 5 neue Erfolge"
+      ],
+      "en": [
+        "⚡ Quick entry (key N or ⚡): “Edit photos #shop @fri !high” becomes a task, “1:30 #shop” time, “12€ #shop” an investment, “+120€ #shop” income",
+        "🗂️ Kanban board for tasks with a new “In progress” status – drag and drop cards",
+        "⏱ Log time on tasks: timer right on the task, estimated effort and “estimate vs. actual”",
+        "🔁 Recurring tasks (daily to yearly) – ticking one off creates the next automatically",
+        "📝 Weekly review & planning with focus tasks and a new “Weekly focus” section",
+        "💰 Income and profit/loss in the new “Finances” tab – with return and result per hour",
+        "📋 Project templates (learning project, website, event or your own) and duplicating projects",
+        "🗄️ Archive: tidy away finished projects without losing any data",
+        "📅 Dates as a calendar file (.ics) for Outlook, Apple and Google Calendar",
+        "🔒 Password-encrypted backups and 📁 automatic backup to a folder (Edge/Chrome)",
+        "🏅 5 new achievements"
+      ]
+    },
+    {
       "version": "2026.11.21-5",
       "date": "2026-11-21",
       "de": [

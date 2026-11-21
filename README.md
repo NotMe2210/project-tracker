@@ -16,16 +16,27 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - **„Warum ist mir das wichtig?“** und **Zieldefinition**
 - Geplante Gesamtstunden, Budget und Zieltermin mit Fortschrittsbalken
 - **Wochenarbeitszeit pro Projekt.** Die Summe aller aktiven Projekte ergibt das Wochenziel. Ohne Projekt-Wochenzeiten gilt das Standard-Wochenziel aus den Einstellungen.
+- 📋 **Vorlagen:** Beim Anlegen eine Vorlage wählen (mitgeliefert: Lernprojekt, Website, Veranstaltung) oder eigene Vorlagen aus bestehenden Projekten speichern (⋯ › *Als Vorlage speichern*). Vorlagen enthalten Meilensteine, Aufgaben mit Unterpunkten, Schätzungen und Abhängigkeiten sowie Dokument-Verweise, aber keine Zeiten oder Beträge. Verwalten unter *Einstellungen › Projektvorlagen*.
+- ⧉ **Duplizieren** (⋯ › *Projekt duplizieren*): kopiert Meilensteine, Aufgaben und Dokument-Verweise. Alle Termine werden relativ zum gewählten neuen Projektstart verschoben.
+- 🗄️ **Archiv** (⋯ › *Archivieren*): Archivierte Projekte verschwinden aus Übersicht, Listen, Auswahlfeldern und Suche, zählen aber weiter für Statistiken und Erfolge. Sie bleiben unter *Projekte › Archiv* erreichbar und lassen sich wiederherstellen.
 
 **Erfassen**
 - ⏱ **Zeit**: per Stoppuhr (läuft im Hintergrund weiter, auch nach einem Neuladen) oder manuell (`1:30`, `1,5`, `45 min`)
   - **Pausieren** mit ⏸ neben „Stopp“. Solange der Timer pausiert ist, liegt ein Hinweis über dem ganzen Fenster, mit „Fortsetzen“ oder „Beenden & Zeit speichern“. So vergisst du das Weiterlaufenlassen nicht. Die Pausenzeit wird nicht mitgezählt.
   - 🍅 **Pomodoro-Timer**: 25 Min Fokus, 5 Min Pause, lange Pause nach jedem 4. Pomodoro (alles einstellbar). Mit Pausieren, Überspringen, Ton und Mitteilung. Beim Beenden wird die reine Fokuszeit als Zeiteintrag gespeichert.
   - jeder Eintrag mit **Titel** und **Beschreibung**. Ohne Titel werden Wochentag und Datum verwendet, z. B. „Montag, 16.11.2026“.
+- ⚡ **Schnelleingabe** (Taste **N**, ⚡ in Seitenleiste bzw. Kopfzeile oder über die Befehlspalette): eine Zeile mit Live-Vorschau, bleibt für weitere Einträge offen.
+  - `Fotos bearbeiten #shop @fr !hoch ~2h` → Aufgabe im Projekt „Online-Shop …“, fällig Freitag, hohe Priorität, 2 Std geschätzt
+  - `1:30 Produktfotos #shop` → Zeiteintrag · `12,90€ Holzleim #shop` → Investition · `+120€ Markt #shop` → Einnahme · `> Idee …` → Logbuch
+  - `#name` genügt mit dem Anfang des Projektnamens. Datum: `@heute`, `@morgen`, `@fr`, `@24.12.`, `@+3`, `@+2w`. Ohne `#` landet der Eintrag im aktuellen bzw. zuletzt benutzten Projekt.
 - 💶 **Investitionen** mit frei wählbarer Kategorie (Vorschläge oder eigene), Budgetvergleich und Aufteilung nach Kategorien. In der Liste nach **Monaten gruppiert**: der aktuelle Monat ist aufgeklappt, ältere Monate zeigen eingeklappt ihre Summe.
 - 🏁 **Meilensteine** mit Zieldatum und optional **„Erreicht am“** (zum Nachtragen früherer Etappen). Aufgaben lassen sich einem Meilenstein zuordnen und werden beim Meilenstein aufklappbar angezeigt, dort auch direkt abhakbar. Die Reihenfolge ist wählbar: **nach Zieldatum** oder in einer **eigenen Reihenfolge** (↑ ↓).
+- 💰 **Einnahmen & Gewinn/Verlust** im Reiter *Finanzen*: Einnahmen (Verkauf, Honorar, Förderung …) nach Monaten gruppiert, dazu Einnahmen, Ausgaben, **Gewinn/Verlust**, Rendite, **Ergebnis pro Stunde** und der Weg zur Gewinnschwelle. Als Kennzahl „Gewinn/Verlust“ auch in der Projektansicht wählbar.
 - ✅ **Aufgaben** mit Priorität, Fälligkeitsdatum und Notiz
   - **Unterpunkte** zum Abhaken. Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.
+  - 🗂️ **Kanban-Board** (Ansicht *Liste · Board*): Spalten Offen, **In Arbeit** und Erledigt, Karten per Drag-and-drop verschieben.
+  - ⏱ **Zeit auf Aufgaben buchen:** ▶ an der Aufgabe startet den Timer dafür (Status „In Arbeit“), Zeiteinträge und Pomodoros lassen sich einer Aufgabe zuordnen. Mit **geschätztem Aufwand** zeigt das Abzeichen *gebucht / geschätzt* (rot bei Überschreitung); der Reiter *Zeit* vergleicht **Schätzung vs. Ist** und sagt, wie gut deine Schätzungen treffen.
+  - 🔁 **Wiederkehrend:** täglich, werktags, wöchentlich, alle 2 Wochen, monatlich, vierteljährlich oder jährlich. Beim Abhaken entsteht automatisch die nächste Aufgabe mit neuem Fälligkeitsdatum (verpasste Termine werden übersprungen).
 - 📝 **Logbuch** für Ideen, Entscheidungen und kleine Erfolge
 
 **Sprache & Darstellung**
@@ -35,11 +46,12 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 
 **Übersicht & Motivation**
 - 🔥 **Animierter Motivationsbereich:** warmes, langsam pulsierendes Glühen (je länger die Serie, desto kräftiger) und ein pulsierender grüner Wochenziel-Balken, wählbar unter Einstellungen › Darstellung
+- 📝 **Wochenrückblick & Wochenplanung** (`#/woche`, über „Heute“ freitags bis montags, Kachel *Wochenfokus* oder Befehlspalette): Stunden gegen das Wochenziel, aktive Tage, erledigte Aufgaben, erreichte Meilensteine und neue Erfolge der Woche, Notizen „Was lief gut?“ / „Was hat gebremst?“ und je Projekt 1–3 **Fokus-Aufgaben** für die nächste Woche. Die Kachel **🎯 Wochenfokus** auf der Übersicht zeigt sie mit Fortschritt.
 - ☀️ **Heute:** bis zu 3 Vorschläge für den Tag (fällige Aufgaben, ruhendes Projekt, Rest zum Wochenziel, nahender Meilenstein) mit direktem Start
 - ⋯ **Schnellaktionen** pro Projekt (Pomodoro, Stoppuhr, Zeit, Aufgabe, Notiz, Status) in Tabelle, Kacheln und „Braucht Aufmerksamkeit“
 - **Klickbare Diagramme:** Tag bzw. Woche anklicken öffnet die Einträge (mit Bearbeiten). Projekte in der Legende ein- und ausblenden.
 - 📈 **Verlaufslinien** in den Kennzahlen (Wochen bzw. Monate)
-- 🏅 **Erfolge:** 37 Abzeichen für Stunden, Serien, aktive Tage, Pomodoros, Aufgaben, Unterpunkte, Meilensteine, Notizen sowie Zusammenarbeit und Dokumente (z. B. Teamplayer, Delegierer, Gemeinsam stark, Archivar), mit Fortschritt, sortiert von erreicht über Fortschritt bis offen. Neue Erfolge werden gefeiert.
+- 🏅 **Erfolge:** 42 Abzeichen für Stunden, Serien, aktive Tage, Pomodoros, Aufgaben, Unterpunkte, Meilensteine, Notizen, Wochenrückblicke, Einnahmen sowie Zusammenarbeit und Dokumente (z. B. Teamplayer, Delegierer, Gemeinsam stark, Archivar), mit Fortschritt, sortiert von erreicht über Fortschritt bis offen. Neue Erfolge werden gefeiert.
 - 🤫 **14 geheime Erfolge** (davon 4 rund ums Team): Name und Bedingung bleiben verborgen (🔒 ???), bis du sie zufällig erreichst. Dann werden sie mit einer eigenen Meldung enthüllt und golden hervorgehoben.
 - 🔎 **Befehlspalette** am Computer mit ⌘K bzw. Strg+K: Seiten, Projekte, Pomodoro, Zeit, Aufgaben, Darstellung …
 - 👆 **Wischgesten** auf dem iPhone: Aufgabe nach rechts wischen = erledigt, nach links = Optionen
@@ -131,7 +143,11 @@ Die Schritt-für-Schritt-Anleitung steht in der App unter **Einstellungen › Zw
 
 Wichtig für iPhone und iPad: Füge den Tracker über *Teilen › Zum Home-Bildschirm* hinzu und öffne ihn darüber. Sonst kann Safari die gespeicherten Daten nach 7 Tagen ohne Besuch löschen.
 
-Außerdem kannst du Zeiten und Investitionen als **CSV** exportieren (z. B. für Excel).
+Außerdem kannst du Zeiten, Investitionen und Einnahmen als **CSV** exportieren (z. B. für Excel) und alle Termine (Zieltermine, Meilensteine, fällige und geplante Aufgaben) als **Kalender-Datei (.ics)** für Outlook, Apple oder Google Kalender.
+
+**🔒 Verschlüsselte Sicherung:** *Einstellungen › Datensicherung › Verschlüsselt exportieren* schützt die Sicherungsdatei mit einem Passwort (AES-GCM 256 Bit, Schlüssel per PBKDF2-SHA-256 mit 310 000 Runden). Verschlüsselt wird im Browser, das Passwort verlässt das Gerät nie und wird nirgends gespeichert. Ohne Passwort lässt sich die Datei nicht mehr öffnen. Beim Import erkennt Protrac verschlüsselte Dateien automatisch und fragt nach dem Passwort.
+
+**📁 Automatische Sicherung in einen Ordner** (Edge, Chrome und andere Chromium-Browser am Computer): Unter *Einstellungen › Datensicherung* einen Ordner wählen, am besten in OneDrive, Dropbox oder iCloud Drive. Danach schreibt Protrac nach jeder Änderung (kurz verzögert) eine Tagesdatei `protrac-backup-JJJJ-MM-TT.json` dorthin und behält die letzten 7, 14, 30 oder 90 Tage. Die gelbe Erinnerungsleiste entfällt damit. Nach einem Browser-Neustart fragt der Browser einmal nach der Erlaubnis; eine blaue Leiste erinnert daran.
 
 ### Zeiten & Investitionen aus CSV importieren
 

@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-5';
+const APP_VERSION = '2026.11.21-6';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -44,6 +44,10 @@ const DEFAULT_DATA = {
   tasks: [],
   notes: [],
   docs: [], // Dokument-Verweise { id, projectId, taskId, milestoneId, title, url, note, createdAt }
+  reviews: {}, // Wochenrückblicke { 'YYYY-MM-DD' (Wochenbeginn): { good, blockers, savedAt } }
+  weekFocus: {}, // Wochenfokus { 'YYYY-MM-DD' (Wochenbeginn): [Aufgaben-IDs] }
+  templates: [], // eigene Projektvorlagen { id, name, icon, createdAt, bp }
+  incomes: [], // Einnahmen { id, projectId, description, amount, date, category }
   people: [], // Personen { id, name, short, color, email, accountId (später: Login-Konto), createdAt }
   teams: [], // Teams { id, name, color, memberIds: [Personen-IDs], createdAt }
   timer: null,
@@ -209,6 +213,8 @@ const CHEERS = ['Stark! 💪', 'Erledigt! ✅', 'Weiter so! 🚀', 'Super gemach
 setLang((() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').settings?.language; } catch { return null; } })());
 let data = load();
 let meta = loadMeta();
+/** Automatische Sicherung in einen Ordner (Zustand dieser Sitzung, siehe initFolderBackup) */
+const folderBackup = { handle: null, perm: 'none', busy: false, error: '', timer: null };
 let syncState = loadSyncState();
 let pushTimer = null;
 // Laufzeit-Zustand der Server-Verbindung (nicht gespeichert)
@@ -236,6 +242,9 @@ function normalize(d) {
   out.settings = { ...DEFAULT_DATA.settings, ...((d && d.settings) || {}) };
   out.tasks = (out.tasks || []).map((t) => (Array.isArray(t.subtasks) ? t : { ...t, subtasks: [] }));
   out.counters = { pomodoros: 0, ...(out.counters || {}) };
+  // Schlüssel-Wert-Objekte: PHP macht beim Server-Abgleich aus leerem {} ein [] – zurückwandeln
+  if (Array.isArray(out.achievements)) out.achievements = {}; // null bleibt null (= noch nie geprüft)
+  for (const k of ['reviews', 'weekFocus']) if (!out[k] || typeof out[k] !== 'object' || Array.isArray(out[k])) out[k] = {};
   // Neue Übersichts-Bereiche „Heute“ und „Erfolge“ auch in bereits angepassten Layouts einblenden (einmalig)
   const dash = out.settings.dashboard;
   if (dash?.widgets && !(out.settings.layoutRev >= 2)) {
@@ -264,6 +273,7 @@ function save() {
     meta.lastChange = Date.now();
     saveMeta();
     if (isServerMode()) { syncState.dirty = true; saveSyncState(); if (server.authed) schedulePush(); }
+    else scheduleFolderBackup();
   } catch (e) {
     toast(tr('Speichern fehlgeschlagen: {msg}', { msg: e.message }), 'error');
   }
@@ -460,6 +470,8 @@ function parseAmount(s) {
 const statusLabel = (v) => (STATUS.find((s) => s.value === v) || {}).label || v;
 const prioLabel = (v) => (PRIORITIES.find((s) => s.value === v) || {}).label || v;
 const getProject = (id) => data.projects.find((p) => p.id === id);
+/** Projekte ohne Archiv – für Übersicht, Listen und Auswahlfelder */
+const liveProjects = () => data.projects.filter((p) => !p.archived);
 
 /* ------------------------------------------------------------------------
    Auswertungen
@@ -491,6 +503,7 @@ function sortTasks(tasks) {
   const rank = milestoneRanks();
   const msRank = (t) => (t.milestoneId && rank.has(t.milestoneId) ? rank.get(t.milestoneId) : Infinity);
   return [...tasks].sort((a, b) =>
+    Number(b.status === 'doing' && !b.done) - Number(a.status === 'doing' && !a.done) || // „In Arbeit“ zuerst
     (PRIO_ORDER[a.priority] ?? 1) - (PRIO_ORDER[b.priority] ?? 1) ||
     (msRank(a) === msRank(b) ? 0 : msRank(a) < msRank(b) ? -1 : 1) ||
     (a.dueDate || '9999').localeCompare(b.dueDate || '9999') ||
@@ -599,6 +612,7 @@ function projectStats(p) {
   const ms = data.milestones.filter((m) => m.projectId === p.id);
   const minutes = sum(data.timeEntries.filter((e) => e.projectId === p.id), (e) => e.minutes);
   const invested = sum(data.investments.filter((e) => e.projectId === p.id), (e) => e.amount);
+  const income = sum((data.incomes || []).filter((e) => e.projectId === p.id), (e) => e.amount);
   const tasksDone = tasks.filter((t) => t.done).length;
   const msDone = ms.filter((m) => m.done).length;
   let progress = 0;
@@ -608,7 +622,7 @@ function projectStats(p) {
   const last = lastActivity(p);
   const idle = last ? daysBetween(last, todayISO()) : 0;
   return {
-    minutes, invested, progress, last, idle,
+    minutes, invested, income, profit: income - invested, progress, last, idle,
     // Fortschritt ist nur messbar mit Aufgaben oder Meilensteinen (oder wenn das Projekt abgeschlossen ist)
     hasProgress: p.status === 'abgeschlossen' || ms.length > 0 || tasks.length > 0,
     tasksOpen: tasks.length - tasksDone, tasksDone, tasksTotal: tasks.length,
@@ -633,7 +647,7 @@ function weekMinutes(offset = 0, pid) {
  */
 const projectWeeklyMin = (p) => Math.max(0, Number(p.weeklyHours) || 0) * 60;
 function weeklyGoal() {
-  const projects = data.projects.filter((p) => p.status === 'aktiv' && projectWeeklyMin(p) > 0);
+  const projects = liveProjects().filter((p) => p.status === 'aktiv' && projectWeeklyMin(p) > 0);
   if (projects.length) return { minutes: sum(projects, projectWeeklyMin), source: 'projects', projects };
   return { minutes: Math.max(0, Number(data.settings.weeklyHoursGoal) || 0) * 60, source: 'general', projects: [] };
 }
@@ -673,6 +687,7 @@ function render() {
   if (r.view === 'projekte') html = renderProjects();
   else if (r.view === 'projekt') html = renderProject(r.id, r.tab);
   else if (r.view === 'einstellungen') html = renderSettings();
+  else if (r.view === 'woche') html = renderWeekReview(r.id);
   else html = renderDashboard();
   app.innerHTML = html;
   restoreGanttScroll();
@@ -706,6 +721,12 @@ function renderBackupBar() {
         <button class="btn primary small" data-action="importData">⬆ ${tr('Sicherung importieren')}</button>
         <button class="btn small" data-action="dismissSyncHint">${tr('Nein, weiter')}</button>
       </span></div>`;
+    bar.hidden = false;
+  } else if (folderBackup.handle && folderBackup.perm === 'prompt') {
+    bar.className = 'backup-bar info';
+    bar.innerHTML = `<div class="container">
+      <span>📁 ${tr('Die automatische Sicherung in „{name}“ wartet auf deine Erlaubnis.', { name: esc(folderBackup.handle.name) })}<span class="long"> ${tr('Der Browser fragt nach jedem Neustart einmal nach.')}</span></span>
+      <span class="btn-row"><button class="btn primary small" data-action="resumeFolderBackup">🔓 ${tr('Zugriff erneuern')}</button></span></div>`;
     bar.hidden = false;
   } else if (dirty) {
     bar.className = 'backup-bar warn';
@@ -771,6 +792,7 @@ const WIDGETS = [
   { id: 'attention', get label() { return tr('Braucht Aufmerksamkeit'); }, icon: '⚠️', wide: false, visible: true },
   { id: 'milestones', get label() { return tr('Anstehende Meilensteine'); }, icon: '🏁', wide: false, visible: true },
   { id: 'myTasks', get label() { return tr('Meine Aufgaben'); }, icon: '🙋', wide: false, visible: false },
+  { id: 'weekFocus', get label() { return tr('Wochenfokus'); }, icon: '🎯', wide: false, visible: true },
   { id: 'nextSteps', get label() { return tr('Nächste Schritte'); }, icon: '👉', wide: false, visible: true },
   { id: 'activity', get label() { return tr('Aktivität (12 Wochen)'); }, icon: '📈', wide: false, visible: true },
   { id: 'projects', get label() { return tr('Alle Projekte (Tabelle)'); }, icon: '📋', wide: true, visible: true },
@@ -812,6 +834,7 @@ const PROJECT_STATS = [
   { id: 'total', get label() { return tr('Zeit gesamt'); }, visible: true },
   { id: 'week', get label() { return tr('Diese Woche'); }, visible: true },
   { id: 'invested', get label() { return tr('Investiert'); }, visible: true },
+  { id: 'profit', get label() { return tr('Gewinn/Verlust'); }, visible: false },
   { id: 'openTasks', get label() { return tr('Offene Aufgaben'); }, visible: true },
   { id: 'target', get label() { return tr('Zieltermin'); }, visible: true },
   { id: 'lastActive', get label() { return tr('Zuletzt aktiv'); }, visible: false },
@@ -1146,9 +1169,9 @@ function renderDashboard() {
 
 function dashboardContext() {
   const today = todayISO();
-  const active = data.projects.filter((p) => p.status === 'aktiv');
+  const active = liveProjects().filter((p) => p.status === 'aktiv');
   const stats = new Map(data.projects.map((p) => [p.id, projectStats(p)]));
-  const openTasks = data.tasks.filter((t) => !t.done && getProject(t.projectId)?.status !== 'abgeschlossen');
+  const openTasks = data.tasks.filter((t) => { const p = getProject(t.projectId); return !t.done && p && p.status !== 'abgeschlossen' && !p.archived; });
   const stale = active
     .map((p) => ({ p, s: stats.get(p.id) }))
     .filter((x) => x.s.health && x.s.health !== 'gut')
@@ -1182,6 +1205,19 @@ function renderWidget(id, c, cfg) {
     case 'today':
       return renderToday(c);
 
+    case 'weekFocus': {
+      const wk = toISO(startOfWeek(new Date()));
+      const ids = data.weekFocus?.[wk] || [];
+      const tasks = ids.map((id) => data.tasks.find((t) => t.id === id)).filter(Boolean);
+      const done = tasks.filter((t) => t.done).length;
+      return card(`🎯 ${tr('Wochenfokus')}`, tasks.length ? `
+        ${progressBar((done / tasks.length) * 100, done === tasks.length ? 'good' : '')}
+        <div class="small muted" style="margin:6px 0 4px">${tr('{done} von {n} Fokus-Aufgaben erledigt', { done, n: tasks.length })}</div>
+        <ul class="list">${sortTasks(tasks.filter((t) => !t.done)).concat(tasks.filter((t) => t.done)).map((t) => taskItem(t, { showProject: true })).join('')}</ul>`
+        : `<div class="empty">${tr('Noch kein Fokus für diese Woche. Wähle im Wochenrückblick 1–3 Aufgaben je Projekt, auf die du dich konzentrieren willst.')}<br><br><a class="btn small primary" href="#/woche/${toISO(addDays(parseISO(wk), -7))}">📝 ${tr('Woche planen')}</a></div>`,
+        `<a class="btn small" href="#/woche">📝 ${tr('Rückblick')}</a>`);
+    }
+
     case 'achievements':
       return data.settings.achievementsOn === false ? '' : renderAchievements();
 
@@ -1204,7 +1240,7 @@ function renderWidget(id, c, cfg) {
       const me = currentPerson();
       if (!me) return card(`🙋 ${tr('Meine Aufgaben')}`, `<div class="empty">${tr('Lege unter Einstellungen › Team fest, wer du bist – dann siehst du hier alles, was dir oder deinen Teams zugewiesen ist.')}<br><br><a class="btn small" href="#/einstellungen" data-open-section="team">👥 ${tr('Team einrichten')}</a></div>`);
       const tasks = sortTasks(c.openTasks.filter((t) => isMine(t)));
-      const ms = data.milestones.filter((m) => !m.done && isMine(m) && getProject(m.projectId)?.status !== 'abgeschlossen')
+      const ms = data.milestones.filter((m) => !m.done && isMine(m) && getProject(m.projectId)?.status !== 'abgeschlossen' && !getProject(m.projectId)?.archived)
         .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
       return card(`🙋 ${tr('Meine Aufgaben')}`, tasks.length || ms.length ? `<div class="scroll-list">
           ${tasks.length ? `<ul class="list">${tasks.map((t) => taskItem(t, { showProject: true })).join('')}</ul>` : ''}
@@ -1238,7 +1274,7 @@ function renderWidget(id, c, cfg) {
 
     case 'milestones': {
       const list = data.milestones
-        .filter((m) => !m.done && m.dueDate && getProject(m.projectId) && getProject(m.projectId).status !== 'abgeschlossen')
+        .filter((m) => !m.done && m.dueDate && getProject(m.projectId) && getProject(m.projectId).status !== 'abgeschlossen' && !getProject(m.projectId).archived)
         .sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 6);
       return card(tr('🏁 Anstehende Meilensteine'), list.length ? `<ul class="list">${list.map((m) => milestoneItem(m, { showProject: true })).join('')}</ul>`
         : `<div class="empty">${tr('Keine terminierten Meilensteine.')}</div>`);
@@ -1252,7 +1288,7 @@ function renderWidget(id, c, cfg) {
 
     case 'weekProjects': {
       // Projekte mit Zeit diese Woche oder mit eigenem Wochenziel (aktiv)
-      const rows = data.projects
+      const rows = liveProjects()
         .map((p) => ({ p, min: weekMinutes(0, p.id), goal: p.status === 'aktiv' ? projectWeeklyMin(p) : 0 }))
         .filter((x) => x.min > 0 || x.goal > 0)
         .sort((a, b) => (b.goal ? b.min / b.goal : 0) - (a.goal ? a.min / a.goal : 0) || b.min - a.min);
@@ -1276,7 +1312,7 @@ function renderWidget(id, c, cfg) {
 
     case 'projects': {
       const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
-      const sorted = [...data.projects].sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
+      const sorted = liveProjects().sort((a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name));
       return card(tr('📋 Alle Projekte'), `<div class="table-wrap"><table>
         <thead><tr><th>${tr('Projekt')}</th><th>${tr('Status')}</th><th>${tr('Fortschritt')}</th><th class="num">${tr('Zeit')}</th><th class="num">${tr('Diese Woche')}</th><th class="num">${tr('Investiert')}</th><th class="num">${tr('Offene Aufg.')}</th><th>${tr('Zuletzt aktiv')}</th></tr></thead>
         <tbody>${sorted.map((p) => {
@@ -1296,7 +1332,7 @@ function renderWidget(id, c, cfg) {
     }
 
     case 'roadmap': {
-      const list = data.projects.filter((p) => p.status === 'aktiv' || p.status === 'pausiert');
+      const list = liveProjects().filter((p) => p.status === 'aktiv' || p.status === 'pausiert');
       if (!list.length) return '';
       return card(`🗺️ ${tr('Roadmap')}`, roadmapChart(list, { compact: true }), `<a class="btn small" href="#/projekte" data-action="openRoadmap">${tr('Alle Projekte')}</a>`);
     }
@@ -1615,10 +1651,76 @@ function syncTaskDone(t) {
   return null;
 }
 
+/* Wiederkehrende Aufgaben: beim Erledigen entsteht automatisch die nächste */
+const REPEATS = [
+  { value: '', get label() { return tr('– nicht wiederholen –'); } },
+  { value: 'daily', get label() { return tr('täglich'); } },
+  { value: 'workdays', get label() { return tr('werktags (Mo–Fr)'); } },
+  { value: 'weekly', get label() { return tr('wöchentlich'); } },
+  { value: 'biweekly', get label() { return tr('alle 2 Wochen'); } },
+  { value: 'monthly', get label() { return tr('monatlich'); } },
+  { value: 'quarterly', get label() { return tr('vierteljährlich'); } },
+  { value: 'yearly', get label() { return tr('jährlich'); } },
+];
+const repeatLabel = (r) => REPEATS.find((x) => x.value === r)?.label || '';
+function addMonthsISO(iso, n) {
+  const d = parseISO(iso), day = d.getDate();
+  d.setDate(1); d.setMonth(d.getMonth() + n);
+  d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return toISO(d);
+}
+function nextRepeatDate(iso, r) {
+  switch (r) {
+    case 'daily': return toISO(addDays(parseISO(iso), 1));
+    case 'workdays': { let d = addDays(parseISO(iso), 1); while ([0, 6].includes(d.getDay())) d = addDays(d, 1); return toISO(d); }
+    case 'weekly': return toISO(addDays(parseISO(iso), 7));
+    case 'biweekly': return toISO(addDays(parseISO(iso), 14));
+    case 'monthly': return addMonthsISO(iso, 1);
+    case 'quarterly': return addMonthsISO(iso, 3);
+    case 'yearly': return addMonthsISO(iso, 12);
+  }
+  return null;
+}
+/** Legt die nächste Wiederholung an (einmal je erledigter Aufgabe) und gibt sie zurück */
+function spawnRecurrence(t) {
+  if (!t.repeat || !t.done || (t.nextId && data.tasks.some((x) => x.id === t.nextId))) return null;
+  const today = todayISO();
+  let due = nextRepeatDate(t.dueDate || today, t.repeat);
+  for (let i = 0; due && due <= today && i < 1000; i++) due = nextRepeatDate(due, t.repeat); // verpasste Termine überspringen
+  if (!due) return null;
+  const ms = t.milestoneId && data.milestones.find((m) => m.id === t.milestoneId && !m.done);
+  const next = {
+    id: uid(), projectId: t.projectId, title: t.title, priority: t.priority, dueDate: due, repeat: t.repeat,
+    notes: t.notes || '', estimate: t.estimate || null, duration: t.duration || null, assignees: [...(t.assignees || [])],
+    milestoneId: ms ? ms.id : null, subtasks: (t.subtasks || []).map((st) => ({ id: uid(), title: st.title, done: false, doneAt: null })),
+    done: false, doneAt: null, status: 'open', createdAt: new Date().toISOString(),
+  };
+  data.tasks.push(next);
+  t.nextId = next.id;
+  return next;
+}
+
 function celebrateTask(t) {
+  const next = spawnRecurrence(t);
+  if (next) {
+    commit();
+    return toast(`${tr(pick(CHEERS))} ${tr('🔁 Nächste Wiederholung am {date}.', { date: fmtDate(next.dueDate) })}`);
+  }
   const left = data.tasks.filter((x) => x.projectId === t.projectId && !x.done).length;
   toast(`${tr(pick(CHEERS))} ${left ? tr('Noch {n} offen.', { n: left }) : tr('Alle Aufgaben erledigt!')}`);
   if (!left) confetti();
+}
+
+/** Auf eine Aufgabe gebuchte Minuten */
+function taskMinutes(id) { return sum(data.timeEntries.filter((e) => e.taskId === id), (e) => e.minutes); }
+const fmtHM = (m) => `${Math.floor(m / 60)}:${pad(Math.round(m % 60))}`;
+/** Badge „⏱ gebucht / geschätzt“ – rot, wenn die Schätzung überschritten ist */
+function taskTimeBadge(t) {
+  const spent = taskMinutes(t.id), est = t.estimate || 0;
+  if (!spent && !est) return '';
+  const over = est && spent > est;
+  const title = est ? tr('{spent} gebucht von {est} geschätzt', { spent: fmtDuration(spent), est: fmtDuration(est) }) : tr('{spent} gebucht', { spent: fmtDuration(spent) });
+  return `<span class="badge time ${over ? 'over' : ''}" title="${title}">⏱ ${fmtHM(spent)}${est ? ` / ${fmtHM(est)}` : ''}</span>`;
 }
 
 function taskItem(t, { showProject = false } = {}) {
@@ -1636,6 +1738,9 @@ function taskItem(t, { showProject = false } = {}) {
         ${subs.length ? `<span class="badge ${subsDone === subs.length ? 'aktiv' : ''}">☑ ${subsDone}/${subs.length}</span>` : ''}
         ${showProject && p ? `<span><span class="dot-color" style="background:${esc(p.color)}"></span> <a href="#/projekt/${p.id}/aufgaben">${esc(p.name)}</a></span>` : ''}
         <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
+        ${!t.done && t.status === 'doing' ? `<span class="badge doing">▶ ${tr('In Arbeit')}</span>` : ''}
+        ${taskTimeBadge(t)}
+        ${t.repeat ? `<span class="badge" title="${tr('Wiederkehrende Aufgabe')}">🔁 ${repeatLabel(t.repeat)}</span>` : ''}
         ${assigneeBadges(t.assignees)}
         ${taskPlanBadges(t)}
         ${t.done ? `<span>${tr('erledigt {when}', { when: fmtRelative(t.doneAt) })}</span>` : dueBadge(t.dueDate)}
@@ -1651,6 +1756,9 @@ function taskItem(t, { showProject = false } = {}) {
       ${t.done || showProject ? '' : `<button class="btn ghost small add-sub" data-action="addSubtask" data-id="${t.id}">${tr('+ Unterpunkt')}</button>`}
     </div>
     <div class="actions">
+      ${t.done ? '' : data.timer?.taskId === t.id
+        ? `<button class="btn ghost icon timer-on" data-action="stopTimer" title="${tr('Timer stoppen')}">■</button>`
+        : `<button class="btn ghost icon" data-action="startTimer" data-id="${t.projectId}" data-task="${t.id}" title="${tr('Timer für diese Aufgabe starten')}">▶</button>`}
       <button class="btn ghost icon" data-action="addDoc" data-id="${t.projectId}" data-task="${t.id}" title="${tr('Dokument verknüpfen')}">📎</button>
       <button class="btn ghost icon" data-action="editTask" data-id="${t.id}" title="${tr('Bearbeiten')}">✎</button>
       <button class="btn ghost icon danger" data-action="deleteTask" data-id="${t.id}" title="${tr('Löschen')}">🗑</button>
@@ -1698,11 +1806,12 @@ function milestoneItem(m, { showProject = false, move = null } = {}) {
 /* ---------------------------- Projektliste ------------------------------- */
 
 function renderProjects() {
-  const counts = { alle: data.projects.length };
-  STATUS.forEach((s) => (counts[s.value] = data.projects.filter((p) => p.status === s.value).length));
+  const live = liveProjects();
+  const counts = { alle: live.length, archiv: data.projects.length - live.length };
+  STATUS.forEach((s) => (counts[s.value] = live.filter((p) => p.status === s.value).length));
   if (projectFilter !== 'alle' && !counts[projectFilter] && counts.alle) projectFilter = 'alle';
-  const list = data.projects
-    .filter((p) => projectFilter === 'alle' || p.status === projectFilter)
+  const list = (projectFilter === 'archiv' ? data.projects.filter((p) => p.archived) : live)
+    .filter((p) => projectFilter === 'alle' || projectFilter === 'archiv' || p.status === projectFilter)
     .map((p) => ({ p, s: projectStats(p) }))
     .sort((a, b) => (b.s.last || '').localeCompare(a.s.last || '') || a.p.name.localeCompare(b.p.name));
 
@@ -1715,6 +1824,7 @@ function renderProjects() {
       <div class="chips">
         ${[{ value: 'alle', label: tr('Alle') }, ...STATUS].map((s) =>
           `<button class="chip ${projectFilter === s.value ? 'active' : ''}" data-action="filterProjects" data-id="${s.value}">${s.label} (${counts[s.value]})</button>`).join('')}
+        ${counts.archiv ? `<button class="chip ${projectFilter === 'archiv' ? 'active' : ''}" data-action="filterProjects" data-id="archiv">🗄️ ${tr('Archiv')} (${counts.archiv})</button>` : ''}
       </div>
       <div class="segmented view-toggle" role="group" aria-label="${tr('Ansicht')}">
         <button type="button" class="seg-btn ${projectView === 'grid' ? 'active' : ''}" data-action="setProjectView" data-id="grid" aria-pressed="${projectView === 'grid'}" title="${tr('Kacheln')}">▦ <span>${tr('Kacheln')}</span></button>
@@ -1788,13 +1898,13 @@ function renderProject(id, tab) {
     aufgaben: s.tasksOpen,
     meilensteine: s.msTotal,
     zeit: data.timeEntries.filter((e) => e.projectId === id).length,
-    investitionen: data.investments.filter((e) => e.projectId === id).length,
+    investitionen: data.investments.filter((e) => e.projectId === id).length + (data.incomes || []).filter((e) => e.projectId === id).length,
     logbuch: data.notes.filter((e) => e.projectId === id).length,
     dokumente: data.docs.filter((e) => e.projectId === id).length,
   };
   const tabs = [
     ['uebersicht', tr('Übersicht')], ['aufgaben', tr('Aufgaben')], ['meilensteine', tr('Meilensteine')], ['zeitplan', tr('Zeitplan')],
-    ['zeit', tr('Zeit')], ['investitionen', tr('Investitionen')], ['logbuch', tr('Logbuch')], ['dokumente', tr('Dokumente')],
+    ['zeit', tr('Zeit')], ['investitionen', tr('Finanzen')], ['logbuch', tr('Logbuch')], ['dokumente', tr('Dokumente')],
   ];
   const body = {
     uebersicht: projectOverview, aufgaben: projectTasks, meilensteine: projectMilestones,
@@ -1802,6 +1912,8 @@ function renderProject(id, tab) {
   }[tab] || projectOverview;
 
   return `
+    ${p.archived ? `<div class="banner archived-banner"><span>🗄️ ${tr('Dieses Projekt ist archiviert ({date}). Es erscheint nicht mehr in der Übersicht, in Listen und Auswahlfeldern.', { date: fmtDate(p.archivedAt) })}</span>
+      <button class="btn small primary" data-action="unarchiveProject" data-id="${p.id}">${tr('Wiederherstellen')}</button></div>` : ''}
     <div class="page-head">
       <div>
         <div class="project-title">
@@ -1825,6 +1937,7 @@ function renderProject(id, tab) {
         <button class="btn" data-action="addTime" data-id="${p.id}">${tr('+ Zeit')}</button>
         <button class="btn" data-action="editProject" data-id="${p.id}">${tr('Bearbeiten')}</button>
         <button class="btn danger" data-action="deleteProject" data-id="${p.id}">${tr('Löschen')}</button>
+        ${qaButton(p)}
       </div>
     </div>
     <nav class="tabs">
@@ -1862,6 +1975,8 @@ function projectStatTiles(p, s) {
             : `<div class="sub">${tr('kein eigenes Wochenziel')}</div>`}</div>`,
         invested: `<div class="stat"><div class="label">${tr('Investiert')}</div><div class="value">${fmtEUR(s.invested)}</div>
           ${budget ? progressBar((s.invested / budget) * 100, s.invested > budget ? 'over' : '') + `<div class="sub">${tr('Budget {b}', { b: fmtEUR(budget) })} · ${s.invested > budget ? tr('überschritten') : tr('{amount} übrig', { amount: fmtEUR(budget - s.invested) })}</div>` : `<div class="sub">${tr('kein Budget festgelegt')}</div>`}</div>`,
+        profit: `<div class="stat"><div class="label">${tr('Gewinn/Verlust')}</div><div class="value ${s.profit > 0 ? 'pos' : s.profit < 0 ? 'neg' : ''}">${s.profit > 0 ? '+' : ''}${fmtEUR(s.profit)}</div>
+          <div class="sub">${s.income || s.invested ? tr('{inc} Einnahmen · {inv} Ausgaben', { inc: fmtEUR(s.income), inv: fmtEUR(s.invested) }) : tr('noch keine Einnahmen')}</div></div>`,
         openTasks: `<div class="stat"><div class="label">${tr('Offene Aufgaben')}</div><div class="value">${s.tasksOpen}</div><div class="sub">${tr('{n} erledigt', { n: s.tasksDone })}</div></div>`,
         target: `<div class="stat"><div class="label">${tr('Zieltermin')}</div><div class="value" style="font-size:1.15rem">${p.targetDate ? fmtDate(p.targetDate) : '–'}</div><div class="sub">${p.targetDate ? fmtRelative(p.targetDate) : tr('kein Zieltermin')}</div></div>`,
         lastActive: `<div class="stat"><div class="label">${tr('Zuletzt aktiv')}</div><div class="value" style="font-size:1.15rem">${fmtRelative(s.last)}</div><div class="sub">${s.last ? fmtDate(s.last) : ''}</div></div>`,
@@ -1961,8 +2076,16 @@ function projectTasks(p) {
   const tasks = data.tasks.filter((t) => t.projectId === p.id && matchesWho(t, taskWhoFilter));
   const open = sortTasks(tasks.filter((t) => !t.done));
   const done = tasks.filter((t) => t.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
+  const viewSwitch = `<div class="segmented" role="group" aria-label="${tr('Ansicht')}">
+      <button type="button" class="seg-btn ${taskView === 'list' ? 'active' : ''}" data-action="setTaskView" data-id="list" aria-pressed="${taskView === 'list'}">☰ <span>${tr('Liste')}</span></button>
+      <button type="button" class="seg-btn ${taskView === 'board' ? 'active' : ''}" data-action="setTaskView" data-id="board" aria-pressed="${taskView === 'board'}">▥ <span>${tr('Board')}</span></button></div>`;
+  if (taskView === 'board') return `<section class="card">
+    <div class="card-head"><h2>${tr('Aufgaben')} (${tasks.length})</h2><span class="btn-row">${viewSwitch}<button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
+    ${whoFilterChips(p)}
+    ${kanbanBoard(open, done)}
+  </section>`;
   return `<section class="card">
-    <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
+    <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><span class="btn-row">${viewSwitch}<button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
     ${whoFilterChips(p)}
     ${open.length ? PRIORITIES.map(({ value, label }) => {
       const group = open.filter((t) => (t.priority || 'mittel') === value);
@@ -1991,16 +2114,21 @@ function projectMilestones(p) {
   </section>`;
 }
 
+function entryTaskLabel(e) {
+  const tk = e.taskId && data.tasks.find((t) => t.id === e.taskId);
+  return tk && tk.title !== e.title ? `<span>☑ ${esc(tk.title)}</span>` : '';
+}
+
 function projectTime(p) {
   const entries = data.timeEntries.filter((e) => e.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date));
   const total = sum(entries, (e) => e.minutes);
-  return `<section class="card">
+  return `${taskTimeCard(p, total)}<section class="card">
     <div class="card-head"><h2>${tr('Zeiteinträge')} · ${fmtHours(total)}</h2><span class="btn-row"><button class="btn small" data-action="importCsv" data-id="${p.id}" title="${tr('Zeit & Investitionen aus CSV importieren')}">⬆ CSV</button><button class="btn primary small" data-action="addTime" data-id="${p.id}">${tr('+ Zeit')}</button></span></div>
     ${entries.length ? `<ul class="list">${entries.map((e) => `
       <li>
         <div class="grow">
           <div class="title">${esc(entryTitle(e))}</div>
-          <div class="meta"><span class="amount">⏱️ ${fmtDuration(e.minutes)}</span>${e.autoTitle ? '' : `<span>${esc(autoTimeTitle(e.date))}</span>`}</div>
+          <div class="meta"><span class="amount">⏱️ ${fmtDuration(e.minutes)}</span>${e.autoTitle ? '' : `<span>${esc(autoTimeTitle(e.date))}</span>`}${entryTaskLabel(e)}</div>
           ${e.description ? `<div class="entry-desc">${esc(e.description)}</div>` : ''}
         </div>
         <div class="actions">
@@ -2011,16 +2139,49 @@ function projectTime(p) {
   </section>`;
 }
 
+/** Schätzung vs. Ist je Aufgabe */
+function taskTimeCard(p, total) {
+  const rows = sortTasks(data.tasks.filter((t) => t.projectId === p.id)).map((t) => ({ t, spent: taskMinutes(t.id), est: t.estimate || 0 })).filter((x) => x.spent || x.est);
+  if (!rows.length) return '';
+  const booked = sum(rows, (x) => x.spent), est = sum(rows, (x) => x.est);
+  const doneRows = rows.filter((x) => x.t.done && x.est && x.spent);
+  const ratio = doneRows.length ? sum(doneRows, (x) => x.spent) / sum(doneRows, (x) => x.est) : 0;
+  return `<section class="card">
+    <h2>⏱ ${tr('Schätzung vs. Ist')}</h2>
+    <p class="small muted" style="margin-top:0">${tr('{booked} auf Aufgaben gebucht ({pct} % der Projektzeit), {est} geschätzt.', { booked: fmtHours(booked), pct: total ? Math.round((booked / total) * 100) : 0, est: fmtHours(est) })}
+      ${ratio ? (ratio > 1.1 ? tr('Erledigte Aufgaben dauerten im Schnitt {x} × so lange wie geschätzt.', { x: fmtNum(ratio, 1) }) : ratio < 0.9 ? tr('Erledigte Aufgaben gingen im Schnitt schneller als geschätzt ({x} ×).', { x: fmtNum(ratio, 1) }) : tr('Deine Schätzungen treffen ziemlich genau. 🎯')) : ''}</p>
+    <ul class="list">${rows.map(({ t, spent, est }) => `<li class="${t.done ? 'done' : ''}"><div class="grow">
+      <div class="row-between"><span class="title">${esc(t.title)}</span>${taskTimeBadge(t)}</div>
+      ${est ? `<div style="margin-top:6px">${progressBar(Math.min(100, (spent / est) * 100), spent > est ? 'bad' : t.done ? 'good' : '')}</div>` : ''}
+    </div></li>`).join('')}</ul>
+  </section>`;
+}
+
 function projectInvestments(p) {
   const items = data.investments.filter((e) => e.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date));
   const total = sum(items, (e) => e.amount);
   const byCat = {};
   items.forEach((i) => (byCat[i.category || tr('Sonstiges')] = (byCat[i.category || tr('Sonstiges')] || 0) + i.amount));
   const budget = Number(p.budget) || 0;
-  return `<div class="grid-2">
+  const incomes = (data.incomes || []).filter((e) => e.projectId === p.id).sort((a, b) => b.date.localeCompare(a.date));
+  const income = sum(incomes, (e) => e.amount), profit = income - total;
+  const hours = sum(data.timeEntries.filter((e) => e.projectId === p.id), (e) => e.minutes) / 60;
+  const tile = (label, value, sub = '', cls = '') => `<div class="stat"><div class="label">${label}</div><div class="value ${cls}">${value}</div><div class="sub">${sub}</div></div>`;
+  return `<div class="stats week-stats">
+    ${tile(tr('Einnahmen'), fmtEUR(income), trp(incomes.length, '{n} Eintrag', '{n} Einträge'))}
+    ${tile(tr('Ausgaben'), fmtEUR(total), budget ? tr('Budget {b}', { b: fmtEUR(budget) }) : '')}
+    ${tile(tr('Gewinn/Verlust'), `${profit > 0 ? '+' : ''}${fmtEUR(profit)}`, total ? tr('Rendite {pct} %', { pct: fmtNum((profit / total) * 100, 0) }) : '', profit > 0 ? 'pos' : profit < 0 ? 'neg' : '')}
+    ${tile(tr('Pro Stunde'), hours >= 0.5 ? fmtEUR(profit / hours) : '–', hours >= 0.5 ? tr('Ergebnis ÷ {h}', { h: fmtHours(hours * 60) }) : tr('noch zu wenig Zeit erfasst'), profit > 0 ? 'pos' : profit < 0 ? 'neg' : '')}
+  </div>
+  ${total && income < total && income > 0 ? `<div class="card"><div class="row-between small"><span>${tr('Bis zur Gewinnschwelle')}</span><span>${fmtEUR(total - income)}</span></div>${progressBar((income / total) * 100)}</div>` : ''}
+  <div class="grid-2">
     <section class="card">
-      <div class="card-head"><h2>${tr('Investitionen')} · ${fmtEUR(total)}</h2><span class="btn-row"><button class="btn small" data-action="importCsv" data-id="${p.id}" title="${tr('Zeit & Investitionen aus CSV importieren')}">⬆ CSV</button><button class="btn primary small" data-action="addInvestment" data-id="${p.id}">${tr('+ Investition')}</button></span></div>
-      ${items.length ? investmentMonths(p.id, items) : `<div class="empty">${tr('Noch keine Investitionen erfasst.')}</div>`}
+      <div class="card-head"><h2>💰 ${tr('Einnahmen')} · ${fmtEUR(income)}</h2><button class="btn primary small" data-action="addIncome" data-id="${p.id}">${tr('+ Einnahme')}</button></div>
+      ${incomes.length ? investmentMonths(p.id, incomes, 'income') : `<div class="empty">${tr('Noch keine Einnahmen erfasst – z. B. Verkäufe, Honorare oder Fördergelder.')}</div>`}
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>💶 ${tr('Investitionen')} · ${fmtEUR(total)}</h2><span class="btn-row"><button class="btn small" data-action="importCsv" data-id="${p.id}" title="${tr('Zeit & Investitionen aus CSV importieren')}">⬆ CSV</button><button class="btn primary small" data-action="addInvestment" data-id="${p.id}">${tr('+ Investition')}</button></span></div>
+      ${items.length ? investmentMonths(p.id, items, 'inv') : `<div class="empty">${tr('Noch keine Investitionen erfasst.')}</div>`}
     </section>
     <section class="card">
       <h2>${tr('Nach Kategorie')}</h2>
@@ -2033,25 +2194,26 @@ function projectInvestments(p) {
 /* Investitionen nach Monat gruppiert: aktueller Monat aufgeklappt, ältere eingeklappt mit Monatssumme.
    Selbst auf- oder zugeklappte Monate bleiben so, bis die Seite neu geladen wird. */
 const invMonthState = new Map(); // `${pid}|YYYY-MM` → true (offen) / false (zu)
-function investmentMonths(pid, items) {
+function investmentMonths(pid, items, kind = 'inv') {
+  const inc = kind === 'income';
   const current = todayISO().slice(0, 7);
   const groups = new Map();
   items.forEach((e) => { const k = (e.date || '').slice(0, 7); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); });
   return `<div class="inv-months">${[...groups.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([month, list]) => {
-    const key = `${pid}|${month}`;
+    const key = `${kind}|${pid}|${month}`;
     const open = invMonthState.has(key) ? invMonthState.get(key) : month === current;
     const name = month ? new Date(`${month}-01T00:00:00`).toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' }) : '–';
     return `<details class="inv-month" data-inv-month="${esc(key)}" ${open ? 'open' : ''}>
       <summary><span class="inv-month-name">${esc(name)}${month === current ? ` <span class="badge aktiv">${tr('aktueller Monat')}</span>` : ''}</span>
-        <span class="small muted">${trp(list.length, '{n} Investition', '{n} Investitionen')}</span>
+        <span class="small muted">${inc ? trp(list.length, '{n} Einnahme', '{n} Einnahmen') : trp(list.length, '{n} Investition', '{n} Investitionen')}</span>
         <span class="amount">${fmtEUR(sum(list, (e) => e.amount))}</span></summary>
       <ul class="list">${list.map((e) => `
         <li>
           <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || tr('Sonstiges'))}</span></div></div>
-          <span class="amount">${fmtEUR(e.amount)}</span>
+          <span class="amount ${inc ? 'pos' : ''}">${inc ? '+' : ''}${fmtEUR(e.amount)}</span>
           <div class="actions">
-            <button class="btn ghost icon" data-action="editInvestment" data-id="${e.id}" title="${tr('Bearbeiten')}">✎</button>
-            <button class="btn ghost icon danger" data-action="deleteInvestment" data-id="${e.id}" title="${tr('Löschen')}">🗑</button>
+            <button class="btn ghost icon" data-action="${inc ? 'editIncome' : 'editInvestment'}" data-id="${e.id}" title="${tr('Bearbeiten')}">✎</button>
+            <button class="btn ghost icon danger" data-action="${inc ? 'deleteIncome' : 'deleteInvestment'}" data-id="${e.id}" title="${tr('Löschen')}">🗑</button>
           </div>
         </li>`).join('')}</ul>
     </details>`;
@@ -2169,7 +2331,7 @@ function renderReminderSettings() {
 }
 
 function previewProject() {
-  const active = data.projects.filter((p) => p.status === 'aktiv').map((p) => ({ p, s: projectStats(p) }));
+  const active = liveProjects().filter((p) => p.status === 'aktiv').map((p) => ({ p, s: projectStats(p) }));
   active.sort((a, b) => b.s.idle - a.s.idle);
   if (active.length) return { ...active[0], s: { ...active[0].s, idle: Math.max(active[0].s.idle, 14) } };
   return { p: { id: 'preview', name: tr('Mein Projekt'), why: tr('Weil es mir Freude macht.'), goal: tr('Fertig und veröffentlicht') },
@@ -2234,7 +2396,7 @@ function weeklyGoalSummary() {
 function renderWeeklyGoalSettings() {
   const g = weeklyGoal();
   const set = data.settings;
-  const active = data.projects.filter((p) => p.status === 'aktiv');
+  const active = liveProjects().filter((p) => p.status === 'aktiv');
   return `
     <p class="small muted">${tr('Du kannst bei jedem Projekt unter <i>Bearbeiten</i> eine <b>Wochenarbeitszeit</b> eintragen. Dann ist dein Wochenziel die <b>Summe der Wochenzeiten aller aktiven Projekte</b>. Hat kein aktives Projekt eine Wochenzeit, gilt das Standard-Wochenziel.')}</p>
     ${active.length ? `<ul class="list weekly-list">${active.map((p) => `
@@ -2404,6 +2566,10 @@ function renderSettings() {
         : tr('Personen und Teams anlegen und Aufgaben zuweisen'),
       renderTeamSettings())}
 
+    ${settingsSection('vorlagen', '📋', tr('Projektvorlagen'),
+      (data.templates || []).length ? trp(data.templates.length, '{n} eigene Vorlage', '{n} eigene Vorlagen') : tr('Mitgelieferte Vorlagen und eigene Vorlagen verwalten'),
+      renderTemplateSettings())}
+
     ${settingsSection('app', '📲', tr('App installieren'),
       isStandalone() ? `<span class="badge aktiv">${tr('Als App geöffnet')}</span>` : tr('Eigenes Fenster, eigenes Symbol, auch offline'),
       renderAppSettings())}
@@ -2426,10 +2592,13 @@ function renderSettings() {
       </dl>
       <div class="btn-row">
         <button class="btn primary" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
+        <button class="btn" data-action="exportEncrypted">🔒 ${tr('Verschlüsselt exportieren')}</button>
         <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
+        <button class="btn" data-action="exportIcs">📅 ${tr('Termine als Kalender-Datei (.ics)')}</button>
         <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
         <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
       </div>
+      ${renderFolderBackupSettings()}
       <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
       <h3>${tr('Gefahrenzone')}</h3>
       <button class="btn danger" data-action="resetData">${tr('Alle Daten löschen')}</button>`)}
@@ -2627,7 +2796,7 @@ function unlockScroll() {
 }
 $('#modal').addEventListener('close', unlockScroll);
 
-const projectOptions = () => data.projects
+const projectOptions = () => liveProjects()
   .filter((p) => p.status !== 'abgeschlossen')
   .map((p) => ({ value: p.id, label: p.name }));
 
@@ -2644,6 +2813,31 @@ const actions = {
     if (p) openPopover(lastQaButton || btn, projectMenuHTML(p));
   },
   goProject({ id }) { location.hash = `#/projekt/${id}`; },
+  archiveProject({ id }) {
+    const p = getProject(id);
+    if (!p || !confirm(tr('„{name}“ archivieren?\\n\\nDas Projekt verschwindet aus Übersicht, Listen und Auswahlfeldern. Alle Daten bleiben erhalten und zählen weiter für Statistiken und Erfolge. Du findest es unter Projekte › Archiv.', { name: p.name }))) return;
+    p.archived = true;
+    p.archivedAt = todayISO();
+    if (data.timer?.projectId === id) data.timer = null;
+    commit();
+    toast(tr('🗄️ „{name}“ archiviert.', { name: p.name }));
+  },
+  unarchiveProject({ id }) {
+    const p = getProject(id);
+    if (!p) return;
+    p.archived = false;
+    p.archivedAt = null;
+    commit();
+    toast(tr('♻️ „{name}“ ist wieder da.', { name: p.name }));
+  },
+  duplicateProject({ id }) { const p = getProject(id); if (p) duplicateForm(p); },
+  saveTemplate({ id }) { const p = getProject(id); if (p) saveTemplateForm(p); },
+  deleteTemplate({ id }) {
+    const t = (data.templates || []).find((x) => x.id === id);
+    if (!t || !confirm(tr('Vorlage „{name}“ löschen? Projekte, die daraus entstanden sind, bleiben erhalten.', { name: t.name }))) return;
+    data.templates = data.templates.filter((x) => x.id !== id);
+    commit();
+  },
   setProjectStatus({ id, status }) {
     const p = getProject(id);
     const wasDone = p.status === 'abgeschlossen';
@@ -2671,6 +2865,7 @@ const actions = {
     render();
   },
   openPalette() { openPalette(); },
+  quickAdd() { openQuickAdd(); },
   customizeProject({ id }) { startEdit('project', id); },
   resetProjectLayout({ id }) {
     delete getProject(id).layout;
@@ -2713,7 +2908,7 @@ const actions = {
     const p = getProject(id);
     if (!confirm(tr('Projekt „{name}“ inklusive aller Zeiten, Investitionen, Aufgaben und Meilensteine löschen?', { name: p.name }))) return;
     data.projects = data.projects.filter((x) => x.id !== id);
-    for (const k of ['timeEntries', 'investments', 'milestones', 'tasks', 'notes', 'docs']) data[k] = data[k].filter((x) => x.projectId !== id);
+    for (const k of ['timeEntries', 'investments', 'incomes', 'milestones', 'tasks', 'notes', 'docs']) data[k] = (data[k] || []).filter((x) => x.projectId !== id);
     if (data.timer?.projectId === id) data.timer = null;
     save();
     location.hash = '#/projekte';
@@ -2776,6 +2971,8 @@ const actions = {
     data.tasks = data.tasks.filter((t) => t.id !== id);
     data.tasks.forEach((t) => { if (t.dependsOn?.includes(id)) t.dependsOn = t.dependsOn.filter((x) => x !== id); });
     data.docs.forEach((d) => { if (d.taskId === id) d.taskId = null; }); // Dokument bleibt beim Projekt
+    data.timeEntries.forEach((e) => { if (e.taskId === id) e.taskId = null; }); // gebuchte Zeit bleibt beim Projekt
+    if (data.timer?.taskId === id) data.timer.taskId = null;
     commit();
   },
 
@@ -2820,9 +3017,10 @@ const actions = {
   },
 
   /* Zeit */
-  addTime({ id } = {}) {
+  addTime({ id, task } = {}) {
     if (!data.projects.length) return toast(tr('Lege zuerst ein Projekt an.'));
-    timeForm({ projectId: id || parseRoute().id });
+    const tk = task && data.tasks.find((x) => x.id === task);
+    timeForm({ projectId: id || parseRoute().id, taskId: tk?.id, title: tk?.title });
   },
   editTime({ id }) { timeForm(data.timeEntries.find((e) => e.id === id)); },
   deleteTime({ id }) {
@@ -2831,12 +3029,14 @@ const actions = {
     commit();
   },
 
-  startTimer({ id }) {
+  startTimer({ id, task }) {
     if (data.timer && !confirm(tr('Es läuft bereits ein Timer. Diesen verwerfen und neu starten?'))) return;
-    data.timer = { projectId: id, start: Date.now() };
+    const tk = task ? data.tasks.find((x) => x.id === task) : null;
+    data.timer = { projectId: id, start: Date.now(), taskId: tk?.id || null };
+    if (tk && !tk.done) tk.status = 'doing';
     noteTimerStart();
     commit();
-    toast(tr('▶ Timer für „{name}“ gestartet. Los geht’s!', { name: getProject(id).name }));
+    toast(tr('▶ Timer für „{name}“ gestartet. Los geht’s!', { name: tk ? tk.title : getProject(id).name }));
   },
   stopTimer() {
     const t = data.timer;
@@ -2845,11 +3045,12 @@ const actions = {
       const focus = pomoFocusMs(t);
       const minutes = Math.max(1, Math.round(focus / 60000));
       const title = t.count ? `${t.count} × Pomodoro` : 'Pomodoro';
-      return timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.start)), title,
+      return timeForm({ projectId: t.projectId, taskId: t.taskId, minutes, date: toISO(new Date(t.start)), title,
         description: t.count ? trp(t.count, '{n} Pomodoro à {m} Min', '{n} Pomodoros à {m} Min', { m: pomoCfg().work }) : '' }, { fromTimer: true });
     }
     const minutes = Math.max(1, Math.round(stopwatchMs(t) / 60000));
-    timeForm({ projectId: t.projectId, minutes, date: toISO(new Date(t.startedAt || t.start)) }, { fromTimer: true });
+    const tk = t.taskId && data.tasks.find((x) => x.id === t.taskId);
+    timeForm({ projectId: t.projectId, taskId: t.taskId, minutes, date: toISO(new Date(t.startedAt || t.start)), title: tk ? tk.title : '' }, { fromTimer: true });
   },
   /** Pausieren bzw. Fortsetzen – Stoppuhr und Pomodoro */
   pauseTimer() {
@@ -2866,13 +3067,15 @@ const actions = {
     }
     save(); renderTimer(true);
   },
-  startPomodoro({ id }) {
+  startPomodoro({ id, task }) {
     if (data.timer && !confirm(tr('Es läuft bereits ein Timer. Diesen verwerfen und einen Pomodoro starten?'))) return;
     unlockAudio();
     requestNotifyPermission();
     const now = Date.now();
     data.timer = { projectId: id, start: now, mode: 'pomodoro', phase: 'work', phaseStart: now,
-      phaseEnd: now + pomoCfg().work * 60000, count: 0, focusMs: 0, pausedAt: null };
+      phaseEnd: now + pomoCfg().work * 60000, count: 0, focusMs: 0, pausedAt: null, taskId: task || null };
+    const tk = task && data.tasks.find((x) => x.id === task);
+    if (tk && !tk.done) tk.status = 'doing';
     noteTimerStart();
     commit();
     toast(tr('🍅 Pomodoro für „{name}“ – {m} Minuten volle Konzentration!', { name: getProject(id).name, m: pomoCfg().work }));
@@ -2909,6 +3112,13 @@ const actions = {
 
   /* Investitionen */
   addInvestment({ id }) { investmentForm({ projectId: id }); },
+  addIncome({ id }) { incomeForm({ projectId: id || parseRoute().id || data.projects[0]?.id }); },
+  editIncome({ id }) { incomeForm(data.incomes.find((e) => e.id === id)); },
+  deleteIncome({ id }) {
+    if (!confirm(tr('Einnahme löschen?'))) return;
+    data.incomes = data.incomes.filter((e) => e.id !== id);
+    commit();
+  },
   editInvestment({ id }) { investmentForm(data.investments.find((e) => e.id === id)); },
   deleteInvestment({ id }) {
     if (!confirm(tr('Investition löschen?'))) return;
@@ -2956,6 +3166,7 @@ const actions = {
     const rows = [[tr('Typ'), tr('Datum'), tr('Projekt'), tr('Titel'), tr('Beschreibung'), tr('Kategorie'), tr('Minuten'), tr('Stunden'), tr('Betrag (EUR)')].map(q).join(sep)];
     data.timeEntries.forEach((e) => rows.push([tr('Zeit'), e.date, name(e.projectId), entryTitle(e), e.description, '', e.minutes, dec(e.minutes / 60), ''].map(q).join(sep)));
     data.investments.forEach((e) => rows.push([tr('Investition'), e.date, name(e.projectId), e.description, '', e.category, '', '', dec(e.amount)].map(q).join(sep)));
+    (data.incomes || []).forEach((e) => rows.push([tr('Einnahme'), e.date, name(e.projectId), e.description, '', e.category, '', '', dec(-e.amount)].map(q).join(sep)));
     download(`projekttracker-${todayISO()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv');
   },
   importData() {
@@ -2966,30 +3177,41 @@ const actions = {
       const file = input.files[0];
       if (!file) return;
       try {
-        const parsed = JSON.parse(await file.text());
-        if (!Array.isArray(parsed.projects)) throw new Error(tr('Keine gültige Projekttracker-Datei.'));
-        const backupTime = parsed.exportedAt ? Date.parse(parsed.exportedAt) : 0;
-        let msg = tr('Sicherung importieren?\n\nGesichert: {when}\nProjekte: {n}\n\nDie Daten auf diesem Gerät werden dadurch ersetzt.', { when: backupTime ? fmtDateTime(backupTime) : tr('unbekannt'), n: parsed.projects.length });
-        if (hasUnsavedChanges()) {
-          msg += '\n\n' + tr('⚠️ Auf diesem Gerät gibt es ungesicherte Änderungen (letzte Sicherung: {when}). Sie gehen beim Import verloren!', { when: fmtDateTime(meta.lastExport) });
-        }
-        if (backupTime && meta.lastChange > backupTime) {
-          msg += '\n\n' + tr('⚠️ Die Daten auf diesem Gerät (zuletzt geändert {when}) sind NEUER als diese Sicherung.', { when: fmtDateTime(meta.lastChange) });
-        }
-        if (!confirm(msg)) return;
-        delete parsed.exportedAt;
-        data = normalize(parsed);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-        meta.lastChange = meta.lastExport = Date.now(); // Gerät entspricht jetzt genau der Sicherung
-        saveMeta();
-        syncHintDismissed = true;
-        render();
-        toast(tr('Import erfolgreich ✔'));
+        const raw = JSON.parse(await file.text());
+        if (isEncryptedBackup(raw)) return decryptPrompt(raw, (parsed) => importBackup(parsed));
+        importBackup(raw);
       } catch (e) {
         toast(tr('Import fehlgeschlagen: {msg}', { msg: e.message }), 'error');
       }
     };
     input.click();
+  },
+  exportEncrypted() { encryptedExportForm(); },
+  async pickBackupFolder() {
+    try {
+      const handle = await window.showDirectoryPicker({ id: 'protrac-backup', mode: 'readwrite', startIn: 'documents' });
+      await useBackupFolder(handle);
+      if (folderBackup.perm === 'granted') toast(tr('📁 Automatische Sicherung aktiv – Ordner „{name}“.', { name: handle.name }));
+    } catch (e) {
+      if (e.name !== 'AbortError') toast(e.message, 'error');
+    }
+  },
+  async resumeFolderBackup() {
+    if (!folderBackup.handle) return;
+    folderBackup.perm = await folderPermission(folderBackup.handle, true);
+    if (folderBackup.perm === 'granted') { await writeFolderBackup(); toast(tr('📁 Automatische Sicherung läuft wieder.')); }
+    render();
+  },
+  async writeFolderBackup() {
+    if (await writeFolderBackup()) toast(tr('Sicherung exportiert ✔'));
+    render();
+  },
+  async stopFolderBackup() {
+    folderBackup.handle = null;
+    folderBackup.perm = 'none';
+    try { await idb('readwrite', (s) => s.delete('backupDir')); } catch { /* ignorieren */ }
+    saveFolderCfg({ name: '' });
+    render();
   },
   resetData() {
     if (!confirm(tr('Wirklich ALLE Daten löschen? Das kann nicht rückgängig gemacht werden.'))) return;
@@ -3019,6 +3241,9 @@ function projectForm(p) {
     submitLabel: isNew ? tr('Anlegen') : tr('Speichern'),
     wide: true,
     fields: [
+      ...(isNew ? [{ name: 'template', label: tr('Vorlage'), type: 'select', w: 4, value: '',
+        options: [{ value: '', label: tr('Leeres Projekt') }, ...allTemplates().map((t) => ({ value: t.id, label: `${t.icon || '📋'} ${t.name}` }))],
+        hint: tr('Übernimmt Meilensteine und Aufgaben; Termine beginnen heute.') }] : []),
       { name: 'name', label: tr('Name'), required: true, value: p.name, w: 2 },
       { name: 'status', label: tr('Status'), type: 'select', options: STATUS, value: p.status, w: 1 },
       { name: 'category', label: tr('Kategorie'), value: p.category, list: cats, placeholder: tr('z. B. Beruf, Hobby'), w: 1 },
@@ -3042,7 +3267,11 @@ function projectForm(p) {
     ],
     onSubmit(v) {
       if (isNew) {
+        const tplId = v.template;
+        delete v.template;
         const np = { id: uid(), createdAt: todayISO(), ...v };
+        const tpl = tplId && templateById(tplId);
+        if (tpl) applyBlueprint(np, tpl.bp, todayISO());
         data.projects.push(np);
         save();
         location.hash = `#/projekt/${np.id}`;
@@ -3072,6 +3301,10 @@ function taskForm(t) {
     fields.push({ name: 'milestoneId', label: tr('Meilenstein'), type: 'select', value: t.milestoneId || '', options: [{ value: '', label: tr('– keiner –') }, ...opts.map((m) => ({ value: m.id, label: m.title }))] });
   }
   if (data.people.length || data.teams.length) fields.push({ name: 'assignees', label: tr('Zuständig'), type: 'checks', options: assigneeOptions(pid), value: t.assignees || [] });
+  fields.push({ name: 'repeat', label: tr('Wiederholen'), type: 'select', half: true, value: t.repeat || '',
+    options: REPEATS.map((r) => ({ value: r.value, label: r.label })), hint: tr('Beim Abhaken entsteht die nächste Aufgabe') });
+  fields.push({ name: 'estimate', label: tr('Geschätzter Aufwand'), type: 'duration', half: true, placeholder: '2:00',
+    value: t.estimate ? fmtHM(t.estimate) : '', hint: t.id && taskMinutes(t.id) ? tr('Bisher gebucht: {d}', { d: fmtDuration(taskMinutes(t.id)) }) : tr('Arbeitszeit, z. B. 2:00 oder 90 min – wird mit der gebuchten Zeit verglichen') });
   // Planung (optional): Dauer, frühester Start, Vorgänger → Zeitplan & kritischer Pfad
   fields.push({ name: 'duration', label: tr('Dauer (Arbeitstage)'), type: 'number', value: t.duration, placeholder: '1', half: true,
     hint: tr('Für Zeitplan & kritischen Pfad – leer = 1 Tag') });
@@ -3087,6 +3320,8 @@ function taskForm(t) {
     fields,
     onSubmit(v) {
       v.milestoneId = v.milestoneId || null;
+      v.estimate = v.estimate || null;
+      v.repeat = v.repeat || null;
       v.duration = v.duration ? Math.max(1, Math.round(v.duration)) : null;
       v.startAfter = v.startAfter || null;
       if (v.dependsOn && t.id && wouldCycle(t.id, v.dependsOn)) return tr('Diese Vorgänger würden eine Kreisabhängigkeit erzeugen (die Aufgaben warten gegenseitig aufeinander).');
@@ -3126,6 +3361,12 @@ function milestoneForm(m) {
   });
 }
 
+/** Aufgaben eines Projekts für das Zeitformular (offene zuerst, erledigte nur wenn schon gewählt) */
+function timeTaskOptions(pid, current) {
+  const tasks = sortTasks(data.tasks.filter((t) => t.projectId === pid && (!t.done || t.id === current)));
+  return [{ value: '', label: tr('– keine bestimmte –') }, ...tasks.map((t) => ({ value: t.id, label: `${t.done ? '✓ ' : ''}${t.title}` }))];
+}
+
 function timeForm(e, { fromTimer = false } = {}) {
   const isNew = !e.id;
   const opts = projectOptions();
@@ -3140,6 +3381,7 @@ function timeForm(e, { fromTimer = false } = {}) {
       { name: 'projectId', label: tr('Projekt'), type: 'select', options: opts, value: e.projectId },
       { name: 'date', label: tr('Datum'), type: 'date', value: e.date || todayISO(), required: true, half: true },
       { name: 'minutes', label: tr('Dauer'), type: 'duration', required: true, value: e.minutes ? `${Math.floor(e.minutes / 60)}:${pad(e.minutes % 60)}` : '', placeholder: '1:30', hint: tr('z. B. 1:30, 1,5 oder 45 min'), half: true },
+      { name: 'taskId', label: tr('Aufgabe'), type: 'select', options: timeTaskOptions(e.projectId || opts[0].value, e.taskId), value: e.taskId || '' },
       { name: 'title', label: tr('Titel'), value: e.autoTitle ? '' : e.title,
         placeholder: autoTimeTitle(e.date || todayISO()), hint: tr('Leer lassen = Wochentag und Datum werden als Titel verwendet.') },
       { name: 'description', label: tr('Beschreibung'), type: 'textarea', value: e.description,
@@ -3147,6 +3389,7 @@ function timeForm(e, { fromTimer = false } = {}) {
     ],
     submitLabel: tr('Speichern'),
     onSubmit(v) {
+      v.taskId = v.taskId || null;
       v.autoTitle = !v.title;
       if (v.autoTitle) v.title = autoTimeTitle(v.date);
       if (isNew) data.timeEntries.push({ id: uid(), ...v });
@@ -3159,6 +3402,11 @@ function timeForm(e, { fromTimer = false } = {}) {
   renderPauseOverlay(); // Pausen-Hinweis ausblenden, solange der Dialog offen ist
   // Platzhalter des Titels folgt dem gewählten Datum
   const dateInput = $('#f_date'), titleInput = $('#f_title');
+  // Aufgabenliste folgt dem gewählten Projekt
+  const projSel = $('#f_projectId'), taskSel = $('#f_taskId');
+  projSel?.addEventListener('change', () => {
+    taskSel.innerHTML = timeTaskOptions(projSel.value).map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+  });
   dateInput.addEventListener('input', () => { titleInput.placeholder = autoTimeTitle(dateInput.value); });
   if (fromTimer) {
     const actionsEl = $('#modal .form-actions');
@@ -3188,6 +3436,29 @@ function investmentForm(e) {
   });
 }
 
+function incomeForm(e) {
+  const isNew = !e.id;
+  const cats = [...new Set([tr('Verkauf'), tr('Honorar'), tr('Förderung'), ...(data.incomes || []).map((x) => x.category).filter(Boolean)])];
+  openForm({
+    title: isNew ? tr('Einnahme erfassen') : tr('Einnahme bearbeiten'),
+    fields: [
+      { name: 'description', label: tr('Woher?'), required: true, value: e.description, placeholder: tr('z. B. Verkauf auf dem Markt, Kundenauftrag …') },
+      { name: 'amount', label: tr('Betrag (€)'), type: 'decimal', required: true, value: e.amount != null ? decimalValue(e.amount) : '', placeholder: `120${DEC()}00`, half: true },
+      { name: 'date', label: tr('Datum'), type: 'date', required: true, value: e.date || todayISO(), half: true },
+      { name: 'category', label: tr('Kategorie'), value: e.category || '', chips: cats, placeholder: tr('Verkauf'), hint: tr('Eigenen Namen eintippen oder einen Vorschlag antippen. Leer = „Sonstiges“.') },
+    ],
+    onSubmit(v) {
+      if (v.amount == null) return tr('Bitte einen Betrag angeben.');
+      v.category = (v.category || '').trim();
+      data.incomes ||= [];
+      if (isNew) data.incomes.push({ id: uid(), projectId: e.projectId, ...v });
+      else Object.assign(e, v);
+      commit();
+      if (isNew) toast(tr('💰 {amount} verbucht – stark!', { amount: fmtEUR(v.amount) }));
+    },
+  });
+}
+
 function noteForm(n) {
   const isNew = !n.id;
   openForm({
@@ -3207,6 +3478,7 @@ function noteForm(n) {
 function celebrateProject(p) {
   confetti();
   toast(tr('🎉 „{name}“ abgeschlossen! Großartige Leistung.', { name: p.name }));
+  setTimeout(() => toast(tr('Tipp: Abgeschlossene Projekte kannst du über ⋯ › „Archivieren“ aus dem Blick räumen.')), 1500);
 }
 
 /* ------------------------------------------------------------------------
@@ -3312,7 +3584,8 @@ function renderTimer(force = false) {
   const el = $('#timer-indicator');
   const t = data.timer;
   if (!t || !getProject(t.projectId)) { el.hidden = true; el.dataset.key = ''; renderPauseOverlay(); return; }
-  const name = getProject(t.projectId).name;
+  const tk = t.taskId && data.tasks.find((x) => x.id === t.taskId);
+  const name = getProject(t.projectId).name + (tk ? ` · ${tk.title}` : '');
   const pomo = t.mode === 'pomodoro';
   const key = [t.projectId, t.mode, t.phase, !!t.pausedAt].join('|');
 
@@ -3584,8 +3857,18 @@ function renderToday(c) {
       <div class="btn-row"><a class="btn small" href="#/projekt/${risk.p.id}/zeitplan">${tr('Zeitplan')}</a></div>
     </li>`);
   }
+  // 3c) Wochenrückblick (freitags bis montags, solange er fehlt)
+  const reviewWeek = defaultReviewWeek();
+  if (items.length < 3 && [5, 6, 0, 1].includes(new Date().getDay()) && !data.reviews?.[reviewWeek] && data.projects.length) {
+    items.push(`<li>
+      <span class="today-ico">📝</span>
+      <div class="grow"><div class="title">${tr('Zeit für deinen Wochenrückblick')}</div>
+        <div class="meta">${tr('Was hast du geschafft? Worauf konzentrierst du dich nächste Woche?')}</div></div>
+      <div class="btn-row"><a class="btn small primary" href="#/woche/${reviewWeek}">${tr('Los geht’s')}</a></div>
+    </li>`);
+  }
   // 4) Meilenstein in den nächsten 7 Tagen
-  const soon = data.milestones.filter((m) => !m.done && m.dueDate && m.dueDate >= today && m.dueDate <= toISO(addDays(new Date(), 7)) && getProject(m.projectId))
+  const soon = data.milestones.filter((m) => !m.done && m.dueDate && m.dueDate >= today && m.dueDate <= toISO(addDays(new Date(), 7)) && getProject(m.projectId) && !getProject(m.projectId).archived)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
   if (soon && items.length < 3) {
     items.push(`<li>
@@ -3652,6 +3935,10 @@ function teamStats() {
     teamTasksDone: data.tasks.filter((t) => t.done && teamAssigned(t)).length,
     myTasksDone: me ? data.tasks.filter((t) => t.done && isMine(t, me)).length : 0,
     docs: data.docs.length,
+    reviews: Object.keys(data.reviews || {}).length,
+    incomes: (data.incomes || []).length,
+    profitable: data.projects.filter((p) => { const s = projectStats(p); return s.income > 0 && s.profit > 0; }).length,
+    focusWeeks: Object.values(data.weekFocus || {}).filter((ids) => ids.length && ids.every((id) => data.tasks.find((t) => t.id === id)?.done)).length,
     teamMilestones: data.milestones.filter((m) => m.done && teamAssigned(m)).length,
     maxTeamsPerPerson: Math.max(0, ...data.people.map((p) => teamsOf(p.id).length)),
     biggestTeam: Math.max(0, ...data.teams.map((tm) => (tm.memberIds || []).length)),
@@ -3714,6 +4001,11 @@ const ACHIEVEMENTS = [
   { id: 'team_done_10', icon: '🚣', get name() { return tr('Gemeinsam stark'); }, get desc() { return tr('10 Team-Aufgaben erledigt'); }, goal: 10, val: (x) => x.teamTasksDone },
   { id: 'mine_done_10', icon: '🙋', get name() { return tr('Zuverlässig'); }, get desc() { return tr('10 dir zugewiesene Aufgaben erledigt'); }, goal: 10, val: (x) => x.myTasksDone },
   { id: 'docs_10', icon: '📚', get name() { return tr('Archivar'); }, get desc() { return tr('10 Dokumente verknüpft'); }, goal: 10, val: (x) => x.docs },
+  { id: 'income_1', icon: '💰', get name() { return tr('Erster Euro'); }, get desc() { return tr('Erste Einnahme erfasst'); }, goal: 1, val: (x) => x.incomes },
+  { id: 'profit_1', icon: '📈', get name() { return tr('Schwarze Zahlen'); }, get desc() { return tr('Ein Projekt hat mehr eingebracht als gekostet'); }, goal: 1, val: (x) => x.profitable },
+  { id: 'review_1', icon: '📝', get name() { return tr('Innehalten'); }, get desc() { return tr('Ersten Wochenrückblick gemacht'); }, goal: 1, val: (x) => x.reviews },
+  { id: 'review_8', icon: '🧘', get name() { return tr('Reflektiert'); }, get desc() { return tr('8 Wochenrückblicke gemacht'); }, goal: 8, val: (x) => x.reviews },
+  { id: 'focus_week', icon: '🎯', get name() { return tr('Fokussiert'); }, get desc() { return tr('Alle Fokus-Aufgaben einer Woche erledigt'); }, goal: 1, val: (x) => x.focusWeeks },
   // Geheime Erfolge – Name und Bedingung werden erst beim Erreichen verraten
   { id: 's_night', icon: '🦉', get name() { return tr('Nachteule'); }, get desc() { return tr('Einen Timer zwischen 22 und 4 Uhr gestartet'); }, goal: 1, val: (x) => x.nightStarts, secret: true },
   { id: 's_early', icon: '🐦', get name() { return tr('Früher Vogel'); }, get desc() { return tr('Einen Timer zwischen 5 und 7 Uhr gestartet'); }, goal: 1, val: (x) => x.earlyStarts, secret: true },
@@ -3865,6 +4157,11 @@ function projectMenuHTML(p) {
     <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 ${tr('Notiz')}</button>
     <button class="pop-item" data-action="goProject" data-id="${p.id}">🗂️ ${tr('Projekt öffnen')}</button>
     <div class="pop-sep"></div>
+    <button class="pop-item" data-action="duplicateProject" data-id="${p.id}">⧉ ${tr('Projekt duplizieren')}</button>
+    <button class="pop-item" data-action="saveTemplate" data-id="${p.id}">📋 ${tr('Als Vorlage speichern')}</button>
+    ${p.archived ? `<button class="pop-item" data-action="unarchiveProject" data-id="${p.id}">♻️ ${tr('Wiederherstellen')}</button>`
+      : `<button class="pop-item" data-action="archiveProject" data-id="${p.id}">🗄️ ${tr('Archivieren')}</button>`}
+    <div class="pop-sep"></div>
     <div class="pop-label">${tr('Status')}</div>
     <div class="pop-chips">${STATUS.map((st) => `<button class="chip ${p.status === st.value ? 'active' : ''}" data-action="setProjectStatus" data-id="${p.id}" data-status="${st.value}">${st.label}</button>`).join('')}</div>`;
 }
@@ -3873,11 +4170,15 @@ const qaButton = (p) => `<button class="btn ghost icon qa-btn" data-action="quic
 function taskMenuHTML(t) {
   const p = getProject(t.projectId);
   return `<div class="pop-title">${esc(t.title)}</div>
-    <button class="pop-item" data-action="toggleTask" data-id="${t.id}">${t.done ? `↺ ${tr('Wieder öffnen')}` : `✓ ${tr('Erledigt')}`}</button>
+    <div class="pop-chips">${[['open', tr('Offen')], ['doing', tr('In Arbeit')], ['done', tr('Erledigt')]].map(([v, l]) =>
+      `<button class="chip ${taskStatusOf(t) === v ? 'active' : ''}" data-action="setTaskStatus" data-id="${t.id}" data-status="${v}">${l}</button>`).join('')}</div>
+    <div class="pop-sep"></div>
     <button class="pop-item" data-action="editTask" data-id="${t.id}">✎ ${tr('Bearbeiten')}</button>
     <button class="pop-item" data-action="addDoc" data-id="${t.projectId}" data-task="${t.id}">📎 ${tr('Dokument verknüpfen')}</button>
     ${t.done ? '' : `<button class="pop-item" data-action="addSubtask" data-id="${t.id}">＋ ${tr('Unterpunkt')}</button>`}
-    ${p ? `<button class="pop-item" data-action="startPomodoro" data-id="${p.id}">🍅 ${tr('Pomodoro für {name}', { name: esc(p.name) })}</button>` : ''}
+    ${p && !t.done ? `<button class="pop-item" data-action="startTimer" data-id="${p.id}" data-task="${t.id}">▶ ${tr('Timer für diese Aufgabe starten')}</button>
+      <button class="pop-item" data-action="startPomodoro" data-id="${p.id}" data-task="${t.id}">🍅 ${tr('Pomodoro für diese Aufgabe')}</button>` : ''}
+    <button class="pop-item" data-action="addTime" data-id="${t.projectId}" data-task="${t.id}">＋ ${tr('Zeit auf Aufgabe buchen')}</button>
     <div class="pop-sep"></div>
     <button class="pop-item danger" data-action="deleteTask" data-id="${t.id}">🗑 ${tr('Löschen')}</button>`;
 }
@@ -3932,6 +4233,174 @@ function openDetail(spec) {
   dlg.showModal();
 }
 
+/* ---------------------------- Schnelleingabe ------------------------------ */
+/* Eine Zeile, alles drin: „Fotos bearbeiten #shop @fr !hoch ~2h“ → Aufgabe,
+   „1:30 Produktfotos #shop“ → Zeit, „12,90€ Holzleim #shop“ → Investition,
+   „+120€ Markt #shop“ → Einnahme, „> Idee …“ → Notiz. Taste N öffnet sie. */
+const QUICK_KEY = 'projekttracker.ui.quickProject';
+const normName = (s) => String(s || '').toLocaleLowerCase('de').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9äöüß]+/g, '');
+function findQuickProject(token) {
+  const t = normName(token);
+  if (!t) return null;
+  const list = liveProjects();
+  return list.find((p) => normName(p.name) === t)
+    || list.find((p) => normName(p.name).startsWith(t))
+    || list.find((p) => p.name.toLocaleLowerCase('de').split(/[\s\-_/]+/).some((w) => normName(w).startsWith(t)))
+    || list.find((p) => normName(p.name).includes(t)) || null;
+}
+const QUICK_DAYS = { so: 0, sun: 0, sonntag: 0, sunday: 0, mo: 1, mon: 1, montag: 1, monday: 1, di: 2, tue: 2, dienstag: 2, tuesday: 2,
+  mi: 3, wed: 3, mittwoch: 3, wednesday: 3, do: 4, thu: 4, donnerstag: 4, thursday: 4, fr: 5, fri: 5, freitag: 5, friday: 5, sa: 6, sat: 6, samstag: 6, saturday: 6 };
+function parseQuickDate(s) {
+  const t = s.toLocaleLowerCase('de').replace(/\.$/, '');
+  const now = new Date();
+  if (['heute', 'today', 'h'].includes(t)) return todayISO();
+  if (['morgen', 'tomorrow', 'm'].includes(t)) return toISO(addDays(now, 1));
+  if (['übermorgen', 'uebermorgen'].includes(t)) return toISO(addDays(now, 2));
+  if (['gestern', 'yesterday'].includes(t)) return toISO(addDays(now, -1));
+  if (t in QUICK_DAYS) { let d = addDays(now, 1); while (d.getDay() !== QUICK_DAYS[t]) d = addDays(d, 1); return toISO(d); }
+  let m;
+  if ((m = t.match(/^\+(\d+)(t|d|w)?$/))) return toISO(addDays(now, +m[1] * (m[2] === 'w' ? 7 : 1)));
+  if ((m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/))) return t;
+  if ((m = t.match(/^(\d{1,2})\.(\d{1,2})\.?(\d{2,4})?$/)) || (m = t.match(/^(\d{1,2})\/(\d{1,2})\/?(\d{2,4})?$/))) {
+    let [, a, b, y] = m;
+    let day = +a, mon = +b;
+    if (t.includes('/') && LANG === 'en' && LOCALE === 'en-US') [day, mon] = [mon, day];
+    let year = y ? (y.length === 2 ? 2000 + +y : +y) : now.getFullYear();
+    let d = new Date(year, mon - 1, day);
+    if (!y && toISO(d) < todayISO()) d = new Date(year + 1, mon - 1, day);
+    return d.getMonth() === mon - 1 ? toISO(d) : null;
+  }
+  return null;
+}
+const QUICK_PRIO = { hoch: 'hoch', high: 'hoch', h: 'hoch', mittel: 'mittel', medium: 'mittel', m: 'mittel', niedrig: 'niedrig', low: 'niedrig', n: 'niedrig', l: 'niedrig' };
+
+function parseQuick(text, defaultPid) {
+  let s = ` ${text} `;
+  const out = { kind: 'task', title: '', projectId: null, priority: null, date: null, minutes: null, estimate: null, amount: null, problems: [] };
+  if (/^\s*>/.test(s)) { out.kind = 'note'; s = s.replace(/^\s*>/, ' '); }
+  s = s.replace(/\s#(\S+)/g, (m, tok) => { const p = findQuickProject(tok); if (p) { out.projectId = p.id; return ' '; } out.problems.push(tr('Kein Projekt passt zu „#{t}“.', { t: tok })); return ' '; });
+  s = s.replace(/\s!(hoch|high|mittel|medium|niedrig|low|[hmnl])?(?=\s)/i, (m, tok) => { out.priority = tok ? QUICK_PRIO[tok.toLowerCase()] : 'hoch'; return ' '; });
+  s = s.replace(/\s@(\S+)/, (m, tok) => { const d = parseQuickDate(tok); if (d) { out.date = d; return ' '; } out.problems.push(tr('Datum „@{t}“ nicht erkannt.', { t: tok })); return ' '; });
+  s = s.replace(/\s~(\S+)(?=\s)/, (m, tok) => { const v = parseDuration(tok); if (v) { out.estimate = v; return ' '; } return m; });
+  if (out.kind !== 'note') {
+    s = s.replace(/\s(\+)?(?:€\s?(\d+(?:[.,]\d{1,2})?)|(\d+(?:[.,]\d{1,2})?)\s?(?:€|eur|euro)(?=\s))/i, (m, plus, a1, a2) => {
+      out.amount = Number(String(a1 || a2).replace(',', '.')); out.kind = plus ? 'income' : 'investment'; return ' ';
+    });
+    if (out.amount === null) {
+      s = s.replace(/\s(\d{1,2}:\d{2}|\d+(?:[.,]\d+)?\s?(?:h|std|min|m))(?=\s)/i, (m, tok) => { const v = parseDuration(tok); if (v) { out.minutes = v; out.kind = 'time'; return ' '; } return m; });
+    }
+  }
+  out.title = s.replace(/\s+/g, ' ').trim();
+  out.projectId ||= defaultPid || null;
+  if (!out.projectId) out.problems.push(tr('Füge ein Projekt mit #name hinzu.'));
+  if (!out.title && !['time'].includes(out.kind)) out.problems.push(tr('Es fehlt noch ein Text.'));
+  return out;
+}
+const QUICK_KINDS = {
+  get task() { return ['✅', tr('Aufgabe')]; }, get time() { return ['⏱️', tr('Zeit')]; }, get investment() { return ['💶', tr('Investition')]; },
+  get income() { return ['💰', tr('Einnahme')]; }, get note() { return ['📝', tr('Notiz')]; },
+};
+function quickPreview(q) {
+  const p = getProject(q.projectId);
+  const [icon, label] = QUICK_KINDS[q.kind];
+  const bits = [];
+  if (p) bits.push(`<span><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</span>`);
+  if (q.kind === 'task') {
+    if (q.date) bits.push(`<span>📅 ${fmtDate(q.date)}</span>`);
+    if (q.priority) bits.push(`<span class="badge ${q.priority}">${prioLabel(q.priority)}</span>`);
+    if (q.estimate) bits.push(`<span class="badge">⏱ ~${fmtDuration(q.estimate)}</span>`);
+  } else {
+    bits.push(`<span>📅 ${fmtDate(q.date || todayISO())}</span>`);
+    if (q.minutes) bits.push(`<b>${fmtDuration(q.minutes)}</b>`);
+    if (q.amount !== null) bits.push(`<b class="${q.kind === 'income' ? 'pos' : ''}">${q.kind === 'income' ? '+' : ''}${fmtEUR(q.amount)}</b>`);
+  }
+  return `<div class="quick-kind">${icon} ${label}</div>
+    <div class="quick-title">${esc(q.title || (q.kind === 'time' ? autoTimeTitle(q.date || todayISO()) : '…'))}</div>
+    <div class="meta">${bits.join('')}</div>
+    ${q.problems.length ? `<div class="quick-problem">⚠️ ${q.problems.map(esc).join(' ')}</div>` : ''}`;
+}
+function createQuick(q) {
+  const id = uid(), now = new Date().toISOString(), date = q.date || todayISO();
+  if (q.kind === 'task') data.tasks.push({ id, projectId: q.projectId, title: q.title, priority: q.priority || 'mittel', dueDate: q.date, estimate: q.estimate,
+    notes: '', subtasks: [], assignees: [], milestoneId: null, done: false, doneAt: null, status: 'open', createdAt: now });
+  else if (q.kind === 'time') data.timeEntries.push({ id, projectId: q.projectId, date, minutes: q.minutes, title: q.title || autoTimeTitle(date), autoTitle: !q.title, description: '' });
+  else if (q.kind === 'investment') data.investments.push({ id, projectId: q.projectId, description: q.title, amount: q.amount, date, category: normalizeCategory('') });
+  else if (q.kind === 'income') { data.incomes ||= []; data.incomes.push({ id, projectId: q.projectId, description: q.title, amount: q.amount, date, category: '' }); }
+  else if (q.kind === 'note') data.notes.push({ id, projectId: q.projectId, date, text: q.title, createdAt: now });
+  try { localStorage.setItem(QUICK_KEY, q.projectId); } catch { /* ignorieren */ }
+  commit();
+}
+function defaultQuickProject() {
+  const r = parseRoute();
+  const live = (id) => { const p = getProject(id); return p && !p.archived ? p.id : null; };
+  let last = null;
+  try { last = localStorage.getItem(QUICK_KEY); } catch { /* ignorieren */ }
+  return (r.view === 'projekt' && live(r.id)) || live(last) || liveProjects().find((p) => p.status === 'aktiv')?.id || liveProjects()[0]?.id || null;
+}
+
+function openQuickAdd(prefill = '') {
+  if ($('#modal').open) return;
+  closePopover(); hideTip();
+  const dlg = $('#modal');
+  dlg.classList.remove('wide');
+  let defPid = defaultQuickProject();
+  dlg.innerHTML = `<div class="quick">
+    <div class="quick-head">⚡ <input type="text" class="palette-input quick-input" placeholder="${tr('z. B. Fotos bearbeiten #shop @fr !hoch')}" aria-label="${tr('Schnelleingabe')}" autocomplete="off" spellcheck="false" enterkeyhint="done">
+      <button type="button" class="btn ghost icon quick-close" aria-label="${tr('Schließen')}" title="${tr('Schließen')}">✕</button></div>
+    <div class="quick-preview" aria-live="polite"></div>
+    <ul class="quick-done list"></ul>
+    <details class="quick-help"><summary>${tr('So funktioniert’s')}</summary>
+      <table class="small"><tbody>
+        <tr><td><code>Text</code></td><td>${tr('Aufgabe')}</td></tr>
+        <tr><td><code>#shop</code></td><td>${tr('Projekt (Anfang des Namens genügt)')}</td></tr>
+        <tr><td><code>@heute @morgen @fr @24.12. @+3</code></td><td>${tr('Fälligkeit bzw. Datum')}</td></tr>
+        <tr><td><code>!hoch !mittel !niedrig</code></td><td>${tr('Priorität (nur ! = hoch)')}</td></tr>
+        <tr><td><code>~2h</code></td><td>${tr('geschätzter Aufwand einer Aufgabe')}</td></tr>
+        <tr><td><code>1:30 · 45min · 2h</code></td><td>${tr('Zeit erfassen')}</td></tr>
+        <tr><td><code>12,90€</code></td><td>${tr('Investition')}</td></tr>
+        <tr><td><code>+120€</code></td><td>${tr('Einnahme')}</td></tr>
+        <tr><td><code>&gt; Text</code></td><td>${tr('Notiz im Logbuch')}</td></tr>
+      </tbody></table></details>
+    <div class="palette-foot small muted">${tr('Enter anlegen · weiter tippen für den nächsten Eintrag · Esc schließen')}</div>
+  </div>`;
+  const input = dlg.querySelector('.quick-input'), prev = dlg.querySelector('.quick-preview'), done = dlg.querySelector('.quick-done');
+  const update = () => {
+    const v = input.value.trim();
+    prev.innerHTML = v ? quickPreview(parseQuick(v, defPid)) : `<div class="small muted">${defPid ? tr('Ohne #projekt landet alles in „{name}“.', { name: esc(getProject(defPid).name) }) : tr('Füge ein Projekt mit #name hinzu.')}</div>`;
+  };
+  input.addEventListener('input', update);
+  dlg.querySelector('.quick-close').addEventListener('click', () => dlg.close());
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    const v = input.value.trim();
+    if (!v) return;
+    const q = parseQuick(v, defPid);
+    if (q.problems.length) { prev.classList.remove('shake'); void prev.offsetWidth; prev.classList.add('shake'); return; }
+    createQuick(q);
+    defPid = q.projectId;
+    const [icon] = QUICK_KINDS[q.kind];
+    const p = getProject(q.projectId);
+    done.insertAdjacentHTML('afterbegin', `<li><span class="today-ico">${icon}</span><div class="grow"><div class="title">${esc(q.title || autoTimeTitle(q.date || todayISO()))}</div>
+      <div class="meta"><span><span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}</span>${q.minutes ? `<span>${fmtDuration(q.minutes)}</span>` : ''}${q.amount !== null ? `<span>${fmtEUR(q.amount)}</span>` : ''}</div></div><span class="badge aktiv">✓</span></li>`);
+    input.value = '';
+    update();
+  });
+  dlg.addEventListener('close', () => unlockScroll(), { once: true });
+  lockScroll();
+  dlg.showModal();
+  input.value = prefill;
+  update();
+  input.focus();
+}
+// Taste „N“ (außerhalb von Eingabefeldern) öffnet die Schnelleingabe
+document.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() !== 'n' || e.metaKey || e.ctrlKey || e.altKey || $('#modal').open) return;
+  if (e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  e.preventDefault();
+  openQuickAdd();
+});
+
 /* ---------------------------- Befehlspalette (⌘K / Strg+K) ---------------- */
 
 function paletteCommands() {
@@ -3941,32 +4410,37 @@ function paletteCommands() {
   add('📊', tr('Übersicht'), () => { location.hash = '#/'; }, nav);
   add('🗂️', tr('Projekte'), () => { location.hash = '#/projekte'; }, nav);
   add('⚙️', tr('Einstellungen'), () => { location.hash = '#/einstellungen'; }, nav);
+  add('⚡', tr('Schnelleingabe'), () => openQuickAdd(), tr('Aufgabe Zeit schnell anlegen N'));
   add('➕', tr('Neues Projekt'), () => actions.newProject());
   add('⏱️', tr('Zeit erfassen'), () => actions.addTime({}));
   if (data.timer) add('■', data.timer.mode === 'pomodoro' ? tr('Pomodoro beenden') : tr('Timer stoppen'), () => actions.stopTimer());
   add('💾', tr('Sicherung exportieren'), () => actions.exportData(), 'Backup');
   add('⬆', tr('Sicherung importieren'), () => actions.importData(), 'Backup');
+  add('📅', tr('Termine als Kalender-Datei (.ics)'), () => actions.exportIcs(), tr('Kalender iCal Outlook Termine'));
   add('📄', tr('Zeit & Investitionen aus CSV importieren'), () => actions.importCsv(), 'CSV Excel Import');
   add('🗺️', tr('Roadmap'), () => actions.openRoadmap(), tr('Zeitleiste Gantt Projekte'));
+  add('📝', tr('Wochenrückblick'), () => { location.hash = '#/woche'; }, tr('Woche planen Fokus Reflexion'));
   add('🧩', tr('Übersicht anpassen'), () => actions.customizeDashboard(), 'Layout');
   THEMES.forEach(([v, l]) => add(l.split(' ')[0], tr('Darstellung: {theme}', { theme: tr(l).replace(/^\S+\s/, '') }), () => { data.settings.theme = v; commit(); }, tr('Theme Hell Dunkel')));
   LANGUAGES.forEach(([code, name]) => add('🌐', tr('Sprache: {lang}', { lang: name }), () => { data.settings.language = code; commit(); }, 'Language Sprache'));
   add('↔', tr('Seitenleiste ein-/ausklappen'), () => actions.toggleSidebar(), nav);
   const order = { aktiv: 0, pausiert: 1, idee: 2, abgeschlossen: 3 };
-  [...data.projects].sort((a, b) => order[a.status] - order[b.status]).forEach((p) => {
-    add('🗂️', tr('Öffnen: {name}', { name: p.name }), () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
-    if (p.status !== 'abgeschlossen') {
+  [...data.projects].sort((a, b) => Number(!!a.archived) - Number(!!b.archived) || order[a.status] - order[b.status]).forEach((p) => {
+    add(p.archived ? '🗄️' : '🗂️', tr('Öffnen: {name}', { name: p.name }), () => { location.hash = `#/projekt/${p.id}`; }, p.category || '');
+    if (p.status !== 'abgeschlossen' && !p.archived) {
       add('🍅', tr('Pomodoro: {name}', { name: p.name }), () => actions.startPomodoro({ id: p.id }), 'Timer');
       add('⏱️', tr('Zeit erfassen: {name}', { name: p.name }), () => actions.addTime({ id: p.id }));
       add('✅', tr('Aufgabe anlegen: {name}', { name: p.name }), () => actions.addTask({ id: p.id }));
       add('📝', tr('Notiz: {name}', { name: p.name }), () => actions.addNote({ id: p.id }));
+      add('💶', tr('Investition: {name}', { name: p.name }), () => actions.addInvestment({ id: p.id }));
+      add('💰', tr('Einnahme: {name}', { name: p.name }), () => actions.addIncome({ id: p.id }));
     }
   });
   data.docs.forEach((d) => {
     const u = safeUrl(d.url);
     if (u) add(docInfo(u).icon, tr('Dokument: {title}', { title: d.title || u }), () => window.open(u, '_blank', 'noopener'), getProject(d.projectId)?.name || '');
   });
-  sortTasks(data.tasks.filter((t) => !t.done)).forEach((t) => {
+  sortTasks(data.tasks.filter((t) => !t.done && !getProject(t.projectId)?.archived)).forEach((t) => {
     add('☐', tr('Erledigen: {title}', { title: t.title }), () => actions.toggleTask({ id: t.id }), getProject(t.projectId)?.name || '');
   });
   return cmds;
@@ -4008,6 +4482,10 @@ function renderPalette(q, keepList = false) {
   if (!keepList) {
     const words = q.toLocaleLowerCase('de').split(/\s+/).filter(Boolean);
     paletteState.list = paletteState.cmds.filter((c) => words.every((w) => c.key.includes(w))).slice(0, 50);
+    if (/(^|\s)(#\S|@\S|!|~\S|\d+:\d{2}|\+?\d+(?:[.,]\d+)?\s?€|>)/.test(q)) {
+      const text = q.trim();
+      paletteState.list.unshift({ icon: '⚡', label: tr('Schnelleingabe: {text}', { text }), hint: 'Enter', run: () => openQuickAdd(text) });
+    }
   }
   const ul = $('#modal .palette-list');
   ul.innerHTML = paletteState.list.length ? paletteState.list.map((c, i) => `<li data-i="${i}" role="option" class="${i === paletteState.active ? 'active' : ''}" aria-selected="${i === paletteState.active}">
@@ -4773,7 +5251,9 @@ function renderServerBackupSettings(size) {
     <h3 style="margin-top:20px">${tr('Zusätzliche Sicherung')}</h3>
     <div class="btn-row">
       <button class="btn" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
+      <button class="btn" data-action="exportEncrypted">🔒 ${tr('Verschlüsselt exportieren')}</button>
       <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
+        <button class="btn" data-action="exportIcs">📅 ${tr('Termine als Kalender-Datei (.ics)')}</button>
         <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
       <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
     </div>
@@ -5356,7 +5836,7 @@ function projectSchedule(p) {
     return `<tr><td>🏁 ${esc(m.title)}</td><td>${m.dueDate ? fmtDate(m.dueDate) : '–'}</td><td>${x ? fmtDate(x.forecast) : '–'}</td><td>${status}</td></tr>`;
   }).join('');
   return `<section class="card">
-    <div class="card-head"><h2>🗓 ${tr('Zeitplan')}</h2><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
+    <div class="card-head"><h2>🗓 ${tr('Zeitplan')}</h2><span class="btn-row"><button class="btn small" data-action="exportIcs" data-id="${p.id}" title="${tr('Termine als Kalender-Datei (.ics)')}">📅 ${tr('Kalender')}</button><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
     ${intro}${weekendToggle}
     ${ganttChart(p, pl)}
     ${pl.cyclic.size ? `<div class="callout" style="border-color:var(--bad)">🔁 ${tr('Kreisabhängigkeit gefunden: {list}. Diese Vorgänger werden ignoriert, bis du sie auflöst.', { list: [...pl.cyclic].map(title).join(', ') })}</div>` : ''}
@@ -5376,6 +5856,638 @@ function projectSchedule(p) {
     ${pl.used ? '' : `<div class="callout">💡 ${tr('Noch keine Planungsdaten: Öffne eine Aufgabe und trage Dauer und Vorgänger ein. Bis dahin gilt jede Aufgabe als 1 Tag ab heute.')}</div>`}
   </section>`;
 }
+
+function importBackup(parsed) {
+  try {
+    if (!Array.isArray(parsed.projects)) throw new Error(tr('Keine gültige Projekttracker-Datei.'));
+    const backupTime = parsed.exportedAt ? Date.parse(parsed.exportedAt) : 0;
+    let msg = tr('Sicherung importieren?\n\nGesichert: {when}\nProjekte: {n}\n\nDie Daten auf diesem Gerät werden dadurch ersetzt.', { when: backupTime ? fmtDateTime(backupTime) : tr('unbekannt'), n: parsed.projects.length });
+    if (hasUnsavedChanges()) {
+      msg += '\n\n' + tr('⚠️ Auf diesem Gerät gibt es ungesicherte Änderungen (letzte Sicherung: {when}). Sie gehen beim Import verloren!', { when: fmtDateTime(meta.lastExport) });
+    }
+    if (backupTime && meta.lastChange > backupTime) {
+      msg += '\n\n' + tr('⚠️ Die Daten auf diesem Gerät (zuletzt geändert {when}) sind NEUER als diese Sicherung.', { when: fmtDateTime(meta.lastChange) });
+    }
+    if (!confirm(msg)) return;
+    delete parsed.exportedAt;
+    data = normalize(parsed);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    meta.lastChange = meta.lastExport = Date.now(); // Gerät entspricht jetzt genau der Sicherung
+    saveMeta();
+    syncHintDismissed = true;
+    render();
+    toast(tr('Import erfolgreich ✔'));
+  } catch (e) {
+    toast(tr('Import fehlgeschlagen: {msg}', { msg: e.message }), 'error');
+  }
+}
+
+/* ---------------------------- Automatische Sicherung in einen Ordner ----- */
+/* Edge/Chrome (File System Access API): Nach jeder Änderung wird – kurz verzögert – eine
+   Tagesdatei protrac-backup-JJJJ-MM-TT.json in den gewählten Ordner geschrieben. Ältere
+   Tagesdateien werden nach der eingestellten Anzahl Tage aufgeräumt. Der Ordnerzugriff
+   gehört zu diesem Gerät/Browser (IndexedDB), nicht zu den Projektdaten. */
+const FOLDER_KEY = 'projekttracker.ui.folderBackup';
+const FOLDER_FILE_RE = /^protrac-backup-\d{4}-\d{2}-\d{2}\.json$/;
+const folderBackupSupported = () => 'showDirectoryPicker' in window && !isServerMode();
+function folderCfg() {
+  try { return { keep: 14, lastWrite: 0, name: '', ...JSON.parse(localStorage.getItem(FOLDER_KEY) || '{}') }; } catch { return { keep: 14, lastWrite: 0, name: '' }; }
+}
+function saveFolderCfg(patch) {
+  try { localStorage.setItem(FOLDER_KEY, JSON.stringify({ ...folderCfg(), ...patch })); } catch { /* ignorieren */ }
+}
+function idb(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('protrac', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction('kv', mode);
+      const r = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => resolve(r?.result);
+      tx.onerror = () => reject(tx.error);
+    };
+  });
+}
+async function folderPermission(handle, ask = false) {
+  if (!handle.queryPermission) return 'granted';
+  const opts = { mode: 'readwrite' };
+  let state = await handle.queryPermission(opts);
+  if (state === 'prompt' && ask) state = await handle.requestPermission(opts);
+  return state;
+}
+async function useBackupFolder(handle, { persist = true } = {}) {
+  folderBackup.handle = handle;
+  folderBackup.perm = await folderPermission(handle);
+  folderBackup.error = '';
+  if (persist) { try { await idb('readwrite', (s) => s.put(handle, 'backupDir')); } catch { /* z. B. privates Fenster */ } }
+  saveFolderCfg({ name: handle.name });
+  if (folderBackup.perm === 'granted') await writeFolderBackup();
+  render();
+}
+async function initFolderBackup() {
+  if (!folderBackupSupported()) return;
+  try {
+    const handle = await idb('readonly', (s) => s.get('backupDir'));
+    if (!handle) return;
+    folderBackup.handle = handle;
+    folderBackup.perm = await folderPermission(handle);
+    if (folderBackup.perm === 'granted' && meta.lastChange > folderCfg().lastWrite) await writeFolderBackup();
+    renderBackupBar();
+  } catch { /* kein gespeicherter Ordner */ }
+}
+function scheduleFolderBackup() {
+  if (!folderBackup.handle || folderBackup.perm !== 'granted') return;
+  clearTimeout(folderBackup.timer);
+  folderBackup.timer = setTimeout(writeFolderBackup, 4000);
+}
+async function writeFolderBackup() {
+  const dir = folderBackup.handle;
+  if (!dir || folderBackup.busy) return false;
+  clearTimeout(folderBackup.timer);
+  folderBackup.busy = true;
+  try {
+    const now = new Date();
+    const file = await dir.getFileHandle(`protrac-backup-${toISO(now)}.json`, { create: true });
+    const w = await file.createWritable();
+    await w.write(JSON.stringify({ ...data, exportedAt: now.toISOString() }, null, 2));
+    await w.close();
+    // Aufräumen: nur eigene Tagesdateien, die neuesten „keep“ bleiben
+    const keep = Math.max(1, Number(folderCfg().keep) || 14);
+    const names = [];
+    for await (const [name, h] of dir.entries()) if (h.kind === 'file' && FOLDER_FILE_RE.test(name)) names.push(name);
+    names.sort().reverse().slice(keep).forEach((name) => dir.removeEntry(name).catch(() => {}));
+    meta.lastExport = Date.now();
+    saveMeta();
+    saveFolderCfg({ lastWrite: meta.lastExport });
+    folderBackup.error = '';
+    return true;
+  } catch (e) {
+    folderBackup.error = e.message;
+    if (e.name === 'NotAllowedError' || e.name === 'SecurityError') folderBackup.perm = 'prompt';
+    return false;
+  } finally {
+    folderBackup.busy = false;
+    renderBackupBar();
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && folderBackup.timer && folderBackup.perm === 'granted') writeFolderBackup();
+});
+
+function renderFolderBackupSettings() {
+  if (!('showDirectoryPicker' in window)) {
+    return `<h3 style="margin-top:20px">📁 ${tr('Automatische Sicherung in einen Ordner')}</h3>
+      <p class="small muted">${tr('Nur in Edge, Chrome und anderen Chromium-Browsern am Computer verfügbar. Dort sichert Protrac nach jeder Änderung automatisch in einen Ordner deiner Wahl – z. B. in deinen OneDrive-, Dropbox- oder iCloud-Ordner.')}</p>`;
+  }
+  const cfg = folderCfg(), fb = folderBackup;
+  const status = !fb.handle ? `<span class="badge">${tr('Aus')}</span>`
+    : fb.perm === 'granted' ? `<span class="badge aktiv">${tr('Aktiv')}</span> ${tr('📁 {name}', { name: esc(fb.handle.name) })} · ${tr('Letzte Sicherung: {when}', { when: esc(fmtDateTime(cfg.lastWrite)) })}`
+    : `<span class="badge mittel">${tr('Zugriff erneuern')}</span> ${tr('📁 {name}', { name: esc(fb.handle.name) })}`;
+  return `<h3 style="margin-top:20px">📁 ${tr('Automatische Sicherung in einen Ordner')}</h3>
+    <p class="small muted" style="margin-top:0">${tr('Nach jeder Änderung schreibt Protrac eine Tagesdatei in den gewählten Ordner. Tipp: Wähle einen Ordner in OneDrive, Dropbox oder iCloud – dann ist die Sicherung auch auf deinen anderen Geräten.')}</p>
+    <p class="small">${status}${fb.error ? `<br><span class="badge overdue">${esc(fb.error)}</span>` : ''}</p>
+    <div class="btn-row">
+      ${!fb.handle ? `<button class="btn primary" data-action="pickBackupFolder">📁 ${tr('Ordner wählen')}</button>`
+        : `${fb.perm === 'granted' ? `<button class="btn" data-action="writeFolderBackup">💾 ${tr('Jetzt sichern')}</button>` : `<button class="btn primary" data-action="resumeFolderBackup">🔓 ${tr('Zugriff erneuern')}</button>`}
+          <button class="btn" data-action="pickBackupFolder">${tr('Anderen Ordner wählen')}</button>
+          <button class="btn danger" data-action="stopFolderBackup">${tr('Ausschalten')}</button>`}
+    </div>
+    ${fb.handle ? `<label class="small" style="display:flex;gap:8px;align-items:center;margin-top:10px">${tr('Aufbewahren:')}
+      <select data-action-change="folderKeep">${[7, 14, 30, 90].map((n) => `<option value="${n}" ${Number(cfg.keep) === n ? 'selected' : ''}>${trp(n, '{n} Tag', '{n} Tage')}</option>`).join('')}</select></label>` : ''}`;
+}
+document.addEventListener('change', (e) => {
+  if (e.target.dataset?.actionChange === 'folderKeep') { saveFolderCfg({ keep: Number(e.target.value) }); writeFolderBackup(); }
+});
+
+/* ---------------------------- Verschlüsselte Sicherungen ----------------- */
+/* AES-GCM (256 Bit) mit einem per PBKDF2-SHA-256 aus dem Passwort abgeleiteten Schlüssel.
+   Alles passiert im Browser – das Passwort verlässt das Gerät nie und wird nicht gespeichert. */
+const ENC_FORMAT = 'protrac-encrypted';
+const ENC_ITER = 310000;
+const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+async function deriveKey(password, salt, iter) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function encryptText(text, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(password, salt, ENC_ITER);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text));
+  // Große Dateien in Blöcken kodieren (String.fromCharCode verträgt nicht beliebig viele Argumente)
+  const bytes = new Uint8Array(ct);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return { format: ENC_FORMAT, v: 1, app: BRAND, kdf: 'PBKDF2-SHA256', iter: ENC_ITER, cipher: 'AES-GCM-256', salt: b64(salt), iv: b64(iv), data: btoa(bin), exportedAt: new Date().toISOString() };
+}
+async function decryptText(box, password) {
+  const key = await deriveKey(password, unb64(box.salt), box.iter || ENC_ITER);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(box.iv) }, key, unb64(box.data));
+  return new TextDecoder().decode(pt);
+}
+const isEncryptedBackup = (o) => o && o.format === ENC_FORMAT && o.data && o.salt && o.iv;
+
+function encryptedExportForm() {
+  if (!window.crypto?.subtle) return toast(tr('Verschlüsselung ist hier nicht verfügbar (nur über https oder localhost).'), 'error');
+  openForm({
+    title: tr('🔒 Verschlüsselte Sicherung'),
+    submitLabel: tr('Verschlüsseln & exportieren'),
+    fields: [
+      { name: 'pw', label: tr('Passwort'), type: 'password', required: true, hint: tr('Mindestens 8 Zeichen. Ohne dieses Passwort lässt sich die Sicherung nicht mehr öffnen – auch nicht von uns. Notiere es sicher!') },
+      { name: 'pw2', label: tr('Passwort wiederholen'), type: 'password', required: true },
+    ],
+    onSubmit(v) {
+      if (v.pw.length < 8) return tr('Das Passwort ist zu kurz (mindestens 8 Zeichen).');
+      if (v.pw !== v.pw2) return tr('Die Passwörter stimmen nicht überein.');
+      exportEncrypted(v.pw);
+    },
+  });
+}
+async function exportEncrypted(pw) {
+  try {
+    const now = new Date();
+    const stamp = `${toISO(now)}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+    const box = await encryptText(JSON.stringify({ ...data, exportedAt: now.toISOString() }), pw);
+    download(`projekttracker-backup-${stamp}.protrac.json`, JSON.stringify(box), 'application/json');
+    meta.lastExport = Date.now();
+    saveMeta();
+    render();
+    toast(tr('🔒 Verschlüsselte Sicherung exportiert ✔'));
+  } catch (e) {
+    toast(tr('Export fehlgeschlagen: {msg}', { msg: e.message }), 'error');
+  }
+}
+/** Passwort abfragen und entschlüsseln; ruft onData mit dem geparsten Inhalt auf */
+function decryptPrompt(box, onData, error = '') {
+  openForm({
+    title: tr('🔒 Sicherung entschlüsseln'),
+    submitLabel: tr('Entschlüsseln'),
+    fields: [{ name: 'pw', label: tr('Passwort'), type: 'password', required: true,
+      hint: error || tr('Diese Sicherung ist verschlüsselt. Gib das Passwort ein, mit dem sie erstellt wurde.') }],
+    onSubmit(v) {
+      decryptText(box, v.pw)
+        .then((text) => onData(JSON.parse(text)))
+        .catch(() => setTimeout(() => decryptPrompt(box, onData, tr('❌ Falsches Passwort oder beschädigte Datei. Bitte erneut versuchen.')), 50));
+    },
+  });
+}
+
+/* ---------------------------- Vorlagen & Duplizieren --------------------- */
+/* Gemeinsames „Bauplan“-Format: Termine als Tage relativ zum Projektstart. */
+const BUILTIN_TEMPLATES = [
+  { id: 'learn', icon: '🎓', builtin: true, get name() { return tr('Lernprojekt'); }, get desc() { return tr('Etwas Neues lernen – mit Plan, festen Lernzeiten und eigenem Übungsprojekt.'); },
+    get bp() { return { project: { color: '#7c3aed', weeklyHours: 3, description: tr('Etwas Neues lernen – mit Plan, festen Lernzeiten und eigenem Übungsprojekt.') },
+      milestones: [{ k: 'm1', title: tr('Grundlagen verstanden'), due: 14 }, { k: 'm2', title: tr('Eigenes Übungsprojekt fertig'), due: 42 }],
+      tasks: [
+        { k: 't1', title: tr('Lernziel und Material festlegen'), priority: 'hoch', due: 2, ms: 'm1', estimate: 60 },
+        { k: 't2', title: tr('Lernplan mit festen Zeiten erstellen'), priority: 'hoch', due: 3, ms: 'm1', deps: ['t1'], estimate: 30 },
+        { k: 't3', title: tr('Wöchentliche Lerneinheit'), priority: 'mittel', due: 7, repeat: 'weekly', estimate: 120 },
+        { k: 't4', title: tr('Übungsprojekt planen'), priority: 'mittel', due: 21, ms: 'm2', deps: ['t2'] },
+        { k: 't5', title: tr('Übungsprojekt umsetzen'), priority: 'mittel', due: 38, ms: 'm2', deps: ['t4'] },
+        { k: 't6', title: tr('Gelerntes zusammenfassen'), priority: 'niedrig', due: 42, ms: 'm2', deps: ['t5'] },
+      ] }; } },
+  { id: 'website', icon: '🌐', builtin: true, get name() { return tr('Website'); }, get desc() { return tr('Eine eigene Website von der Idee bis zur Veröffentlichung.'); },
+    get bp() { return { project: { color: '#0ea5e9', weeklyHours: 4, description: tr('Eine eigene Website von der Idee bis zur Veröffentlichung.') },
+      milestones: [{ k: 'm1', title: tr('Konzept steht'), due: 7 }, { k: 'm2', title: tr('Website online'), due: 30 }],
+      tasks: [
+        { k: 't1', title: tr('Ziele und Zielgruppe festlegen'), priority: 'hoch', due: 2, ms: 'm1' },
+        { k: 't2', title: tr('Seitenstruktur skizzieren'), priority: 'hoch', due: 5, ms: 'm1', deps: ['t1'] },
+        { k: 't3', title: tr('Domain & Hosting wählen'), priority: 'mittel', due: 7, ms: 'm1' },
+        { k: 't4', title: tr('Texte schreiben'), priority: 'mittel', due: 18, ms: 'm2', deps: ['t2'] },
+        { k: 't5', title: tr('Bilder auswählen'), priority: 'niedrig', due: 18, ms: 'm2', deps: ['t2'] },
+        { k: 't6', title: tr('Impressum & Datenschutzerklärung'), priority: 'hoch', due: 24, ms: 'm2' },
+        { k: 't7', title: tr('Website veröffentlichen'), priority: 'hoch', due: 30, ms: 'm2', deps: ['t3', 't4', 't5', 't6'] },
+      ] }; } },
+  { id: 'event', icon: '🎉', builtin: true, get name() { return tr('Veranstaltung'); }, get desc() { return tr('Ein Fest, Workshop oder Treffen planen – von der Idee bis zum Dankeschön.'); },
+    get bp() { return { project: { color: '#f59e0b', weeklyHours: 2, description: tr('Ein Fest, Workshop oder Treffen planen – von der Idee bis zum Dankeschön.') },
+      milestones: [{ k: 'm1', title: tr('Rahmen steht'), due: 14 }, { k: 'm2', title: tr('Veranstaltungstag'), due: 60 }],
+      tasks: [
+        { k: 't1', title: tr('Datum & Budget festlegen'), priority: 'hoch', due: 3, ms: 'm1' },
+        { k: 't2', title: tr('Ort buchen'), priority: 'hoch', due: 10, ms: 'm1', deps: ['t1'] },
+        { k: 't3', title: tr('Gästeliste erstellen'), priority: 'mittel', due: 10, ms: 'm1' },
+        { k: 't4', title: tr('Einladungen verschicken'), priority: 'hoch', due: 21, ms: 'm2', deps: ['t2', 't3'] },
+        { k: 't5', title: tr('Programm planen'), priority: 'mittel', due: 35, ms: 'm2', deps: ['t2'] },
+        { k: 't6', title: tr('Catering organisieren'), priority: 'mittel', due: 45, ms: 'm2', deps: ['t4'] },
+        { k: 't7', title: tr('Nachbereitung & Dank'), priority: 'niedrig', due: 63, deps: ['t5', 't6'] },
+      ] }; } },
+];
+const dayOffset = (base, iso) => (iso ? Math.round((parseISO(iso) - parseISO(base)) / 864e5) : null);
+const fromOffset = (start, off) => (off === null || off === undefined ? null : toISO(addDays(parseISO(start), off)));
+const PROJECT_COPY_FIELDS = ['description', 'why', 'goal', 'category', 'weeklyHours', 'hourGoal', 'budget', 'color', 'staleDays', 'reminderText', 'teamIds', 'msSort'];
+
+/** Bauplan aus einem bestehenden Projekt (ohne Zeiten, Investitionen, Logbuch) */
+function projectBlueprint(p) {
+  const base = p.createdAt?.slice(0, 10) || todayISO();
+  const project = { targetOffset: dayOffset(base, p.targetDate) };
+  PROJECT_COPY_FIELDS.forEach((f) => { if (p[f] !== undefined && p[f] !== null && p[f] !== '') project[f] = structuredClone(p[f]); });
+  return {
+    project,
+    milestones: sortMilestonesOf(p.id).map((m) => ({ k: m.id, title: m.title, description: m.description || '', due: dayOffset(base, m.dueDate), assignees: m.assignees || [] })),
+    tasks: data.tasks.filter((t) => t.projectId === p.id).map((t) => ({
+      k: t.id, title: t.title, priority: t.priority, notes: t.notes || '', estimate: t.estimate || null, duration: t.duration || null, repeat: t.repeat || null,
+      assignees: t.assignees || [], ms: t.milestoneId || null, deps: t.dependsOn || [], subtasks: (t.subtasks || []).map((st) => st.title),
+      due: dayOffset(base, t.dueDate), start: dayOffset(base, t.startAfter),
+    })),
+    docs: data.docs.filter((d) => d.projectId === p.id).map((d) => ({ title: d.title, url: d.url, note: d.note || '', task: d.taskId, ms: d.milestoneId })),
+  };
+}
+
+/** Bauplan in ein (neues) Projekt übernehmen; leere Projektfelder werden aus dem Bauplan gefüllt */
+function applyBlueprint(np, bp, start) {
+  const pr = bp.project || {};
+  PROJECT_COPY_FIELDS.forEach((f) => { if ((np[f] === undefined || np[f] === null || np[f] === '') && pr[f] !== undefined) np[f] = structuredClone(pr[f]); });
+  if (!np.targetDate && pr.targetOffset !== undefined) np.targetDate = fromOffset(start, pr.targetOffset);
+  const msMap = {}, tMap = {};
+  const msList = (bp.milestones || []).map((m, i) => {
+    msMap[m.k] = uid();
+    return { id: msMap[m.k], projectId: np.id, title: m.title, description: m.description || '', dueDate: fromOffset(start, m.due),
+      assignees: [...(m.assignees || [])], done: false, doneAt: null, order: i, createdAt: new Date().toISOString() };
+  });
+  (bp.tasks || []).forEach((t) => { tMap[t.k] = uid(); });
+  const tasks = (bp.tasks || []).map((t) => ({
+    id: tMap[t.k], projectId: np.id, title: t.title, priority: t.priority || 'mittel', notes: t.notes || '', estimate: t.estimate || null,
+    duration: t.duration || null, repeat: t.repeat || null, assignees: [...(t.assignees || [])], milestoneId: msMap[t.ms] || null,
+    dependsOn: (t.deps || []).map((k) => tMap[k]).filter(Boolean), subtasks: (t.subtasks || []).map((title) => ({ id: uid(), title, done: false, doneAt: null })),
+    dueDate: fromOffset(start, t.due), startAfter: fromOffset(start, t.start), done: false, doneAt: null, status: 'open', createdAt: new Date().toISOString(),
+  }));
+  data.milestones.push(...msList);
+  data.tasks.push(...tasks);
+  (bp.docs || []).forEach((d) => data.docs.push({ id: uid(), projectId: np.id, title: d.title, url: d.url, note: d.note, taskId: tMap[d.task] || null, milestoneId: msMap[d.ms] || null, createdAt: new Date().toISOString() }));
+  return { milestones: msList.length, tasks: tasks.length };
+}
+
+function allTemplates() {
+  return [...BUILTIN_TEMPLATES, ...(data.templates || [])];
+}
+const templateById = (id) => allTemplates().find((t) => t.id === id);
+
+function duplicateForm(p) {
+  openForm({
+    title: tr('Projekt duplizieren'),
+    submitLabel: tr('Duplizieren'),
+    fields: [
+      { name: 'name', label: tr('Name'), required: true, value: tr('{name} (Kopie)', { name: p.name }) },
+      { name: 'start', label: tr('Projektstart'), type: 'date', value: todayISO(), required: true,
+        hint: tr('Termine werden relativ zum Start von „{name}“ ({date}) verschoben.', { name: p.name, date: fmtDate(p.createdAt?.slice(0, 10) || todayISO()) }) },
+    ],
+    onSubmit(v) {
+      const np = { id: uid(), name: v.name, status: 'aktiv', createdAt: v.start };
+      const n = applyBlueprint(np, projectBlueprint(p), v.start);
+      np.color = np.color || p.color;
+      data.projects.push(np);
+      commit();
+      location.hash = `#/projekt/${np.id}`;
+      toast(tr('⧉ Kopie angelegt: {t} Aufgaben, {m} Meilensteine.', { t: n.tasks, m: n.milestones }));
+    },
+  });
+}
+
+function saveTemplateForm(p) {
+  openForm({
+    title: tr('Als Vorlage speichern'),
+    fields: [
+      { name: 'name', label: tr('Name der Vorlage'), required: true, value: p.name },
+      { name: 'icon', label: tr('Symbol'), value: '📋', half: true, placeholder: '📋' },
+    ],
+    onSubmit(v) {
+      data.templates ||= [];
+      data.templates.push({ id: uid(), name: v.name, icon: v.icon || '📋', createdAt: new Date().toISOString(), bp: projectBlueprint(p) });
+      commit();
+      toast(tr('📋 Vorlage „{name}“ gespeichert. Du findest sie beim Anlegen eines neuen Projekts.', { name: v.name }));
+    },
+  });
+}
+
+// Neues Projekt: gewählte Vorlage füllt leere Felder sichtbar vor
+document.addEventListener('change', (e) => {
+  if (e.target.id !== 'f_template') return;
+  const tpl = templateById(e.target.value);
+  const form = e.target.form, pr = tpl?.bp.project || {};
+  const prev = form.dataset.tplFill ? JSON.parse(form.dataset.tplFill) : {};
+  const fill = {};
+  const set = (name, val) => {
+    const el = form.elements[name];
+    if (!el) return;
+    if (el.value === '' || el.value === prev[name]) { el.value = val ?? ''; fill[name] = el.value; }
+  };
+  set('name', tpl ? tpl.name : '');
+  set('description', pr.description || '');
+  set('weeklyHours', pr.weeklyHours ? decimalValue(pr.weeklyHours) : '');
+  if (pr.color && form.elements.color) form.elements.color.value = pr.color;
+  form.dataset.tplFill = JSON.stringify(fill);
+});
+
+function renderTemplateSettings() {
+  const own = data.templates || [];
+  const row = (t) => {
+    const bp = t.bp;
+    return `<li><span class="today-ico">${esc(t.icon || '📋')}</span><div class="grow"><div class="title">${esc(t.name)}</div>
+      <div class="meta">${trp(bp.tasks?.length || 0, '{n} Aufgabe', '{n} Aufgaben')} · ${trp(bp.milestones?.length || 0, '{n} Meilenstein', '{n} Meilensteine')}${t.builtin ? ` · ${tr('mitgeliefert')}` : ''}</div></div>
+      ${t.builtin ? '' : `<button class="btn ghost icon danger" data-action="deleteTemplate" data-id="${t.id}" title="${tr('Löschen')}">🗑</button>`}</li>`;
+  };
+  return `<p class="small muted" style="margin-top:0">${tr('Vorlagen enthalten Meilensteine, Aufgaben (mit Unterpunkten, Schätzungen und Abhängigkeiten) und Dokument-Verweise – aber keine Zeiten oder Investitionen. Eigene Vorlagen speicherst du in einem Projekt über ⋯ › „Als Vorlage speichern“.')}</p>
+    <ul class="list">${allTemplates().map(row).join('')}</ul>`;
+}
+
+/* ---------------------------- Wochenrückblick & -planung ----------------- */
+/* Rückblick auf eine Woche (Stunden, Erledigtes, Erfolge, Notizen) und Planung der
+   Folgewoche: je Projekt 1–3 Fokus-Aufgaben. Route #/woche[/YYYY-MM-DD]. */
+/** Standard: Mo/Di die Vorwoche, sonst die laufende Woche */
+function defaultReviewWeek() {
+  const now = new Date();
+  return toISO(addDays(startOfWeek(now), [1, 2].includes(now.getDay()) ? -7 : 0));
+}
+function isoWeek(d) {
+  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  x.setUTCDate(x.getUTCDate() + 4 - (x.getUTCDay() || 7));
+  return Math.ceil(((x - Date.UTC(x.getUTCFullYear(), 0, 1)) / 864e5 + 1) / 7);
+}
+
+function renderWeekReview(weekParam) {
+  const wk = /^\d{4}-\d{2}-\d{2}$/.test(weekParam || '') ? toISO(startOfWeek(parseISO(weekParam))) : defaultReviewWeek();
+  const start = parseISO(wk), endEx = toISO(addDays(start, 7)), next = toISO(addDays(start, 7)), prev = toISO(addDays(start, -7));
+  const inWeek = (iso) => iso && iso >= wk && iso < endEx;
+  const minutes = minutesInRange(wk, endEx);
+  const goal = weeklyGoal().minutes;
+  const perProject = data.projects.map((p) => ({ p, m: minutesInRange(wk, endEx, p.id) })).filter((x) => x.m > 0).sort((a, b) => b.m - a.m);
+  const max = Math.max(1, ...perProject.map((x) => x.m));
+  const doneTasks = data.tasks.filter((t) => t.done && inWeek(t.doneAt));
+  const msDone = data.milestones.filter((m) => m.done && inWeek(m.doneAt));
+  const ach = ACHIEVEMENTS.filter((a) => inWeek((data.achievements || {})[a.id]));
+  const days = new Set(Object.keys(dayMap()).filter(inWeek)).size;
+  const rev = data.reviews?.[wk] || {};
+  const focusNow = data.weekFocus?.[wk] || [];
+  const focusDone = focusNow.filter((id) => data.tasks.find((t) => t.id === id)?.done).length;
+  const planIds = new Set(data.weekFocus?.[next] || []);
+  const active = data.projects.filter((p) => p.status === 'aktiv' && !p.archived);
+  const range = `${fmtDate(wk)} – ${fmtDate(toISO(addDays(start, 6)))}`;
+  const isCurrent = wk === toISO(startOfWeek(new Date()));
+  const tile = (label, value, sub = '') => `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div><div class="sub">${sub}</div></div>`;
+
+  return `
+    <div class="page-head">
+      <div><h1>📝 ${tr('Wochenrückblick')}</h1>
+        <p>${tr('KW {w} · {range}', { w: isoWeek(start), range })}${isCurrent ? ` · <span class="badge aktiv">${tr('diese Woche')}</span>` : ''}</p></div>
+      <div class="btn-row">
+        <a class="btn small" href="#/woche/${prev}" aria-label="${tr('Vorherige Woche')}">‹ ${tr('Vorwoche')}</a>
+        ${isCurrent ? '' : `<a class="btn small" href="#/woche/${next}">${tr('Nächste')} ›</a>`}
+      </div>
+    </div>
+    <div class="stats week-stats">
+      ${tile(tr('Zeit'), fmtHours(minutes), goal ? `${tr('Ziel: {goal}', { goal: fmtHours(goal) })} · ${Math.round((minutes / goal) * 100)} %` : '')}
+      ${tile(tr('Aufgaben'), doneTasks.length, tr('erledigt'))}
+      ${tile(tr('Meilensteine'), msDone.length, tr('erreicht'))}
+      ${tile(tr('Aktive Tage'), `${days} / 7`, focusNow.length ? tr('Fokus: {done} von {n}', { done: focusDone, n: focusNow.length }) : '')}
+    </div>
+    <div class="grid-2">
+      <section class="card">
+        <h2>⏱️ ${tr('Zeit je Projekt')}</h2>
+        ${perProject.length ? `<ul class="list">${perProject.map(({ p, m }) => `<li><div class="grow">
+          <div class="row-between"><a href="#/projekt/${p.id}">${esc(p.name)}</a><span class="amount">${fmtDuration(m)}</span></div>
+          <div class="progress" style="margin-top:6px"><span style="width:${(m / max) * 100}%;background:${esc(p.color)}"></span></div></div></li>`).join('')}</ul>`
+          : `<div class="empty">${tr('In dieser Woche wurde keine Zeit erfasst.')}</div>`}
+      </section>
+      <section class="card">
+        <h2>✅ ${tr('Geschafft')}</h2>
+        ${doneTasks.length || msDone.length || ach.length ? `<ul class="list">
+          ${msDone.map((m) => `<li><div class="grow"><div class="title">🏁 ${esc(m.title)}</div><div class="meta">${esc(getProject(m.projectId)?.name || '')}</div></div></li>`).join('')}
+          ${ach.length ? `<li><div class="grow"><div class="meta">${trp(ach.length, '{n} Erfolg freigeschaltet', '{n} Erfolge freigeschaltet')}</div><div class="week-ach">${ach.map((a) => `<span class="chip" title="${esc(a.desc)}">${a.icon} ${esc(a.name)}</span>`).join('')}</div></div></li>` : ''}
+          ${doneTasks.map((t) => `<li><div class="grow"><div class="title">✓ ${esc(t.title)}</div><div class="meta">${esc(getProject(t.projectId)?.name || '')}</div></div></li>`).join('')}
+        </ul>` : `<div class="empty">${tr('Noch nichts abgehakt – das kommt!')}</div>`}
+      </section>
+    </div>
+    <form class="card form week-form" data-form="review" data-week="${wk}" data-next="${next}">
+      <h2>💭 ${tr('Gedanken zur Woche')}</h2>
+      <div class="row2">
+        <label>${tr('Was lief gut?')}<textarea name="good" class="autogrow" rows="3" placeholder="${tr('z. B. Shop-Fotos fertig, 3 Tage in Folge gearbeitet …')}">${esc(rev.good || '')}</textarea></label>
+        <label>${tr('Was hat gebremst?')}<textarea name="blockers" class="autogrow" rows="3" placeholder="${tr('z. B. zu viele Termine, unklare Aufgabe …')}">${esc(rev.blockers || '')}</textarea></label>
+      </div>
+      <h2 style="margin-top:8px">🎯 ${tr('Fokus für KW {w}', { w: isoWeek(parseISO(next)) })}</h2>
+      <p class="small muted" style="margin:0">${tr('Wähle je Projekt 1–3 Aufgaben, auf die du dich in der Woche ab {date} konzentrierst. Sie erscheinen auf der Übersicht unter „Wochenfokus“.', { date: fmtDate(next) })} ${weeklyGoal().minutes ? tr('Wochenziel: {h}', { h: fmtStd(weeklyGoal().minutes / 60) }) : ''}</p>
+      ${active.length ? active.map((p) => {
+        const open = sortTasks(data.tasks.filter((t) => t.projectId === p.id && !t.done)).slice(0, 8);
+        return `<div class="focus-project"><div class="focus-head"><span class="dot-color" style="background:${esc(p.color)}"></span> <b>${esc(p.name)}</b>${projectWeeklyMin(p) ? ` <span class="small muted">${fmtStd(projectWeeklyMin(p) / 60)}</span>` : ''}</div>
+          ${open.length ? `<div class="check-chips">${open.map((t) => `<label class="check-chip"><input type="checkbox" name="focus" value="${t.id}" ${planIds.has(t.id) ? 'checked' : ''}><span>${t.status === 'doing' ? '▶ ' : ''}${esc(t.title)}</span></label>`).join('')}</div>`
+            : `<div class="small muted">${tr('Keine offenen Aufgaben.')} <a href="#" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</a></div>`}</div>`;
+      }).join('') : `<div class="empty">${tr('Noch keine aktiven Projekte.')}</div>`}
+      <div class="form-actions"><button class="btn primary" type="submit">${tr('Rückblick & Planung speichern')}</button></div>
+    </form>`;
+}
+document.addEventListener('submit', (e) => {
+  const form = e.target.closest('[data-form="review"]');
+  if (!form) return;
+  e.preventDefault();
+  const fd = new FormData(form);
+  data.reviews ||= {};
+  data.weekFocus ||= {};
+  data.reviews[form.dataset.week] = { good: String(fd.get('good') || '').trim(), blockers: String(fd.get('blockers') || '').trim(), savedAt: new Date().toISOString() };
+  data.weekFocus[form.dataset.next] = fd.getAll('focus').map(String);
+  commit();
+  toast(tr('📝 Gespeichert – viel Erfolg mit deinem Wochenfokus!'));
+});
+
+/* ---------------------------- Kanban-Board -------------------------------- */
+/* Spalten Offen · In Arbeit · Erledigt. Maus: Karten ziehen; Finger: Karte antippen → Status wählen. */
+let taskView = (() => { try { return localStorage.getItem('projekttracker.ui.taskView') === 'board' ? 'board' : 'list'; } catch { return 'list'; } })();
+const taskStatusOf = (t) => (t.done ? 'done' : t.status === 'doing' ? 'doing' : 'open');
+
+function kanbanCard(t) {
+  const subs = t.subtasks || [];
+  const ms = t.milestoneId ? data.milestones.find((m) => m.id === t.milestoneId) : null;
+  return `<div class="kb-card ${t.done ? 'done' : ''}" data-kb="${t.id}" tabindex="0" role="button" aria-label="${esc(t.title)}">
+    <div class="kb-title">${esc(t.title)}</div>
+    <div class="meta">
+      <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
+      ${subs.length ? `<span class="badge">☑ ${subs.filter((s) => s.done).length}/${subs.length}</span>` : ''}
+      ${taskTimeBadge(t)}
+      ${t.repeat ? `<span class="badge">🔁</span>` : ''}
+      ${t.done ? `<span>${fmtRelative(t.doneAt)}</span>` : dueBadge(t.dueDate)}
+      ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
+      ${assigneeBadges(t.assignees)}
+    </div>
+  </div>`;
+}
+function kanbanBoard(open, done) {
+  const cols = [
+    ['open', tr('Offen'), open.filter((t) => t.status !== 'doing')],
+    ['doing', tr('In Arbeit'), open.filter((t) => t.status === 'doing')],
+    ['done', tr('Erledigt'), done],
+  ];
+  return `<div class="kanban">${cols.map(([key, label, list]) => `<div class="kb-col" data-kb-col="${key}">
+      <div class="kb-head"><span>${key === 'doing' ? '▶ ' : key === 'done' ? '✓ ' : ''}${label}</span><span class="muted small">${list.length}</span></div>
+      <div class="kb-list">${list.slice(0, key === 'done' ? 15 : 200).map(kanbanCard).join('') || `<div class="kb-empty small muted">${tr('Hierher ziehen')}</div>`}
+        ${key === 'done' && list.length > 15 ? `<div class="small muted kb-more">${tr('… und {n} weitere', { n: list.length - 15 })}</div>` : ''}</div>
+    </div>`).join('')}</div>
+    <p class="small muted g-hint">${tr('Karten zwischen den Spalten ziehen – oder antippen, um den Status zu wählen.')}</p>`;
+}
+
+function setTaskStatus(id, status) {
+  const t = data.tasks.find((x) => x.id === id);
+  if (!t || taskStatusOf(t) === status) return;
+  if (status === 'done') { t.status = 'open'; return actions.toggleTask({ id }); } // Regeln für Unterpunkte & Feiern
+  if (t.done) {
+    if ((t.subtasks || []).length && t.subtasks.every((s) => s.done)) return toast(tr('Um die Aufgabe wieder zu öffnen, entferne den Haken bei einem Unterpunkt.'));
+    t.done = false; t.doneAt = null;
+  }
+  t.status = status === 'doing' ? 'doing' : 'open';
+  commit();
+  if (status === 'doing') toast(tr('▶ „{title}“ ist jetzt in Arbeit', { title: t.title }));
+}
+
+// Ziehen mit der Maus (Finger: Antippen öffnet das Status-Menü)
+let kbDrag = null;
+document.addEventListener('pointerdown', (e) => {
+  const card = e.target.closest('.kb-card');
+  if (!card || e.button > 0) return;
+  kbDrag = { card, id: card.dataset.kb, x0: e.clientX, y0: e.clientY, moved: false, touch: e.pointerType !== 'mouse' };
+});
+document.addEventListener('pointermove', (e) => {
+  if (!kbDrag || kbDrag.touch) return;
+  if (!kbDrag.moved && Math.hypot(e.clientX - kbDrag.x0, e.clientY - kbDrag.y0) < 6) return;
+  if (!kbDrag.moved) {
+    kbDrag.moved = true;
+    const r = kbDrag.card.getBoundingClientRect();
+    kbDrag.ghost = kbDrag.card.cloneNode(true);
+    kbDrag.ghost.classList.add('kb-ghost');
+    Object.assign(kbDrag.ghost.style, { width: `${r.width}px`, left: `${r.left}px`, top: `${r.top}px` });
+    kbDrag.dx = e.clientX - r.left; kbDrag.dy = e.clientY - r.top;
+    document.body.appendChild(kbDrag.ghost);
+    kbDrag.card.classList.add('kb-placeholder');
+  }
+  kbDrag.ghost.style.left = `${e.clientX - kbDrag.dx}px`;
+  kbDrag.ghost.style.top = `${e.clientY - kbDrag.dy}px`;
+  document.querySelectorAll('.kb-col.over').forEach((c) => c.classList.remove('over'));
+  kbDrag.ghost.style.display = 'none';
+  document.elementFromPoint(e.clientX, e.clientY)?.closest('.kb-col')?.classList.add('over');
+  kbDrag.ghost.style.display = '';
+});
+document.addEventListener('pointerup', (e) => {
+  if (!kbDrag) return;
+  const d = kbDrag;
+  kbDrag = null;
+  if (!d.moved) return; // Antippen/Klick öffnet das Menü im click-Ereignis (sonst trifft der Klick das frisch geöffnete Menü)
+  kbJustDragged = Date.now();
+  d.ghost.remove();
+  d.card.classList.remove('kb-placeholder');
+  const col = document.querySelector('.kb-col.over');
+  document.querySelectorAll('.kb-col.over').forEach((c) => c.classList.remove('over'));
+  if (col) setTaskStatus(d.id, col.dataset.kbCol);
+});
+let kbJustDragged = 0;
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('.kb-card');
+  if (!card || e.target.closest('a, button') || Date.now() - kbJustDragged < 250) return;
+  const t = data.tasks.find((x) => x.id === card.dataset.kb);
+  if (t) openPopover(card, taskMenuHTML(t));
+});
+document.addEventListener('pointercancel', () => { if (kbDrag?.ghost) { kbDrag.ghost.remove(); kbDrag.card.classList.remove('kb-placeholder'); } kbDrag = null; });
+document.addEventListener('keydown', (e) => {
+  const card = e.target.closest?.('.kb-card');
+  if (!card || (e.key !== 'Enter' && e.key !== ' ')) return;
+  e.preventDefault();
+  const t = data.tasks.find((x) => x.id === card.dataset.kb);
+  if (t) openPopover(card, taskMenuHTML(t));
+});
+
+Object.assign(actions, {
+  setTaskView({ id }) {
+    taskView = id === 'board' ? 'board' : 'list';
+    try { localStorage.setItem('projekttracker.ui.taskView', taskView); } catch { /* ignorieren */ }
+    render();
+  },
+  setTaskStatus({ id, status }) { setTaskStatus(id, status); },
+});
+
+/* ---------------------------- Kalender-Export (.ics) --------------------- */
+/* Fällige Aufgaben, Meilensteine, Zieltermine und geplante Aufgaben (Zeitplan) als
+   iCalendar-Datei – lässt sich in Apple Kalender, Outlook und Google Kalender importieren.
+   Gleiche UIDs → ein erneuter Import aktualisiert die Termine statt sie zu verdoppeln. */
+function icsText(s) { return String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
+function icsFold(line) {
+  const out = [];
+  let rest = line;
+  while (rest.length > 72) { out.push(rest.slice(0, 72)); rest = ' ' + rest.slice(72); }
+  out.push(rest);
+  return out.join('\r\n');
+}
+const icsDate = (iso) => iso.replace(/-/g, '');
+function buildIcs(projectId) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  const projects = data.projects.filter((p) => (!projectId || p.id === projectId) && p.status !== 'abgeschlossen' && !p.archived);
+  const events = [];
+  const ev = (uid, start, end, summary, desc, alarm = true) => events.push([
+    'BEGIN:VEVENT', `UID:${uid}@protrac`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${icsDate(start)}`, `DTEND;VALUE=DATE:${icsDate(toISO(addDays(parseISO(end), 1)))}`,
+    `SUMMARY:${icsText(summary)}`, desc ? `DESCRIPTION:${icsText(desc)}` : '', 'TRANSP:TRANSPARENT',
+    ...(alarm ? ['BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(summary)}`, 'TRIGGER:-PT15H', 'END:VALARM'] : []), 'END:VEVENT',
+  ].filter(Boolean));
+  projects.forEach((p) => {
+    const pl = planProject(p.id);
+    if (p.targetDate) ev(`target-${p.id}`, p.targetDate, p.targetDate, `⚑ ${tr('Zieltermin')}: ${p.name}`, p.goal || '');
+    data.milestones.filter((m) => m.projectId === p.id && !m.done && m.dueDate).forEach((m) => {
+      const f = pl.milestones.get(m.id);
+      ev(`ms-${m.id}`, m.dueDate, m.dueDate, `🏁 ${m.title} · ${p.name}`, [m.description, f?.late > 0 ? `⚠️ ${tr('Prognose {date} · {late}', { date: fmtDate(f.forecast), late: trp(f.late, '{n} Arbeitstag zu spät', '{n} Arbeitstage zu spät') })}` : ''].filter(Boolean).join('\n'));
+    });
+    data.tasks.filter((t) => t.projectId === p.id && !t.done).forEach((t) => {
+      if (t.dueDate) ev(`task-${t.id}`, t.dueDate, t.dueDate, `✅ ${t.title} · ${p.name}`, t.notes || '');
+      else if (pl.used && pl.plan.get(t.id)) {
+        const x = pl.plan.get(t.id);
+        ev(`plan-${t.id}`, x.es, x.ef, `${x.critical ? '🔴' : '🗓'} ${t.title} · ${p.name}`, `${tr('Geplant laut Zeitplan')}${x.critical ? ` · ${tr('kritisch')}` : ` · ${trp(x.slack, '{n} Tag Puffer', '{n} Tage Puffer')}`}`, false);
+      }
+    });
+  });
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//R3DO//Protrac//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    `X-WR-CALNAME:${icsText(projectId ? `Protrac · ${getProject(projectId)?.name}` : 'Protrac')}`, ...events.flat(), 'END:VCALENDAR'];
+  return { text: lines.map(icsFold).join('\r\n') + '\r\n', count: events.length };
+}
+Object.assign(actions, {
+  exportIcs({ id } = {}) {
+    const { text, count } = buildIcs(id && getProject(id) ? id : null);
+    if (!count) return toast(tr('Keine offenen Termine gefunden – trage Fälligkeiten, Meilenstein-Zieldaten oder einen Zieltermin ein.'));
+    download(`protrac-termine${id ? `-${(getProject(id)?.name || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-')}` : ''}.ics`, text, 'text/calendar');
+    toast(trp(count, '📅 {n} Termin exportiert – Datei öffnen, um sie in deinen Kalender zu übernehmen.', '📅 {n} Termine exportiert – Datei öffnen, um sie in deinen Kalender zu übernehmen.'));
+  },
+});
 
 /* ---------------------------- Gantt-Diagramm --------------------------- */
 /* Balken je Aufgabe (gruppiert nach Meilensteinen), ◆ Meilensteine, Pfeile für Vorgänger,
@@ -6058,4 +7170,5 @@ window.addEventListener('languagechange', () => render());
 
 render();
 initServer();
+initFolderBackup();
 setTimeout(checkWhatsNew, 800);
