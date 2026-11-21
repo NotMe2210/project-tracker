@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.21-8",
+      "date": "2026-11-21",
+      "de": [
+        "🗓 Gantt-Diagramm und Roadmap nutzen in jeder Zoomstufe (Tage, Wochen, Monate) die ganze Breite – die Zeitachse endet nicht mehr mittendrin"
+      ],
+      "en": [
+        "🗓 Gantt chart and roadmap use the full width at every zoom level (days, weeks, months) – the timeline no longer stops halfway"
+      ]
+    },
+    {
       "version": "2026.11.21-7",
       "date": "2026-11-21",
       "de": [

@@ -1221,7 +1221,7 @@ div.doc-chips { margin-top: 6px; }
 .gantt-tools { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 8px; }
 .gantt-tools .seg-btn { padding: 4px 10px; font-size: .82rem; }
 .gantt-scroll { --gl: 220px; overflow-x: auto; overscroll-behavior-x: contain; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-.gantt { position: relative; width: calc(var(--gl) + var(--gw)); }
+.gantt { position: relative; width: calc(var(--gl) + var(--gw)); overflow-x: clip; }
 .g-row { display: flex; height: 34px; }
 .g-label {
   position: sticky; left: 0; z-index: 5; flex: none; width: var(--gl); padding: 0 10px; line-height: 34px; font-size: .85rem;

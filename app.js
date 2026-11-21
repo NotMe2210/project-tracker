@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-7';
+const APP_VERSION = '2026.11.21-8';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -690,6 +690,8 @@ function render() {
   else if (r.view === 'woche') html = renderWeekReview(r.id);
   else html = renderDashboard();
   app.innerHTML = html;
+  // Zeitachse an die tatsächliche Breite anpassen (höchstens ein zusätzlicher Durchgang)
+  if (measureCharts() && !render.refit) { render.refit = true; try { render(); } finally { render.refit = false; } return; }
   restoreGanttScroll();
   growAll(app);
   renderBackupBar();
@@ -6518,6 +6520,41 @@ Object.assign(actions, {
   },
 });
 
+/* ---------------------------- Zeitachsen füllen die ganze Breite ------- */
+/* Gantt und Roadmap verlängern ihren Zeitraum, bis die Achse den verfügbaren Platz füllt.
+   Die Breite wird nach dem Zeichnen gemessen (je Diagrammart) und beim nächsten Zeichnen
+   genutzt; vor der ersten Messung gilt eine Schätzung aus der Seitenbreite. */
+const chartWidths = new Map(); // data-chart → Breite der Zeitachse in px (ohne Beschriftungsspalte)
+function chartFillDays(key, px) {
+  let w = chartWidths.get(key);
+  if (!w) {
+    const label = window.matchMedia('(max-width: 640px)').matches ? 118 : 220;
+    w = ($('#app')?.clientWidth || window.innerWidth) - 34 - label;
+  }
+  return Math.ceil(Math.max(0, w) / px) + 1;
+}
+/** Nach dem Zeichnen messen; hat sich die Breite geändert, einmal neu zeichnen */
+function measureCharts() {
+  let changed = false;
+  document.querySelectorAll('.gantt-scroll[data-chart]').forEach((el) => {
+    const gl = parseFloat(getComputedStyle(el).getPropertyValue('--gl')) || 0;
+    const w = Math.round(el.clientWidth - gl);
+    const old = chartWidths.get(el.dataset.chart);
+    if (w > 0 && (!old || Math.abs(old - w) > 8)) {
+      chartWidths.set(el.dataset.chart, w);
+      // nur neu zeichnen, wenn die Achse dadurch nicht mehr passt (zu kurz oder unnötig lang)
+      const inner = el.querySelector('.gantt');
+      if (inner && (inner.offsetWidth < el.clientWidth - 2 || (old && old > w))) changed = true;
+    }
+  });
+  return changed;
+}
+let chartResizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(chartResizeTimer);
+  chartResizeTimer = setTimeout(() => { if (document.querySelector('.gantt-scroll[data-chart]') && !$('#modal').open && measureCharts()) render(); }, 200);
+});
+
 /* ---------------------------- Gantt-Diagramm --------------------------- */
 /* Balken je Aufgabe (gruppiert nach Meilensteinen), ◆ Meilensteine, Pfeile für Vorgänger,
    kritischer Pfad rot, Puffer hell, Heute-Linie. Ziehen = Start verschieben,
@@ -6548,7 +6585,7 @@ function ganttChart(p, pl) {
   let end = addDays(parseISO(dates.reduce(maxIso)), ganttZoom === 'month' ? 21 : 7);
   if (ganttZoom === 'week') start = startOfWeek(start);
   if (ganttZoom === 'month') start = new Date(start.getFullYear(), start.getMonth(), 1);
-  const minDays = ganttZoom === 'day' ? 28 : ganttZoom === 'week' ? 84 : 240;
+  const minDays = Math.max(ganttZoom === 'day' ? 28 : ganttZoom === 'week' ? 84 : 240, chartFillDays('gantt', px));
   if (daysBetween(toISO(start), toISO(end)) < minDays) end = addDays(start, minDays);
   const startIso = toISO(start);
   const total = daysBetween(startIso, toISO(end)) + 1;
@@ -6613,7 +6650,7 @@ function ganttChart(p, pl) {
       <button type="button" class="btn small" data-action="ganttToday">${tr('Heute')}</button>
       <span class="g-legend small muted"><span class="g-key crit"></span>${tr('kritisch')} <span class="g-key"></span>${tr('geplant')} <span class="g-key slack"></span>${tr('Puffer')} <span class="g-key done"></span>${tr('erledigt')} ◆ ${tr('Meilenstein')}</span>
     </div>
-    <div class="gantt-scroll" data-gantt="${p.id}" data-px="${px}">
+    <div class="gantt-scroll" data-gantt="${p.id}" data-chart="gantt" data-px="${px}">
       <div class="gantt" style="--gw:${W}px">
         <div class="g-row g-head"><div class="g-label"></div><div class="g-track" style="width:${W}px"><div class="g-months">${monthHtml}</div><div class="g-days">${cells.join('')}</div></div></div>
         <div class="g-body">
@@ -6763,7 +6800,7 @@ function roadmapChart(projects, { compact = false } = {}) {
   if (start < floor) start = floor; // sehr alte Projekte beginnen am linken Rand
   start = roadmapZoom === 'month' ? new Date(start.getFullYear(), start.getMonth(), 1) : startOfWeek(start);
   let end = addDays(parseISO([today, ...spans.map((x) => x.end)].reduce(maxIso)), 28);
-  const minDays = roadmapZoom === 'week' ? 84 : 180;
+  const minDays = Math.max(roadmapZoom === 'week' ? 84 : 180, chartFillDays(compact ? 'roadmap-compact' : 'roadmap', px));
   if (daysBetween(toISO(start), toISO(end)) < minDays) end = addDays(start, minDays);
   const startIso = toISO(start);
   const total = daysBetween(startIso, toISO(end)) + 1;
@@ -6804,7 +6841,7 @@ function roadmapChart(projects, { compact = false } = {}) {
       <button type="button" class="btn small" data-action="ganttToday">${tr('Heute')}</button>
       ${compact ? '' : `<span class="g-legend small muted"><span class="g-key rm"></span>${tr('Laufzeit & Fortschritt')} ◆ ${tr('Meilenstein')} ⚑ ${tr('Zieltermin')} <span class="g-key crit"></span>${tr('Termin gefährdet')}</span>`}
     </div>
-    <div class="gantt-scroll" data-gantt="roadmap" data-px="${px}">
+    <div class="gantt-scroll" data-gantt="roadmap" data-chart="${compact ? 'roadmap-compact' : 'roadmap'}" data-px="${px}">
       <div class="gantt" style="--gw:${W}px">
         <div class="g-row g-head"><div class="g-label"></div><div class="g-track" style="width:${W}px"><div class="g-months">${monthHtml}</div><div class="g-days">${weeks.join('')}</div></div></div>
         <div class="g-body">
