@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-20",
+      "date": "2026-11-22",
+      "de": [
+        "⬆ Aufgaben & Meilensteine importieren direkt in den Reitern „Aufgaben“ und „Meilensteine“ (Knopf „⬆ CSV“) – wie bei Zeit und Finanzen",
+        "📋 Der Import hat jetzt eine Anleitung mit allen Spalten, ein Beispiel und eine Vorlage zum Herunterladen; vor dem Übernehmen zeigt eine Vorschau Meilensteine, Aufgaben, neue Projekte, schon vorhandene Einträge und nicht erkannte Daten"
+      ],
+      "en": [
+        "⬆ Import tasks & milestones right in the “Tasks” and “Milestones” tabs (“⬆ CSV” button) – like for time and finances",
+        "📋 The import now has a guide with all columns, an example and a downloadable template; before importing, a preview shows milestones, tasks, new projects, existing entries and unrecognised dates"
+      ]
+    },
+    {
       "version": "2026.11.22-19",
       "date": "2026-11-22",
       "de": [

@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-19';
+const APP_VERSION = '2026.11.22-20';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2282,12 +2282,12 @@ function projectTasks(p) {
       <button type="button" class="seg-btn ${taskView === 'list' ? 'active' : ''}" data-action="setTaskView" data-id="list" aria-pressed="${taskView === 'list'}">☰ <span>${tr('Liste')}</span></button>
       <button type="button" class="seg-btn ${taskView === 'board' ? 'active' : ''}" data-action="setTaskView" data-id="board" aria-pressed="${taskView === 'board'}">▥ <span>${tr('Board')}</span></button></div>`;
   if (taskView === 'board') return `<section class="card">
-    <div class="card-head"><h2>${tr('Aufgaben')} (${tasks.length})</h2><span class="btn-row">${viewSwitch}<button class="btn primary small add-icon" data-action="addTask" data-id="${p.id}" title="${tr('Aufgabe anlegen')}" aria-label="${tr('Aufgabe anlegen')}">+</button></span></div>
+    <div class="card-head"><h2>${tr('Aufgaben')} (${tasks.length})</h2><span class="btn-row">${viewSwitch}<button class="btn small" data-action="importPlan" data-id="${p.id}" title="${tr('Aufgaben & Meilensteine importieren')}" aria-label="${tr('Aufgaben & Meilensteine importieren')}">⬆ CSV</button><button class="btn primary small add-icon" data-action="addTask" data-id="${p.id}" title="${tr('Aufgabe anlegen')}" aria-label="${tr('Aufgabe anlegen')}">+</button></span></div>
     ${whoFilterChips(p)}
     ${kanbanBoard(open, done)}
   </section>`;
   return `<section class="card">
-    <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><span class="btn-row">${viewSwitch}<button class="btn primary small add-icon" data-action="addTask" data-id="${p.id}" title="${tr('Aufgabe anlegen')}" aria-label="${tr('Aufgabe anlegen')}">+</button></span></div>
+    <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><span class="btn-row">${viewSwitch}<button class="btn small" data-action="importPlan" data-id="${p.id}" title="${tr('Aufgaben & Meilensteine importieren')}" aria-label="${tr('Aufgaben & Meilensteine importieren')}">⬆ CSV</button><button class="btn primary small add-icon" data-action="addTask" data-id="${p.id}" title="${tr('Aufgabe anlegen')}" aria-label="${tr('Aufgabe anlegen')}">+</button></span></div>
     ${whoFilterChips(p)}
     ${open.length ? PRIORITIES.map(({ value, label }) => {
       const group = open.filter((t) => (t.priority || 'mittel') === value);
@@ -2305,7 +2305,7 @@ function projectMilestones(p) {
     <div class="card-head"><h2>${tr('Meilensteine')} (${ms.length})</h2><span class="btn-row">${ms.length > 1 ? `<div class="segmented" role="group" aria-label="${tr('Reihenfolge der Meilensteine')}">
         <button type="button" class="seg-btn ${manual ? '' : 'active'}" data-action="setMilestoneSort" data-id="${p.id}" data-mode="date" aria-pressed="${!manual}" title="${tr('Nach Zieldatum')}" aria-label="${tr('Nach Zieldatum')}">📅 <span>${tr('Nach Zieldatum')}</span></button>
         <button type="button" class="seg-btn ${manual ? 'active' : ''}" data-action="setMilestoneSort" data-id="${p.id}" data-mode="manual" aria-pressed="${manual}" title="${tr('Eigene Reihenfolge')}" aria-label="${tr('Eigene Reihenfolge')}">⇅ <span>${tr('Eigene Reihenfolge')}</span></button>
-      </div>` : ''}<button class="btn primary small add-icon" data-action="addMilestone" data-id="${p.id}" title="${tr('Meilenstein anlegen')}" aria-label="${tr('Meilenstein anlegen')}">+</button></span></div>
+      </div>` : ''}<button class="btn small" data-action="importPlan" data-id="${p.id}" title="${tr('Aufgaben & Meilensteine importieren')}" aria-label="${tr('Aufgaben & Meilensteine importieren')}">⬆ CSV</button><button class="btn primary small add-icon" data-action="addMilestone" data-id="${p.id}" title="${tr('Meilenstein anlegen')}" aria-label="${tr('Meilenstein anlegen')}">+</button></span></div>
     ${ms.length > 1 && manual ? `<p class="small muted g-hint ms-hint"><span class="kb-hint-wide">${tr('Mit ↑ ↓ verschieben.')}</span><span class="kb-hint-phone">${tr('Meilenstein antippen, dann mit ↑ ↓ verschieben.')}</span></p>` : ''}
     ${ms.length ? `<ul class="list">${ms.map((m, i) => milestoneItem(m, { move: manual ? { first: i === 0, last: i === ms.length - 1 } : null })).join('')}</ul>`
       : `<div class="empty">${tr('Noch keine Meilensteine. Teile dein Projekt in 3–5 große Etappen auf – das macht Fortschritt sichtbar.')}</div>`}
@@ -5919,9 +5919,10 @@ function readPlanCsv(text) {
   all[0].forEach((h, i) => { const k = csvKey(h); for (const [key, names] of Object.entries(PLAN_COLUMNS)) if (idx[key] === undefined && names.includes(k)) idx[key] = i; });
   if (idx.title === undefined) throw new Error(tr('Keine Spalte „Titel“ gefunden.'));
   const get = (r, k) => (idx[k] === undefined ? '' : String(r[idx[k]] ?? '').trim());
-  const rows = all.slice(1).map((r) => {
+  const rows = all.slice(1).map((r, i) => {
     const type = csvKey(get(r, 'type'));
     return {
+      line: i + 2,
       kind: ['meilenstein', 'milestone', 'ms', 'etappe'].includes(type) ? 'ms' : 'task',
       project: get(r, 'project'), title: get(r, 'title').replace(/\s*\n\s*/g, ' '), milestone: get(r, 'milestone'),
       priority: get(r, 'priority'), status: get(r, 'status'), due: get(r, 'due'), start: get(r, 'start'), duration: get(r, 'duration'),
@@ -5935,33 +5936,214 @@ const planStatus = (s) => { const k = csvKey(s); return ['erledigt', 'done', 'fe
 const planRepeat = (s) => { const k = csvKey(s); return REPEATS.find((r) => r.value && (r.value === k || csvKey(r.label) === k))?.value || null; };
 const findProjectByName = (name) => { const k = String(name || '').trim().toLocaleLowerCase(LOCALE); return k ? data.projects.find((p) => p.name.trim().toLocaleLowerCase(LOCALE) === k) : null; };
 
-function openPlanImport(text, pid) {
-  const { rows, hasProject } = readPlanCsv(text);
-  if (!rows.length) throw new Error(tr('Die Datei enthält keine Datenzeilen.'));
-  const nMs = rows.filter((r) => r.kind === 'ms').length, nTasks = rows.length - nMs;
-  const named = hasProject && rows.some((r) => findProjectByName(r.project));
-  const projects = liveProjects().length ? liveProjects() : data.projects;
-  openForm({
-    title: tr('Aufgaben & Meilensteine importieren'),
-    submitLabel: tr('Importieren'),
-    fields: [
-      { name: 'target', label: tr('In Projekt'), type: 'select', value: pid || (named ? '__file' : projects[0]?.id),
-        options: [...(named ? [{ value: '__file', label: tr('Laut Spalte „Projekt“ der Datei') }] : []), ...projects.map((p) => ({ value: p.id, label: p.name }))],
-        hint: tr('Gefunden: {ms} Meilensteine und {tasks} Aufgaben.', { ms: nMs, tasks: nTasks }) },
-      { name: 'dups', label: tr('Gleichnamige Einträge'), type: 'select', value: 'skip',
-        options: [{ value: 'skip', label: tr('Überspringen (nicht doppelt anlegen)') }, { value: 'add', label: tr('Trotzdem neu anlegen') }] },
-    ],
-    onSubmit(v) {
-      const res = importPlanRows(rows, v.target, v.dups === 'skip');
-      toast(tr('⬆ Importiert: {ms} Meilensteine, {tasks} Aufgaben{skipped}.', { ms: res.ms, tasks: res.tasks, skipped: res.skipped ? tr(' · {n} übersprungen', { n: res.skipped }) : '' }));
-    },
+/* ---- Import-Dialog wie bei „Zeiten & Investitionen“: Datei/Text + Anleitung + Vorlage, dann Vorschau ---- */
+function planCsvTemplate() {
+  const sep = LANG === 'de' ? ';' : ',';
+  const q = (s) => (/[",;\n]/.test(String(s)) ? `"${String(s).replace(/"/g, '""')}"` : String(s));
+  const p = data.projects.find((x) => x.status === 'aktiv')?.name || tr('Mein Projekt');
+  const d = (n) => toISO(addDays(new Date(), n));
+  const ms = tr('Prototyp fertig'), t1 = tr('Anforderungen sammeln'), t2 = tr('Entwurf skizzieren');
+  const rows = [
+    [tr('Typ'), tr('Projekt'), tr('Titel'), tr('Meilenstein'), tr('Priorität'), tr('Status'), tr('Fällig am'), tr('Dauer (Arbeitstage)'), tr('Aufwand'), tr('Vorgänger'), tr('Unterpunkte'), tr('Notiz')],
+    [tr('Meilenstein'), p, ms, '', '', tr('offen'), d(30), '', '', '', '', ''],
+    [tr('Aufgabe'), p, t1, ms, tr('Hoch'), tr('In Arbeit'), d(7), '2', '3:00', '', `[x] ${tr('Notizen sichten')} | [ ] ${tr('Liste schreiben')}`, ''],
+    [tr('Aufgabe'), p, t2, ms, tr('Mittel'), tr('offen'), d(14), '3', '', t1, '', tr('Erst nach den Anforderungen')],
+  ];
+  return '\uFEFF' + rows.map((r) => r.map(q).join(sep)).join('\n');
+}
+function planGuideHTML() {
+  const sep = LANG === 'de' ? ';' : ',';
+  const ex = [
+    [tr('Typ'), tr('Titel'), tr('Meilenstein'), tr('Priorität'), tr('Fällig am'), tr('Vorgänger')],
+    [tr('Meilenstein'), tr('Prototyp fertig'), '', '', '2026-12-20', ''],
+    [tr('Aufgabe'), tr('Anforderungen sammeln'), tr('Prototyp fertig'), tr('Hoch'), '2026-12-01', ''],
+    [tr('Aufgabe'), tr('Entwurf skizzieren'), tr('Prototyp fertig'), tr('Mittel'), '2026-12-10', tr('Anforderungen sammeln')],
+  ].map((r) => r.join(sep)).join('\n');
+  const row = (name, alias, desc, req) => `<tr><td><b>${name}</b>${alias ? `<div class="small muted">${alias}</div>` : ''}</td><td>${desc}</td><td>${req}</td></tr>`;
+  return `<div class="help csv-guide">
+    <ul>
+      <li>${tr('Die <b>erste Zeile</b> enthält die Spaltenüberschriften, jede weitere Zeile ist ein Eintrag. Die Reihenfolge der Spalten ist egal, nicht benötigte Spalten werden ignoriert.')}</li>
+      <li>${tr('Als Trennzeichen gehen <b>Semikolon, Komma oder Tabulator</b> – der Tracker erkennt es selbst. Überschriften auf Deutsch oder Englisch.')}</li>
+    </ul>
+    <div class="table-wrap"><table class="csv-cols">
+      <thead><tr><th>${tr('Spalte')}</th><th>${tr('Inhalt')}</th><th>${tr('Pflicht?')}</th></tr></thead>
+      <tbody>
+        ${row(tr('Titel'), 'Title', tr('Name der Aufgabe bzw. des Meilensteins'), tr('ja'))}
+        ${row(tr('Typ'), 'Type', tr('„Aufgabe“ oder „Meilenstein“. Fehlt die Spalte, wird alles als Aufgabe angelegt.'), tr('nein'))}
+        ${row(tr('Projekt'), 'Project', tr('Name des Projekts. Unbekannte Projekte können beim Import angelegt werden.'), tr('ja*'))}
+        ${row(tr('Meilenstein'), 'Milestone', tr('Titel des Meilensteins, zu dem die Aufgabe gehört – auch einer aus derselben Datei'), tr('nein'))}
+        ${row(tr('Priorität'), 'Priority', tr('Hoch, Mittel oder Niedrig – leer = Mittel'), tr('nein'))}
+        ${row(tr('Status'), 'Status', tr('offen, In Arbeit oder erledigt (Meilenstein: erreicht)'), tr('nein'))}
+        ${row(tr('Fällig am'), tr('Due / Zieldatum'), tr('Aufgabe: Fälligkeit · Meilenstein: Zieldatum, z. B. 2026-11-20 oder 20.11.2026'), tr('nein'))}
+        ${row(tr('Frühester Start'), 'Start', tr('Für den Zeitplan: frühestens ab diesem Tag'), tr('nein'))}
+        ${row(tr('Dauer (Arbeitstage)'), 'Duration', tr('Für Zeitplan & kritischen Pfad, z. B. 3'), tr('nein'))}
+        ${row(tr('Aufwand'), 'Effort', tr('Geschätzte Arbeitszeit, z. B. 2:00 oder 90 min'), tr('nein'))}
+        ${row(tr('Vorgänger'), 'Predecessors', tr('Titel anderer Aufgaben, getrennt mit |'), tr('nein'))}
+        ${row(tr('Unterpunkte'), 'Subtasks', tr('Getrennt mit |, erledigte mit [x] davor: „[x] Erster | [ ] Zweiter“'), tr('nein'))}
+        ${row(tr('Notiz'), 'Notes', tr('Notiz zur Aufgabe bzw. Beschreibung des Meilensteins'), tr('nein'))}
+        ${row(tr('Erledigt am'), tr('Done / Erreicht am'), tr('Datum, an dem es erledigt bzw. erreicht wurde'), tr('nein'))}
+        ${row(tr('Wiederholen'), 'Repeat', tr('z. B. wöchentlich, monatlich, weekly'), tr('nein'))}
+      </tbody>
+    </table></div>
+    <p class="small muted">${tr('* Beim Import auf einer Projektseite darf die Spalte „Projekt“ fehlen – dann gehört alles zu diesem Projekt.')}</p>
+    <div class="field-label">${tr('Beispiel')}</div>
+    <pre class="csv-example">${esc(ex)}</pre>
+    <h3>${tr('So geht’s')}</h3>
+    <ol>
+      <li>${tr('<b>Excel / Numbers:</b> Tabelle mit den Spalten oben anlegen und als <i>CSV (UTF-8)</i> speichern bzw. exportieren – oder die Zellen inklusive Überschrift kopieren und unten einfügen.')}</li>
+      <li>${tr('Datei auswählen oder Text einfügen und auf <b>Prüfen</b> tippen.')}</li>
+      <li>${tr('In der Vorschau siehst du, was importiert wird. Erst mit <b>Importieren</b> werden die Einträge übernommen.')}</li>
+    </ol>
+    <p class="small muted">${tr('Tipp: Eine CSV aus „Aufgaben & Meilensteine exportieren“ lässt sich wieder importieren. Gleichnamige Einträge im selben Projekt werden erkannt und übersprungen.')}</p>
+    <button type="button" class="btn small" data-plan-template>⬇ ${tr('Vorlage herunterladen')}</button>
+  </div>`;
+}
+/** CSV prüfen: Projekt je Zeile, neue Projekte, Doppelte, Hinweise */
+function analyzePlan(text, defaultPid) {
+  let parsed;
+  try { parsed = readPlanCsv(text); } catch (e) { return { error: e.message }; }
+  const same = (a, b) => String(a || '').trim().toLocaleLowerCase(LOCALE) === String(b || '').trim().toLocaleLowerCase(LOCALE);
+  const res = { rows: [], newProjects: new Map(), issues: [], duplicates: 0 };
+  for (const r of parsed.rows) {
+    let pid = null;
+    if (r.project) {
+      const p = findProjectByName(r.project);
+      if (p) pid = p.id;
+      else { const k = r.project.trim().toLocaleLowerCase(LOCALE); pid = `new:${k}`; if (!res.newProjects.has(k)) res.newProjects.set(k, r.project.trim()); }
+    } else pid = defaultPid;
+    if (!pid) { res.issues.push(tr('Zeile {line}: kein Projekt angegeben', { line: r.line })); continue; }
+    for (const [k, label] of [['due', tr('Fällig am')], ['start', tr('Frühester Start')], ['doneAt', tr('Erledigt am')]])
+      if (r[k] && !parseDateFlexible(r[k])) res.issues.push(tr('Zeile {line}: „{label}“ nicht erkannt ({value}) – wird ohne Datum übernommen', { line: r.line, label, value: r[k] }));
+    const dup = !pid.startsWith('new:') && (r.kind === 'ms' ? data.milestones : data.tasks).some((x) => x.projectId === pid && same(x.title, r.title));
+    if (dup) res.duplicates++;
+    res.rows.push({ ...r, pid, dup });
+  }
+  if (!res.rows.length && !res.issues.length) return { error: tr('Die Datei enthält keine Datenzeilen.') };
+  return res;
+}
+function renderPlanPreview(el, r) {
+  const name = (pid) => (pid.startsWith('new:') ? r.newProjects.get(pid.slice(4)) : getProject(pid)?.name || '–');
+  const nMs = r.rows.filter((x) => x.kind === 'ms').length, nT = r.rows.length - nMs;
+  const sample = r.rows.slice(0, 10);
+  const newList = [...r.newProjects.values()];
+  el.innerHTML = `
+    <ul class="csv-summary">
+      <li>🏁 <b>${trp(nMs, '{n} Meilenstein', '{n} Meilensteine')}</b></li>
+      <li>✅ <b>${trp(nT, '{n} Aufgabe', '{n} Aufgaben')}</b></li>
+      ${r.issues.length ? `<li class="csv-warn">⚠️ ${trp(r.issues.length, '{n} Hinweis', '{n} Hinweise')}
+        <ul class="small">${r.issues.slice(0, 6).map((m) => `<li>${esc(m)}</li>`).join('')}${r.issues.length > 6 ? `<li>${tr('… und {n} weitere', { n: r.issues.length - 6 })}</li>` : ''}</ul></li>` : ''}
+    </ul>
+    ${r.duplicates ? `<label class="check-row csv-create"><input type="checkbox" data-plan-skip checked>
+      <span>${trp(r.duplicates, '{n} gleichnamigen Eintrag überspringen', '{n} gleichnamige Einträge überspringen')}
+      <span class="small muted">${tr('Ohne Haken werden sie zusätzlich angelegt.')}</span></span></label>` : ''}
+    ${newList.length ? `<label class="check-row csv-create"><input type="checkbox" data-csv-create checked>
+      <span>${trp(newList.length, 'Neues Projekt anlegen: {names}', 'Neue Projekte anlegen: {names}', { names: esc(newList.join(', ')) })}
+      <span class="small muted">${tr('Ohne Haken werden diese Einträge übersprungen.')}</span></span></label>` : ''}
+    ${sample.length ? `<div class="field-label">${tr('Vorschau')}</div>
+    <div class="table-wrap"><table class="csv-preview">
+      <thead><tr><th>${tr('Zeile')}</th><th>${tr('Projekt')}</th><th>${tr('Eintrag')}</th><th>${tr('Fällig am')}</th></tr></thead>
+      <tbody>${sample.map((x) => `<tr class="${x.dup ? 'muted' : ''}"><td class="muted">${x.line}</td><td>${esc(name(x.pid))}${x.pid.startsWith('new:') ? ` <span class="badge">${tr('neu')}</span>` : ''}</td>
+        <td>${x.kind === 'ms' ? '🏁' : '✅'} ${esc(x.title)}${x.kind === 'task' && x.milestone ? ` <span class="small muted">· ${esc(x.milestone)}</span>` : ''}${x.dup ? ` <span class="badge">${tr('schon vorhanden')}</span>` : ''}</td>
+        <td>${parseDateFlexible(x.due) ? fmtDate(parseDateFlexible(x.due)) : ''}</td></tr>`).join('')}</tbody>
+    </table></div>
+    ${r.rows.length > sample.length ? `<p class="small muted">${tr('… und {n} weitere', { n: r.rows.length - sample.length })}</p>` : ''}` : ''}`;
+}
+function openPlanImport(defaultProjectId) {
+  const dlg = $('#modal');
+  const proj = defaultProjectId ? getProject(defaultProjectId) : null;
+  dlg.classList.add('wide');
+  dlg.innerHTML = `<div class="form detail-view csv-import">
+    <h2>⬆ ${tr('Aufgaben & Meilensteine importieren')}</h2>
+    <p class="small muted" style="margin:0">${proj ? tr('Einträge ohne Projektangabe werden „{name}“ zugeordnet.', { name: esc(proj.name) }) : tr('Importiere Aufgaben und Meilensteine aus einer CSV-Datei, z. B. aus Excel, Numbers oder einem früheren Export.')}</p>
+    <div class="csv-step1">
+      <div class="csv-pick">
+        <label class="btn primary csv-file-btn">📄 ${tr('CSV-Datei auswählen')}<input type="file" accept=".csv,.txt,text/csv,text/plain" hidden></label>
+        <span class="small muted csv-file-name"></span>
+      </div>
+      <label>${tr('… oder Inhalt einfügen (z. B. aus Excel kopiert)')}
+        <textarea class="csv-text" rows="5" spellcheck="false" placeholder="${esc(tr('Typ;Titel;Meilenstein;Priorität;Fällig am'))}"></textarea></label>
+      <details class="csv-guide-box" ${data.tasks.length + data.milestones.length ? '' : 'open'}>
+        <summary>📋 ${tr('Anleitung: So muss die CSV aufgebaut sein')}</summary>
+        ${planGuideHTML()}
+      </details>
+    </div>
+    <div class="csv-step2" hidden></div>
+    <div class="form-error"></div>
+    <div class="form-actions">
+      <button type="button" class="btn" data-csv="cancel">${tr('Abbrechen')}</button>
+      <button type="button" class="btn" data-csv="back" hidden>${tr('Zurück')}</button>
+      <button type="button" class="btn primary" data-csv="check">${tr('Prüfen')}</button>
+      <button type="button" class="btn primary" data-csv="import" hidden>${tr('Importieren')}</button>
+    </div>
+  </div>`;
+  const box = dlg.querySelector('.csv-import');
+  const ta = box.querySelector('.csv-text');
+  const err = box.querySelector('.form-error');
+  const btn = (k) => box.querySelector(`[data-csv="${k}"]`);
+  let result = null;
+  const close = () => { dlg.close(); unlockScroll(); };
+  const step = (n) => {
+    box.querySelector('.csv-step1').hidden = n !== 1;
+    box.querySelector('.csv-step2').hidden = n !== 2;
+    btn('check').hidden = n !== 1; btn('back').hidden = n !== 2; btn('import').hidden = n !== 2;
+    err.textContent = '';
+  };
+  const label = () => {
+    const skip = box.querySelector('[data-plan-skip]')?.checked !== false;
+    const n = result.rows.filter((x) => !(skip && x.dup)).length;
+    btn('import').disabled = !n;
+    btn('import').textContent = n ? trp(n, '{n} Eintrag importieren', '{n} Einträge importieren') : tr('Nichts zu importieren');
+  };
+  box.querySelector('input[type=file]').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const buf = await file.arrayBuffer();
+    let text = new TextDecoder('utf-8').decode(buf);
+    if (text.includes('\uFFFD')) text = new TextDecoder('windows-1252').decode(buf); // ältere Excel-Exporte
+    ta.value = text;
+    box.querySelector('.csv-file-name').textContent = file.name;
+    btn('check').click();
   });
+  box.addEventListener('click', (e) => { if (e.target.closest('[data-plan-template]')) download(`${tr('protrac-vorlage-aufgaben')}.csv`, planCsvTemplate(), 'text/csv'); });
+  box.addEventListener('change', (e) => { if (e.target.matches('[data-plan-skip]')) label(); });
+  btn('cancel').addEventListener('click', close);
+  btn('back').addEventListener('click', () => step(1));
+  btn('check').addEventListener('click', () => {
+    if (!ta.value.trim()) { err.textContent = tr('Bitte eine Datei auswählen oder Inhalt einfügen.'); return; }
+    result = analyzePlan(ta.value, defaultProjectId);
+    if (result.error) { err.textContent = result.error; return; }
+    renderPlanPreview(box.querySelector('.csv-step2'), result);
+    step(2);
+    label();
+  });
+  btn('import').addEventListener('click', () => {
+    const create = box.querySelector('[data-csv-create]')?.checked !== false;
+    const skip = box.querySelector('[data-plan-skip]')?.checked !== false;
+    const ids = {};
+    const resolve = (r) => {
+      if (!r.pid.startsWith('new:')) return r.pid;
+      if (!create) return null;
+      if (!ids[r.pid]) {
+        const np = { id: uid(), createdAt: todayISO(), name: result.newProjects.get(r.pid.slice(4)), status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
+        data.projects.push(np);
+        ids[r.pid] = np.id;
+      }
+      return ids[r.pid];
+    };
+    const res = importPlanRows(result.rows, resolve, skip);
+    close();
+    if (Object.keys(ids).length && !res.ms && !res.tasks) commit();
+    toast(tr('⬆ Importiert: {ms} Meilensteine, {tasks} Aufgaben{skipped}.', { ms: res.ms, tasks: res.tasks, skipped: res.skipped ? tr(' · {n} übersprungen', { n: res.skipped }) : '' }));
+  });
+  lockScroll();
+  dlg.showModal();
+  if (!matchMedia('(hover: none)').matches) ta.focus();
 }
 function importPlanRows(rows, target, skipDup) {
   const res = { ms: 0, tasks: 0, skipped: 0 };
   const now = new Date().toISOString();
   const same = (a, b) => String(a || '').trim().toLocaleLowerCase(LOCALE) === String(b || '').trim().toLocaleLowerCase(LOCALE);
-  const pidOf = (r) => (target === '__file' ? findProjectByName(r.project)?.id : target);
+  const pidOf = typeof target === 'function' ? target : (r) => (target === '__file' ? findProjectByName(r.project)?.id : target);
   const created = []; // [{ task, row }] für die Vorgänger
   // 1. Meilensteine
   for (const r of rows.filter((x) => x.kind === 'ms')) {
@@ -6308,19 +6490,7 @@ function renderCsvPreview(el, r) {
 Object.assign(actions, {
   importCsv({ id } = {}) { openCsvImport(id && getProject(id) ? id : null); },
   exportPlan({ id } = {}) { exportPlanCsv(id && getProject(id) ? id : null); },
-  importPlan({ id } = {}) {
-    if (!data.projects.length) return toast(tr('Lege zuerst ein Projekt an.'));
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv,text/csv,text/plain';
-    input.onchange = async () => {
-      const file = input.files[0];
-      if (!file) return;
-      try { openPlanImport(await file.text(), id && getProject(id) ? id : null); }
-      catch (e) { toast(tr('Import fehlgeschlagen: {msg}', { msg: e.message }), 'error'); }
-    };
-    input.click();
-  },
+  importPlan({ id } = {}) { openPlanImport(id && getProject(id) ? id : null); },
 });
 
 /* ------------------------------------------------------------------------
