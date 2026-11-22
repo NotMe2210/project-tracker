@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-16';
+const APP_VERSION = '2026.11.22-17';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2190,7 +2190,7 @@ function renderProjectWidget(id, p, s, cfg) {
 
     case 'next':
       return `<section class="card">
-        <div class="card-head"><h2>👉 ${tr('Nächster Schritt')}</h2><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></div>
+        <div class="card-head"><h2>👉 ${tr('Nächster Schritt')}</h2><button class="btn small add-icon" data-action="addTask" data-id="${p.id}" title="${tr('Aufgabe anlegen')}" aria-label="${tr('Aufgabe anlegen')}">+</button></div>
         ${s.next ? `<ul class="list">${taskItem(s.next)}</ul>` : `<div class="empty">${tr('Keine offene Aufgabe. Was ist der kleinste nächste Schritt?')}</div>`}
       </section>`;
 
@@ -2264,12 +2264,12 @@ function projectTasks(p) {
       <button type="button" class="seg-btn ${taskView === 'list' ? 'active' : ''}" data-action="setTaskView" data-id="list" aria-pressed="${taskView === 'list'}">☰ <span>${tr('Liste')}</span></button>
       <button type="button" class="seg-btn ${taskView === 'board' ? 'active' : ''}" data-action="setTaskView" data-id="board" aria-pressed="${taskView === 'board'}">▥ <span>${tr('Board')}</span></button></div>`;
   if (taskView === 'board') return `<section class="card">
-    <div class="card-head"><h2>${tr('Aufgaben')} (${tasks.length})</h2><span class="btn-row">${viewSwitch}<button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
+    <div class="card-head"><h2>${tr('Aufgaben')} (${tasks.length})</h2><span class="btn-row">${viewSwitch}<button class="btn primary small add-icon" data-action="addTask" data-id="${p.id}" title="${tr('Aufgabe anlegen')}" aria-label="${tr('Aufgabe anlegen')}">+</button></span></div>
     ${whoFilterChips(p)}
     ${kanbanBoard(open, done)}
   </section>`;
   return `<section class="card">
-    <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><span class="btn-row">${viewSwitch}<button class="btn primary small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
+    <div class="card-head"><h2>${tr('Offene Aufgaben')} (${open.length})</h2><span class="btn-row">${viewSwitch}<button class="btn primary small add-icon" data-action="addTask" data-id="${p.id}" title="${tr('Aufgabe anlegen')}" aria-label="${tr('Aufgabe anlegen')}">+</button></span></div>
     ${whoFilterChips(p)}
     ${open.length ? PRIORITIES.map(({ value, label }) => {
       const group = open.filter((t) => (t.priority || 'mittel') === value);
@@ -6429,7 +6429,7 @@ function projectSchedule(p) {
     return `<tr><td class="pt-title">🏁 ${esc(m.title)}</td><td data-label="${tr('Zieldatum')}">${m.dueDate ? fmtDate(m.dueDate) : '–'}</td><td class="${x ? '' : 'pt-empty'}" data-label="${tr('Prognose')}">${x ? fmtDate(x.forecast) : '–'}</td><td class="pt-status">${status}</td></tr>`;
   }).join('');
   return `<section class="card">
-    <div class="card-head"><h2>🗓 ${tr('Zeitplan')}</h2><span class="btn-row"><button class="btn small" data-action="exportIcs" data-id="${p.id}" title="${tr('Termine als Kalender-Datei (.ics)')}">📅 ${tr('Kalender')}</button><button class="btn small" data-action="addTask" data-id="${p.id}">${tr('+ Aufgabe')}</button></span></div>
+    <div class="card-head"><h2>🗓 ${tr('Zeitplan')}</h2><span class="btn-row"><button class="btn small" data-action="exportIcs" data-id="${p.id}" title="${tr('Termine als Kalender-Datei (.ics)')}">📅 ${tr('Kalender')}</button><button class="btn small add-icon" data-action="addTask" data-id="${p.id}" title="${tr('Aufgabe anlegen')}" aria-label="${tr('Aufgabe anlegen')}">+</button></span></div>
     ${intro}${weekendToggle}
     ${ganttChart(p, pl)}
     ${pl.cyclic.size ? `<div class="callout" style="border-color:var(--bad)">🔁 ${tr('Kreisabhängigkeit gefunden: {list}. Diese Vorgänger werden ignoriert, bis du sie auflöst.', { list: [...pl.cyclic].map(title).join(', ') })}</div>` : ''}

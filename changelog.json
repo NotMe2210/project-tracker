@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-17",
+      "date": "2026-11-22",
+      "de": [
+        "📱 Die Knöpfe einer ausgewählten Aufgabe (⏱️ 📎 ⚙️ 🗑) stehen jetzt mittig in der Karte",
+        "➕ Neue Aufgaben legst du über einen runden „+“-Knopf an statt über „+ Aufgabe“"
+      ],
+      "en": [
+        "📱 The buttons of a selected task (⏱️ 📎 ⚙️ 🗑) are now centred in the card",
+        "➕ New tasks are added with a round “+” button instead of “+ Task”"
+      ]
+    },
+    {
       "version": "2026.11.22-16",
       "date": "2026-11-22",
       "de": [
