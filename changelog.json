@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-2",
+      "date": "2026-11-22",
+      "de": [
+        "✏️ Doppelklick bzw. doppelt antippen öffnet eine Aufgabe direkt zum Bearbeiten – in der Liste und auf dem Board"
+      ],
+      "en": [
+        "✏️ Double-click or double-tap opens a task straight for editing – in the list and on the board"
+      ]
+    },
+    {
       "version": "2026.11.22-1",
       "date": "2026-11-22",
       "de": [

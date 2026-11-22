@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-1';
+const APP_VERSION = '2026.11.22-2';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -7012,7 +7012,7 @@ function kanbanBoard(open, done) {
       <div class="kb-list">${list.slice(0, key === 'done' ? 15 : 200).map(kanbanCard).join('') || `<div class="kb-empty small muted">${tr('Hierher ziehen')}</div>`}
         ${key === 'done' && list.length > 15 ? `<div class="small muted kb-more">${tr('… und {n} weitere', { n: list.length - 15 })}</div>` : ''}</div>
     </div>`).join('')}</div>
-    <p class="small muted g-hint">${tr('Karten zwischen den Spalten ziehen – oder antippen, um den Status zu wählen.')}</p>`;
+    <p class="small muted g-hint">${tr('Karten zwischen den Spalten ziehen · antippen = Status und Aktionen · doppelt antippen = bearbeiten.')}</p>`;
 }
 
 function setTaskStatus(id, status) {
@@ -7068,11 +7068,36 @@ document.addEventListener('pointerup', (e) => {
   if (col) setTaskStatus(d.id, col.dataset.kbCol);
 });
 let kbJustDragged = 0;
+/* Einfacher Klick = Menü (kurz verzögert), Doppelklick bzw. Doppeltippen = direkt bearbeiten */
+const DOUBLE_MS = 280;
+let kbPending = null; // { id, timer }
 document.addEventListener('click', (e) => {
   const card = e.target.closest('.kb-card');
   if (!card || e.target.closest('a, button') || Date.now() - kbJustDragged < 250) return;
-  const t = data.tasks.find((x) => x.id === card.dataset.kb);
-  if (t) openPopover(card, taskMenuHTML(t));
+  const id = card.dataset.kb;
+  if (kbPending?.id === id) { clearTimeout(kbPending.timer); kbPending = null; return editByDoubleClick(id); }
+  if (kbPending) clearTimeout(kbPending.timer);
+  kbPending = { id, timer: setTimeout(() => {
+    kbPending = null;
+    const t = data.tasks.find((x) => x.id === id);
+    if (t && card.isConnected) openPopover(card, taskMenuHTML(t));
+  }, DOUBLE_MS) };
+});
+function editByDoubleClick(id) {
+  window.getSelection?.()?.removeAllRanges(); // Doppelklick markiert sonst ein Wort
+  closePopover();
+  if (data.tasks.some((x) => x.id === id)) actions.editTask({ id });
+}
+// Listenansicht: Doppelklick / Doppeltippen auf eine Aufgabe öffnet die Bearbeitung
+let listTap = null; // { id, at }
+document.addEventListener('click', (e) => {
+  const li = e.target.closest('li.task');
+  if (!li || e.target.closest('a, button, input, textarea, select, label') || li.closest('.wgrid.editing')) return;
+  const id = li.querySelector('[data-action="toggleTask"]')?.dataset.id;
+  if (!id) return;
+  const now = Date.now();
+  if (listTap?.id === id && now - listTap.at < DOUBLE_MS + 120) { listTap = null; return editByDoubleClick(id); }
+  listTap = { id, at: now };
 });
 document.addEventListener('pointercancel', () => { if (kbDrag?.ghost) { kbDrag.ghost.remove(); kbDrag.card.classList.remove('kb-placeholder'); } kbDrag = null; });
 document.addEventListener('keydown', (e) => {

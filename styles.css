@@ -1472,3 +1472,5 @@ div.doc-chips { margin-top: 6px; }
 .mp-group { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 10px 10px 4px !important; }
 .mp-empty { color: var(--muted); font-size: .9rem; }
 .form .mp .mp-input, .form .mp .mp-input:focus, .form .mp .mp-input:focus-visible { border: 0; outline: none; box-shadow: none; background: transparent; padding: 4px; min-height: 0; width: auto; }
+.kb-card, li.task { touch-action: manipulation; }
+@media (hover: none) { .list > li.task { touch-action: pan-y; } }
