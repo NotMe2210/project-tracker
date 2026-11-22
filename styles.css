@@ -1905,3 +1905,19 @@ html.style-glass.proj-tint {
 .bk-more .btn-row .btn { flex: 1; justify-content: center; }
 @media (max-width: 640px) { .bk-hero { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .bk-more > summary::after { transition: none; } }
+
+/* CSV-Import: Rückfrage bei unbekannten Projektnamen */
+.proj-map { border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 14px; padding: 12px 14px; display: grid; gap: 10px; margin: 4px 0 12px; }
+.proj-map-head { font-weight: 600; font-size: .9rem; }
+.form .proj-map-row, .proj-map-row { display: grid; flex-direction: unset; text-align: left; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 10px; align-items: center; font-weight: 400; }
+.proj-map-name { display: flex; flex-direction: column; gap: 2px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.proj-map-sim { color: var(--good); font-weight: 500; }
+.proj-map select { width: 100%; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+@media (max-width: 640px) { .form .proj-map-row { grid-template-columns: 1fr; gap: 6px; } .proj-map select { font-size: 16px; } }
+.proj-map select.need { border-color: var(--warn); box-shadow: 0 0 0 2px color-mix(in srgb, var(--warn) 35%, transparent); }
+@media (max-width: 640px) {
+  /* Import-Dialoge: Hauptknopf über die ganze Breite, darunter Abbrechen/Zurück */
+  .csv-import .form-actions { flex-wrap: wrap; }
+  .csv-import .form-actions > [data-csv="check"], .csv-import .form-actions > [data-csv="import"] { flex: 1 1 100%; order: -1; }
+  .csv-import .form-actions > .btn { min-width: 0; }
+}

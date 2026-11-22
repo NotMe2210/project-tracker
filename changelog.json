@@ -2,6 +2,20 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-22",
+      "date": "2026-11-22",
+      "de": [
+        "❓ CSV-Import: Steht in der Datei ein Projektname, den es nicht gibt, fragt Protrac jetzt nach – zum ähnlich geschriebenen Projekt hinzufügen (z. B. „Overland Guide“ → „Overlandguide“), einem anderen Projekt zuordnen, neues Projekt anlegen oder nicht importieren",
+        "🔁 Werden importierte Einträge einem vorhandenen Projekt zugeordnet, legt Protrac dort schon vorhandene Einträge nicht doppelt an",
+        "📱 Import-Fenster auf dem Smartphone: Knöpfe ragen nicht mehr über den Rand"
+      ],
+      "en": [
+        "❓ CSV import: if the file contains a project name that doesn’t exist, Protrac now asks – add to the similarly named project (e.g. “Overland Guide” → “Overlandguide”), assign to another project, create a new project or don’t import",
+        "🔁 When imported entries are assigned to an existing project, entries that already exist there are not created twice",
+        "📱 Import window on smartphones: buttons no longer run off the edge"
+      ]
+    },
+    {
       "version": "2026.11.22-21",
       "date": "2026-11-22",
       "de": [

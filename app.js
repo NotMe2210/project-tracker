@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-21';
+const APP_VERSION = '2026.11.22-22';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -6003,7 +6003,7 @@ function analyzePlan(text, defaultPid) {
   let parsed;
   try { parsed = readPlanCsv(text); } catch (e) { return { error: e.message }; }
   const same = (a, b) => String(a || '').trim().toLocaleLowerCase(LOCALE) === String(b || '').trim().toLocaleLowerCase(LOCALE);
-  const res = { rows: [], newProjects: new Map(), issues: [], duplicates: 0 };
+  const res = { rows: [], newProjects: new Map(), issues: [], duplicates: 0, defaultPid };
   for (const r of parsed.rows) {
     let pid = null;
     if (r.project) {
@@ -6036,13 +6036,11 @@ function renderPlanPreview(el, r) {
     ${r.duplicates ? `<label class="check-row csv-create"><input type="checkbox" data-plan-skip checked>
       <span>${trp(r.duplicates, '{n} gleichnamigen Eintrag überspringen', '{n} gleichnamige Einträge überspringen')}
       <span class="small muted">${tr('Ohne Haken werden sie zusätzlich angelegt.')}</span></span></label>` : ''}
-    ${newList.length ? `<label class="check-row csv-create"><input type="checkbox" data-csv-create checked>
-      <span>${trp(newList.length, 'Neues Projekt anlegen: {names}', 'Neue Projekte anlegen: {names}', { names: esc(newList.join(', ')) })}
-      <span class="small muted">${tr('Ohne Haken werden diese Einträge übersprungen.')}</span></span></label>` : ''}
+    ${projectMapHTML(r.newProjects, newList.length ? csvProjectCounts(r.rows, 'pid') : new Map(), r.defaultPid)}
     ${sample.length ? `<div class="field-label">${tr('Vorschau')}</div>
     <div class="table-wrap"><table class="csv-preview">
       <thead><tr><th>${tr('Zeile')}</th><th>${tr('Projekt')}</th><th>${tr('Eintrag')}</th><th>${tr('Fällig am')}</th></tr></thead>
-      <tbody>${sample.map((x) => `<tr class="${x.dup ? 'muted' : ''}"><td class="muted">${x.line}</td><td>${esc(name(x.pid))}${x.pid.startsWith('new:') ? ` <span class="badge">${tr('neu')}</span>` : ''}</td>
+      <tbody>${sample.map((x) => `<tr class="${x.dup ? 'muted' : ''}"><td class="muted">${x.line}</td><td>${esc(name(x.pid))}${x.pid.startsWith('new:') ? ` <span class="badge mittel">${tr('prüfen')}</span>` : ''}</td>
         <td>${x.kind === 'ms' ? '🏁' : '✅'} ${esc(x.title)}${x.kind === 'task' && x.milestone ? ` <span class="small muted">· ${esc(x.milestone)}</span>` : ''}${x.dup ? ` <span class="badge">${tr('schon vorhanden')}</span>` : ''}</td>
         <td>${parseDateFlexible(x.due) ? fmtDate(parseDateFlexible(x.due)) : ''}</td></tr>`).join('')}</tbody>
     </table></div>
@@ -6117,22 +6115,13 @@ function openPlanImport(defaultProjectId) {
     label();
   });
   btn('import').addEventListener('click', () => {
-    const create = box.querySelector('[data-csv-create]')?.checked !== false;
+    if (projectMapMissing(box, err)) return;
     const skip = box.querySelector('[data-plan-skip]')?.checked !== false;
-    const ids = {};
-    const resolve = (r) => {
-      if (!r.pid.startsWith('new:')) return r.pid;
-      if (!create) return null;
-      if (!ids[r.pid]) {
-        const np = { id: uid(), createdAt: todayISO(), name: result.newProjects.get(r.pid.slice(4)), status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
-        data.projects.push(np);
-        ids[r.pid] = np.id;
-      }
-      return ids[r.pid];
-    };
-    const res = importPlanRows(result.rows, resolve, skip);
+    const before = data.projects.length;
+    const map = projectMapResolver(box, result.newProjects);
+    const res = importPlanRows(result.rows, (r) => map(r.pid), skip);
     close();
-    if (Object.keys(ids).length && !res.ms && !res.tasks) commit();
+    if (data.projects.length !== before && !res.ms && !res.tasks) commit();
     toast(tr('⬆ Importiert: {ms} Meilensteine, {tasks} Aufgaben{skipped}.', { ms: res.ms, tasks: res.tasks, skipped: res.skipped ? tr(' · {n} übersprungen', { n: res.skipped }) : '' }));
   });
   lockScroll();
@@ -6264,7 +6253,7 @@ function analyzeCsv(text, defaultProjectId) {
     ...data.investments.map((e) => `i|${e.projectId}|${e.date}|${Number(e.amount).toFixed(2)}|${String(e.description || '').trim().toLowerCase()}`),
   ]);
   const get = (r, k) => (col[k] === undefined ? '' : String(r[col[k]] ?? '').trim());
-  const out = { times: [], investments: [], duplicates: 0, issues: [], newProjects: new Map(), total: rows.length - 1 };
+  const out = { times: [], investments: [], duplicates: 0, issues: [], newProjects: new Map(), total: rows.length - 1, defaultPid: defaultProjectId, existing };
   const timeWords = ['zeit', 'time', 'zeiteintrag', 'timeentry', 'arbeitszeit'];
   const invWords = ['investition', 'investment', 'ausgabe', 'expense', 'kosten', 'cost'];
 
@@ -6312,6 +6301,82 @@ function analyzeCsv(text, defaultProjectId) {
     }
   });
   return out;
+}
+
+/* ---- Unbekannte Projektnamen beim Import: nachfragen statt still ein neues Projekt anzulegen ---- */
+const projKey = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ß/g, 'ss').replace(/[^a-z0-9]/g, '');
+function editDistance(a, b) {
+  if (Math.abs(a.length - b.length) > 3) return 99;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+/** Ähnlich geschriebenes vorhandenes Projekt (Leerzeichen, Bindestriche, Groß/klein, Umlaute, kleine Tippfehler) */
+function similarProject(name) {
+  const k = projKey(name);
+  if (!k) return null;
+  let best = null, bestScore = 99;
+  for (const p of data.projects) {
+    const pk = projKey(p.name);
+    if (!pk) continue;
+    let score = pk === k ? 0 : (pk.length >= 4 && k.length >= 4 && (pk.includes(k) || k.includes(pk))) ? 1 : editDistance(pk, k);
+    if (score <= Math.max(1, Math.floor(Math.min(pk.length, k.length) / 5)) && score < bestScore) { best = p; bestScore = score; }
+  }
+  return best;
+}
+/** Rückfrage je unbekanntem Projektnamen (counts: key → Anzahl Einträge) */
+function projectMapHTML(newProjects, counts, defaultPid) {
+  if (!newProjects.size) return '';
+  const cur = defaultPid ? getProject(defaultPid) : null;
+  const all = liveProjects().length ? liveProjects() : data.projects;
+  return `<div class="proj-map">
+    <div class="proj-map-head">⚠️ ${tr('Diese Projektnamen aus der Datei gibt es hier nicht. Bitte wähle, wohin die Einträge sollen:')}</div>
+    ${[...newProjects].map(([key, name]) => {
+      const sim = similarProject(name);
+      const pre = sim ? sim.id : ''; // ohne ähnlichen Namen: bewusst wählen lassen
+      const opt = (v, l) => `<option value="${esc(v)}" ${v === pre ? 'selected' : ''}>${esc(l)}</option>`;
+      const first = [sim, cur].filter((p, i, a) => p && a.findIndex((x) => x?.id === p.id) === i);
+      return `<label class="proj-map-row"><span class="proj-map-name">„${esc(name)}“ <span class="small muted">· ${trp(counts.get(key) || 0, '{n} Eintrag', '{n} Einträge')}</span>
+          ${sim ? `<span class="small proj-map-sim">${tr('Ähnlich: „{name}“', { name: esc(sim.name) })}</span>` : ''}</span>
+        <select data-proj-map="${esc(key)}" class="${pre ? '' : 'need'}">
+          ${pre ? '' : `<option value="" selected disabled>${tr('– bitte wählen –')}</option>`}
+          ${first.map((p) => opt(p.id, tr('Zu „{name}“ hinzufügen', { name: p.name }))).join('')}
+          ${opt('new', tr('Neues Projekt „{name}“ anlegen', { name }))}
+          <optgroup label="${esc(tr('Anderem Projekt zuordnen'))}">${all.filter((p) => !first.some((x) => x.id === p.id)).map((p) => opt(p.id, p.name)).join('')}</optgroup>
+          ${opt('skip', tr('Nicht importieren'))}
+        </select></label>`;
+    }).join('')}
+  </div>`;
+}
+/** Noch nicht beantwortete Rückfrage? Dann Hinweis zeigen und nicht importieren */
+function projectMapMissing(box, err) {
+  const open = [...box.querySelectorAll('[data-proj-map]')].filter((s) => !s.value);
+  open.forEach((s) => s.classList.add('need'));
+  if (open.length) { err.textContent = tr('Bitte wähle für jeden unbekannten Projektnamen, wohin die Einträge sollen.'); open[0].focus(); }
+  return open.length > 0;
+}
+document.addEventListener('change', (e) => { if (e.target.matches?.('[data-proj-map]')) e.target.classList.toggle('need', !e.target.value); });
+/** Gewählte Zuordnung lesen → Funktion, die „new:…“ in eine Projekt-ID (oder null = überspringen) auflöst */
+function projectMapResolver(box, newProjects) {
+  const choice = {};
+  box.querySelectorAll('[data-proj-map]').forEach((s) => { choice[s.dataset.projMap] = s.value; });
+  const created = {};
+  return (pid) => {
+    if (!pid || !pid.startsWith('new:')) return pid;
+    const key = pid.slice(4), c = choice[key] || 'new';
+    if (c === 'skip') return null;
+    if (c !== 'new') return c;
+    if (!created[key]) {
+      const np = { id: uid(), createdAt: todayISO(), name: newProjects.get(key), status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
+      data.projects.push(np);
+      created[key] = np.id;
+    }
+    return created[key];
+  };
 }
 
 /** Vorlage mit Überschriften und zwei Beispielzeilen */
@@ -6432,35 +6497,29 @@ function openCsvImport(defaultProjectId) {
     btn('import').textContent = n ? trp(n, '{n} Eintrag importieren', '{n} Einträge importieren') : tr('Nichts zu importieren');
   });
   btn('import').addEventListener('click', () => {
-    const create = box.querySelector('[data-csv-create]')?.checked !== false;
-    const ids = {};
-    let skipped = 0;
-    const resolve = (pid) => {
-      if (!pid.startsWith('new:')) return pid;
-      if (!create) return null;
-      if (!ids[pid]) {
-        const name = result.newProjects.get(pid.slice(4));
-        const np = { id: uid(), createdAt: todayISO(), name, status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
-        data.projects.push(np);
-        ids[pid] = np.id;
-      }
-      return ids[pid];
-    };
+    if (projectMapMissing(box, err)) return;
+    const resolve = projectMapResolver(box, result.newProjects);
+    let skipped = 0, dups = 0;
+    // Einem vorhandenen Projekt zugeordnet: dort schon vorhandene Einträge nicht doppelt anlegen
+    const isDup = (e, pid, kind) => e.projectId.startsWith('new:') && result.existing.has(kind === 't'
+      ? `t|${pid}|${e.date}|${e.minutes}|${e.title.toLowerCase()}`
+      : `i|${pid}|${e.date}|${Number(e.amount).toFixed(2)}|${String(e.description || '').trim().toLowerCase()}`);
     let nt = 0, ni = 0;
-    result.times.forEach(({ line, ...e }) => { const pid = resolve(e.projectId); if (!pid) { skipped++; return; } data.timeEntries.push({ id: uid(), ...e, projectId: pid }); nt++; });
+    result.times.forEach(({ line, ...e }) => { const pid = resolve(e.projectId); if (!pid) { skipped++; return; } if (isDup(e, pid, 't')) { dups++; return; } data.timeEntries.push({ id: uid(), ...e, projectId: pid }); nt++; });
     result.investments.forEach(({ line, ...e }) => {
-      const pid = resolve(e.projectId); if (!pid) { skipped++; return; }
+      const pid = resolve(e.projectId); if (!pid) { skipped++; return; } if (isDup(e, pid, 'i')) { dups++; return; }
       data.investments.push({ id: uid(), ...e, projectId: pid, category: normalizeCategory(e.category) }); ni++;
     });
     close();
     commit();
-    toast(tr('✔ Importiert: {t} Zeiteinträge, {i} Investitionen', { t: nt, i: ni }) + (skipped ? ` · ${tr('{n} ohne Projekt übersprungen', { n: skipped })}` : ''));
+    toast(tr('✔ Importiert: {t} Zeiteinträge, {i} Investitionen', { t: nt, i: ni }) + (skipped ? ` · ${tr('{n} nicht importiert', { n: skipped })}` : '') + (dups ? ` · ${tr('{n} schon vorhanden', { n: dups })}` : ''));
   });
   lockScroll();
   dlg.showModal();
   if (!matchMedia('(hover: none)').matches) ta.focus();
 }
 
+const csvProjectCounts = (list, field) => { const m = new Map(); list.forEach((x) => { const v = x[field]; if (v?.startsWith('new:')) m.set(v.slice(4), (m.get(v.slice(4)) || 0) + 1); }); return m; };
 function renderCsvPreview(el, r) {
   const name = (pid) => (pid.startsWith('new:') ? r.newProjects.get(pid.slice(4)) : getProject(pid)?.name || '–');
   const sample = [...r.times.map((x) => ({ ...x, kind: 'time' })), ...r.investments.map((x) => ({ ...x, kind: 'inv' }))]
@@ -6474,13 +6533,11 @@ function renderCsvPreview(el, r) {
       ${r.issues.length ? `<li class="csv-warn">⚠️ ${trp(r.issues.length, '{n} Zeile kann nicht gelesen werden', '{n} Zeilen können nicht gelesen werden')}
         <ul class="small">${r.issues.slice(0, 6).map((m) => `<li>${esc(m)}</li>`).join('')}${r.issues.length > 6 ? `<li>${tr('… und {n} weitere', { n: r.issues.length - 6 })}</li>` : ''}</ul></li>` : ''}
     </ul>
-    ${newList.length ? `<label class="check-row csv-create"><input type="checkbox" data-csv-create checked>
-      <span>${trp(newList.length, 'Neues Projekt anlegen: {names}', 'Neue Projekte anlegen: {names}', { names: esc(newList.join(', ')) })}
-      <span class="small muted">${tr('Ohne Haken werden diese Einträge übersprungen.')}</span></span></label>` : ''}
+    ${projectMapHTML(r.newProjects, newList.length ? csvProjectCounts([...r.times, ...r.investments], 'projectId') : new Map(), r.defaultPid)}
     ${sample.length ? `<div class="field-label">${tr('Vorschau')}</div>
     <div class="table-wrap"><table class="csv-preview">
       <thead><tr><th>${tr('Zeile')}</th><th>${tr('Datum')}</th><th>${tr('Projekt')}</th><th>${tr('Eintrag')}</th><th class="num">${tr('Dauer / Betrag')}</th></tr></thead>
-      <tbody>${sample.map((x) => `<tr><td class="muted">${x.line}</td><td>${fmtDate(x.date)}</td><td>${esc(name(x.projectId))}${x.projectId.startsWith('new:') ? ` <span class="badge">${tr('neu')}</span>` : ''}</td>
+      <tbody>${sample.map((x) => `<tr><td class="muted">${x.line}</td><td>${fmtDate(x.date)}</td><td>${esc(name(x.projectId))}${x.projectId.startsWith('new:') ? ` <span class="badge mittel">${tr('prüfen')}</span>` : ''}</td>
         <td>${x.kind === 'time' ? `⏱️ ${esc(x.title)}` : `💶 ${esc(x.description)}${x.category ? ` <span class="badge">${esc(x.category)}</span>` : ''}`}</td>
         <td class="num">${x.kind === 'time' ? fmtDuration(x.minutes) : fmtEUR(x.amount)}</td></tr>`).join('')}</tbody>
     </table></div>
