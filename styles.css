@@ -1551,8 +1551,9 @@ html.style-glass[data-theme="dark"] {
   html.style-glass { --lg-a: .94 !important; --lg-as: .97 !important; --lg-ao: .7 !important; --lg-ad: .94 !important; --lg-ads: .97 !important; }
 }
 
-html.style-glass, html.style-glass body { background-color: var(--lg-page); }
-html.style-glass body { background: var(--lg-bg), var(--lg-page); background-attachment: fixed; }
+/* Hintergrund auf dem ganzen Fenster (html), nicht nur so hoch wie der Inhalt (body) */
+html.style-glass { background: var(--lg-bg), var(--lg-page); background-attachment: fixed; min-height: 100%; }
+html.style-glass body { background: transparent; }
 
 /* :where() = Spezifität 0 – gezieltere Regeln weiter unten (aktive Chips, Dialog, Timer …) gewinnen */
 html.style-glass :where(.card, .stat, .project-card, .kb-card, .popover, dialog, .backup-bar, .toast, .timer-indicator, .segmented, .chip,
@@ -1642,8 +1643,8 @@ html.style-glass .topbar::before {
 /* Glas auf dem Handy: Timer mit Abstand über der schwebenden Tab-Leiste; Inhalt endet über beiden */
 @media (max-width: 640px) {
   html.style-glass .timer-indicator { bottom: calc(var(--lg-nav-h, 76px) + 22px + env(safe-area-inset-bottom)); left: 14px; right: 14px; }
-  html.style-glass .container { padding-bottom: calc(var(--lg-nav-h, 76px) + 36px + env(safe-area-inset-bottom)); }
-  html.style-glass body:has(#timer-indicator:not([hidden])) .container { padding-bottom: calc(var(--lg-nav-h, 76px) + 110px + env(safe-area-inset-bottom)); }
+  html.style-glass #app.container { padding-bottom: calc(var(--lg-nav-h, 76px) + 36px + env(safe-area-inset-bottom)); }
+  html.style-glass body:has(#timer-indicator:not([hidden])) #app.container { padding-bottom: calc(var(--lg-nav-h, 76px) + 110px + env(safe-area-inset-bottom)); }
 }
 .form input[type=range] { background: transparent; border: 0; padding: 0; box-shadow: none; min-height: 0; }
 
@@ -1788,11 +1789,9 @@ h1 .ic, h2 .ic, h3 .ic { color: var(--primary); margin-right: 2px; }
 }
 /* Glas: dort färbt die Projektfarbe schon den Seitenhintergrund – kein zusätzlicher Kasten */
 html.style-glass.proj-tint .page-head::before { display: none; }
-/* Glas: Abstand der Hinweisleiste nicht aus dem Seitenhintergrund herausfallen lassen (sonst heller Streifen oben) */
-html.style-glass body { display: flow-root; }
 .proj-tint .project-title .dot-color { box-shadow: 0 0 0 4px color-mix(in srgb, var(--proj) 25%, transparent); }
-html.style-glass.proj-tint body {
-  background: radial-gradient(70vmax 55vmax at 50% -10%, color-mix(in srgb, var(--proj) 45%, transparent), transparent 60%), var(--lg-bg, transparent), var(--lg-page, transparent);
+html.style-glass.proj-tint {
+  background: radial-gradient(70vmax 55vmax at 50% -10%, color-mix(in srgb, var(--proj) 45%, transparent), transparent 60%), var(--lg-bg), var(--lg-page);
   background-attachment: fixed;
 }
 

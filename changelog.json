@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-12",
+      "date": "2026-11-22",
+      "de": [
+        "🐞 Stil „Glas“: Hintergrund reicht jetzt bis zum unteren Fensterrand, auch auf kurzen Seiten",
+        "🐞 Stil „Glas“ auf dem Smartphone: Sicherungs-Hinweis nicht mehr unnötig hoch"
+      ],
+      "en": [
+        "🐞 “Glass” style: the background now reaches the bottom of the window, even on short pages",
+        "🐞 “Glass” style on smartphones: backup notice no longer needlessly tall"
+      ]
+    },
+    {
       "version": "2026.11.22-11",
       "date": "2026-11-22",
       "de": [
