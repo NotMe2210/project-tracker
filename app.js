@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-4';
+const APP_VERSION = '2026.11.22-5';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2675,6 +2675,18 @@ function renderSettings() {
    Tastatur: ↑ ↓ wählen, Enter hinzufügen, Rücktaste entfernt den letzten Chip, Esc schließt.
    Optionen: { value, label, html?, hint?, muted? } oder { group } als Überschrift. */
 const multiOptions = new Map(); // Feldname → Optionen des offenen Formulars
+const autoMultiFields = new Map(); // Chip-Felder, die bei zu vielen Zeilen zum Suchfeld werden
+/** Nach dem Öffnen: Chip-Felder mit mehr als MULTI_MAX_ROWS Zeilen durch das Suchfeld ersetzen (Auswahl bleibt) */
+function applyAutoMulti(form) {
+  form.querySelectorAll('[data-checks][data-auto-multi]').forEach((box) => {
+    const f = autoMultiFields.get(box.dataset.checks);
+    if (!f) return;
+    const rows = new Set([...box.querySelectorAll('.check-chip')].filter((el) => el.offsetParent).map((el) => el.offsetTop)).size; // Gruppen-Überschriften zählen nicht
+    if (rows <= MULTI_MAX_ROWS) return;
+    const value = [...box.querySelectorAll('input:checked')].map((i) => i.value);
+    box.closest('.field').outerHTML = fieldHTML({ ...f, type: 'multi', options: f.multi.options, placeholder: f.multi.placeholder, value });
+  });
+}
 const multiChip = (o) => `<span class="mp-chip ${o.muted ? 'muted' : ''}" data-value="${esc(o.value)}">${o.html || esc(o.label)}<button type="button" class="mp-x" aria-label="${esc(tr('{name} entfernen', { name: o.label }))}">✕</button></span>`;
 function multiRender(mp) {
   const input = mp.querySelector('.mp-input'), list = mp.querySelector('.mp-list');
@@ -2762,8 +2774,9 @@ function fieldHTML(f) {
   let input;
   if (f.type === 'checks') {
     const vals = new Set(v || []);
+    if (f.multi) autoMultiFields.set(f.name, f);
     return `<div class="field"><div class="field-label">${esc(f.label)}</div>
-      <div class="check-chips" data-checks="${f.name}">${f.options.map((o) => (o.group
+      <div class="check-chips" data-checks="${f.name}" ${f.multi ? 'data-auto-multi' : ''}>${f.options.map((o) => (o.group
         ? `<span class="check-group small muted">${esc(o.group)}</span>`
         : `<label class="check-chip"><input type="checkbox" value="${esc(o.value)}" ${vals.has(o.value) ? 'checked' : ''}><span>${o.html || esc(o.label)}</span></label>`)).join('')}</div>${hint}</div>`;
   }
@@ -2845,7 +2858,9 @@ function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide
     const values = {};
     for (const f of fields) {
       if (f.type === 'checks') {
-        values[f.name] = [...form.querySelectorAll(`[data-checks="${f.name}"] input:checked`)].map((i) => i.value);
+        values[f.name] = form.querySelector(`[data-multi="${f.name}"]`) // zum Suchfeld umgeschaltet
+          ? [...form.querySelectorAll(`[data-multi="${f.name}"] .mp-chip`)].map((c) => c.dataset.value)
+          : [...form.querySelectorAll(`[data-checks="${f.name}"] input:checked`)].map((i) => i.value);
         continue;
       }
       if (f.type === 'multi') {
@@ -2926,6 +2941,7 @@ function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide
 
   lockScroll();
   dlg.showModal();
+  applyAutoMulti(form);
   growAll(form);
   // Auf Touch-Geräten nicht automatisch fokussieren – sonst springt die Tastatur auf und verschiebt die Ansicht.
   if (!matchMedia('(hover: none)').matches) form.querySelector('input,textarea,select')?.focus();
@@ -3497,8 +3513,8 @@ function projectForm(p) {
   });
 }
 
-/** Ab so vielen Einträgen wird aus der Chip-Liste ein Suchfeld */
-const MULTI_FROM = 8;
+/** Ab so vielen Zeilen wird aus der Chip-Liste ein Suchfeld (gemessen beim Öffnen, abhängig von der Fensterbreite) */
+const MULTI_MAX_ROWS = 2; // mehr Chip-Zeilen → Suchfeld
 /** Vorgänger-Auswahl: offene Aufgaben nach Meilenstein gruppiert (eigener Meilenstein zuerst), erledigte am Ende */
 function predecessorOptions(t, others) {
   const open = others.filter((x) => !x.done), done = others.filter((x) => x.done);
@@ -3537,8 +3553,8 @@ function taskForm(t) {
   fields.push({ name: 'startAfter', label: tr('Frühester Start'), type: 'date', value: t.startAfter, half: true, hint: tr('optional') });
   const others = sortTasks(data.tasks.filter((x) => x.projectId === pid && x.id !== t.id));
   if (others.length) fields.push({ name: 'dependsOn', label: tr('Vorgänger – startet erst, wenn diese erledigt sind'), value: t.dependsOn || [],
-    ...(others.length > MULTI_FROM ? { type: 'multi', options: predecessorOptions(t, others), placeholder: tr('Aufgabe suchen …') }
-      : { type: 'checks', options: others.map((x) => ({ value: x.id, label: `${x.done ? '✓ ' : ''}${x.title}` })) }) });
+    type: 'checks', options: others.map((x) => ({ value: x.id, label: `${x.done ? '✓ ' : ''}${x.title}` })),
+    multi: { options: predecessorOptions(t, others), placeholder: tr('Aufgabe suchen …') } });
   fields.push({ name: 'subtasks', label: tr('Unterpunkte'), type: 'subtasks', value: t.subtasks || [],
     hint: tr('Die Aufgabe ist erst fertig, wenn alle Unterpunkte abgehakt sind. Eingabetaste = nächster Unterpunkt.') });
   fields.push({ name: 'notes', label: tr('Notiz'), type: 'textarea', value: t.notes });
@@ -7634,9 +7650,9 @@ function assigneeBadges(list) {
 
 /** Auswahl für „Zuständig“: Teams und Personen; Projektteams und deren Mitglieder zuerst */
 function assigneeField(pid, value) {
-  const big = data.people.length + data.teams.length > MULTI_FROM;
-  return { name: 'assignees', label: tr('Zuständig'), type: big ? 'multi' : 'checks', options: assigneeOptions(pid), value: value || [],
-    ...(big ? { placeholder: tr('Person oder Team suchen …') } : {}) };
+  const options = assigneeOptions(pid);
+  return { name: 'assignees', label: tr('Zuständig'), type: 'checks', options, value: value || [],
+    multi: { options, placeholder: tr('Person oder Team suchen …') } };
 }
 function assigneeOptions(pid) {
   const projTeams = new Set(getProject(pid)?.teamIds || []);

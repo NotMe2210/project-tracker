@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-5",
+      "date": "2026-11-22",
+      "de": [
+        "🔎 Vorgänger und Zuständige: Das Suchfeld erscheint jetzt, sobald die Auswahl mehr als zwei Zeilen bräuchte – passend zur Fensterbreite"
+      ],
+      "en": [
+        "🔎 Predecessors and assignees: the search field now appears as soon as the choices would need more than two rows – adapted to the window width"
+      ]
+    },
+    {
       "version": "2026.11.22-4",
       "date": "2026-11-22",
       "de": [
