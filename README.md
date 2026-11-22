@@ -81,7 +81,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - Im Aufgaben-Reiter lässt sich nach Zuständigen filtern: Alle, Meine, Team, Person oder ohne Zuständige.
 
 **🗓 Zeitplan & kritischer Pfad** (Projekt-Reiter *Zeitplan*)
-- Aufgaben bekommen optional eine **Dauer** (Arbeitstage), einen **frühesten Start** und **Vorgänger** („startet erst, wenn … erledigt ist“).
+- Aufgaben bekommen optional eine **Dauer** (Arbeitstage), einen **frühesten Start** und **Vorgänger** („startet erst, wenn … erledigt ist“). Bei mehr als acht Aufgaben wird die Vorgänger-Auswahl zum **Suchfeld mit Auswahl-Chips**: tippen zum Filtern, nach Meilenstein gruppiert, erledigte Aufgaben am Ende; ✕ oder Rücktaste entfernt. Dasselbe gilt für **„Zuständig“** bei mehr als acht Personen und Teams.
 - Protrac berechnet daraus nach der Critical-Path-Methode:
   - frühesten und spätesten Start jeder Aufgabe
   - **Puffer** jeder Aufgabe

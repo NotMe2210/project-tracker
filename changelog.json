@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-1",
+      "date": "2026-11-22",
+      "de": [
+        "🔎 Vorgänger und Zuständige platzsparend auswählen: Suchfeld mit Auswahl-Chips statt langer Liste – nach Meilenstein gruppiert, erledigte Aufgaben am Ende, auch per Tastatur bedienbar"
+      ],
+      "en": [
+        "🔎 Choose predecessors and assignees compactly: a search field with chips instead of a long list – grouped by milestone, completed tasks at the end, keyboard friendly"
+      ]
+    },
+    {
       "version": "2026.11.21-19",
       "date": "2026-11-21",
       "de": [
