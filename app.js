@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-7';
+const APP_VERSION = '2026.11.22-8';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -1793,13 +1793,27 @@ function taskTimeBadge(t) {
   return `<span class="badge time ${over ? 'over' : ''}" title="${title}">⏱ ${fmtHM(spent)}${est ? ` / ${fmtHM(est)}` : ''}</span>`;
 }
 
+/* Kleine Bildschirme: Aktionen erst nach Antippen der Aufgabe, als Reihe großer Symbolknöpfe (44 px) */
+let selectedTaskId = null;
+function taskBar(t) {
+  const btn = (action, icon, label, extra = '', cls = '') => `<button type="button" class="btn task-bar-btn ${cls}" data-action="${action}" ${extra} title="${esc(label)}" aria-label="${esc(label)}">${icon}</button>`;
+  const timer = t.done ? '' : data.timer?.taskId === t.id
+    ? btn('stopTimer', '⏹️', tr('Timer stoppen'), '', 'timer-on')
+    : btn('startTimer', '⏱️', tr('Timer für diese Aufgabe starten'), `data-id="${t.projectId}" data-task="${t.id}"`);
+  return `<div class="task-bar" role="group" aria-label="${tr('Aktionen')}">${timer}
+    ${btn('addDoc', '📎', tr('Dokument verknüpfen'), `data-id="${t.projectId}" data-task="${t.id}"`)}
+    ${btn('editTask', '⚙️', tr('Aufgabe bearbeiten'), `data-id="${t.id}"`)}
+    ${btn('deleteTask', '🗑', tr('Löschen'), `data-id="${t.id}"`, 'danger')}</div>`;
+}
+const smallScreen = () => window.matchMedia('(max-width: 640px)').matches;
+
 function taskItem(t, { showProject = false } = {}) {
   const p = getProject(t.projectId);
   const ms = t.milestoneId ? data.milestones.find((m) => m.id === t.milestoneId) : null;
   const subs = t.subtasks || [];
   const subsDone = subs.filter((st) => st.done).length;
   const partial = subs.length && !t.done && subsDone > 0;
-  return `<li class="${t.done ? 'done' : ''} task">
+  return `<li class="${t.done ? 'done' : ''} task ${selectedTaskId === t.id ? 'sel' : ''}">
     <button class="check ${partial ? 'partial' : ''}" data-action="toggleTask" data-id="${t.id}"
       title="${t.done ? tr('Wieder öffnen') : subs.length ? tr('{done} von {n} Unterpunkten erledigt', { done: subsDone, n: subs.length }) : tr('Erledigt')}">${t.done ? '✓' : partial ? '–' : ''}</button>
     <div class="grow">
@@ -1818,6 +1832,7 @@ function taskItem(t, { showProject = false } = {}) {
         ${t.notes ? `<span>${esc(t.notes)}</span>` : ''}
         ${docChips(data.docs.filter((d) => d.taskId === t.id))}
       </div>
+      ${taskBar(t)}
       ${subs.length ? `<ul class="subtasks">${subs.map((st) => `
         <li class="${st.done ? 'done' : ''}">
           <button class="check small ${st.done ? 'done' : ''}" data-action="toggleSubtask" data-id="${t.id}" data-sub="${st.id}" title="${st.done ? tr('Wieder öffnen') : tr('Erledigt')}">${st.done ? '✓' : ''}</button>
@@ -7178,8 +7193,19 @@ document.addEventListener('click', (e) => {
   const id = li.querySelector('[data-action="toggleTask"]')?.dataset.id;
   if (!id) return;
   const now = Date.now();
-  if (listTap?.id === id && now - listTap.at < DOUBLE_MS + 120) { listTap = null; return editByDoubleClick(id); }
+  if (listTap?.id === id && now - listTap.at < DOUBLE_MS + 120) {
+    listTap = null;
+    selectedTaskId = null; // Doppeltippen = bearbeiten, Auswahl wieder aufheben
+    document.querySelectorAll('li.task.sel').forEach((x) => x.classList.remove('sel'));
+    return editByDoubleClick(id);
+  }
   listTap = { id, at: now };
+  // Kleine Bildschirme: Antippen blendet die Aktionen der Aufgabe ein bzw. wieder aus
+  if (smallScreen()) {
+    selectedTaskId = selectedTaskId === id ? null : id;
+    document.querySelectorAll('li.task.sel').forEach((x) => x.classList.remove('sel'));
+    if (selectedTaskId) document.querySelectorAll('li.task').forEach((x) => { if (x.querySelector(`[data-action="toggleTask"][data-id="${CSS.escape(id)}"]`)) x.classList.add('sel'); });
+  }
 });
 document.addEventListener('pointercancel', () => { if (kbDrag?.ghost) { kbDrag.ghost.remove(); kbDrag.card.classList.remove('kb-placeholder'); } kbDrag = null; });
 document.addEventListener('keydown', (e) => {

@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-8",
+      "date": "2026-11-22",
+      "de": [
+        "📱 Aufgaben auf dem Smartphone: mehr Platz für den Titel – Aktionen erscheinen erst nach Antippen als große Knöpfe (⏱️ Timer · 📎 Dokument · ⚙️ Bearbeiten · 🗑 Löschen)"
+      ],
+      "en": [
+        "📱 Tasks on phones: more room for the title – actions appear as large buttons only after tapping (⏱️ timer · 📎 document · ⚙️ edit · 🗑 delete)"
+      ]
+    },
+    {
       "version": "2026.11.22-7",
       "date": "2026-11-22",
       "de": [
