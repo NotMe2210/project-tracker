@@ -1474,3 +1474,17 @@ div.doc-chips { margin-top: 6px; }
 .form .mp .mp-input, .form .mp .mp-input:focus, .form .mp .mp-input:focus-visible { border: 0; outline: none; box-shadow: none; background: transparent; padding: 4px; min-height: 0; width: auto; }
 .kb-card, li.task { touch-action: manipulation; }
 @media (hover: none) { .list > li.task { touch-action: pan-y; } }
+dialog::backdrop { cursor: pointer; }
+
+/* ---- Unterpunkte auf Board-Karten ---- */
+button.badge.kb-subs-toggle { border: 0; font: inherit; font-size: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.kb-subs-toggle:hover { background: var(--primary-soft); color: var(--primary); }
+.kb-subs-toggle .kb-chev { display: inline-block; transition: transform .15s; }
+.kb-subs-toggle.open .kb-chev { transform: rotate(90deg); }
+.kb-subs { list-style: none; margin: 8px 0 0; padding: 6px 0 0; border-top: 1px solid var(--border); display: grid; gap: 1px; cursor: default; }
+.kb-sub { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 5px 4px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: .86rem; text-align: left; cursor: pointer; }
+.kb-sub:hover { background: var(--surface-2); }
+.kb-sub .check { flex: none; margin-top: 1px; pointer-events: none; }
+.kb-sub.done .kb-sub-text { text-decoration: line-through; color: var(--muted); }
+.kb-sub-text { overflow-wrap: anywhere; }
+.kb-sub.add { color: var(--muted); font-size: .8rem; }

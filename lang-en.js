@@ -1459,4 +1459,6 @@ I18N.en = {
   "Aufgabe suchen …": "Search task …",
   "Person oder Team suchen …": "Search person or team …",
   "Karten zwischen den Spalten ziehen · antippen = Status und Aktionen · doppelt antippen = bearbeiten.": "Drag cards between columns · tap = status and actions · double-tap = edit.",
+  "Unterpunkte zuklappen": "Collapse subtasks",
+  "Unterpunkte anzeigen und abhaken": "Show and tick off subtasks",
 };

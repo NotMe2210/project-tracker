@@ -2,6 +2,26 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-4",
+      "date": "2026-11-22",
+      "de": [
+        "☑ Unterpunkte direkt auf dem Board: „☑ 1/4“ antippen klappt sie auf, abhaken geht direkt auf der Karte (bei „In Arbeit“ schon aufgeklappt)"
+      ],
+      "en": [
+        "☑ Subtasks right on the board: tap “☑ 1/4” to expand them and tick them off on the card (already expanded for “In progress”)"
+      ]
+    },
+    {
+      "version": "2026.11.22-3",
+      "date": "2026-11-22",
+      "de": [
+        "🪟 Ein Klick neben ein geöffnetes Fenster schließt es und verwirft die Eingabe"
+      ],
+      "en": [
+        "🪟 Clicking outside an open window closes it and discards the input"
+      ]
+    },
+    {
       "version": "2026.11.22-2",
       "date": "2026-11-22",
       "de": [
