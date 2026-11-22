@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-2';
+const APP_VERSION = '2026.11.22-3';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2946,6 +2946,21 @@ function unlockScroll() {
   window.scrollTo(0, lockedScrollY);
 }
 $('#modal').addEventListener('close', unlockScroll);
+/* Klick neben das Fenster (auf den abgedunkelten Hintergrund) schließt es und verwirft die Eingabe.
+   Nur wenn Drücken UND Loslassen außerhalb liegen – wer im Fenster Text markiert und
+   dabei über den Rand hinauszieht, verliert so nichts. */
+let modalPressOutside = false;
+function outsideModal(e) {
+  const d = $('#modal');
+  if (!d.open || e.target !== d) return false;
+  const r = d.getBoundingClientRect();
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+}
+$('#modal').addEventListener('pointerdown', (e) => { modalPressOutside = outsideModal(e); });
+$('#modal').addEventListener('click', (e) => {
+  if (modalPressOutside && outsideModal(e)) $('#modal').close();
+  modalPressOutside = false;
+});
 
 const projectOptions = () => liveProjects()
   .filter((p) => p.status !== 'abgeschlossen')
