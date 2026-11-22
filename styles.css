@@ -1554,8 +1554,10 @@ html.style-glass[data-theme="dark"] {
 html.style-glass, html.style-glass body { background-color: var(--lg-page); }
 html.style-glass body { background: var(--lg-bg), var(--lg-page); background-attachment: fixed; }
 
-html.style-glass :is(.card, .stat, .project-card, .kb-card, .popover, dialog, .backup-bar, .toast, .timer-indicator, .segmented, .chip,
-  .btn:not(.primary):not(.ghost), .badge, .side-toggle, .cmd-btn, .mp-box, .mp-list, .form input, .form select, .form textarea, .inline-select, .layout-intro, .banner) {
+/* :where() = Spezifität 0 – gezieltere Regeln weiter unten (aktive Chips, Dialog, Timer …) gewinnen */
+html.style-glass :where(.card, .stat, .project-card, .kb-card, .popover, dialog, .backup-bar, .toast, .timer-indicator, .segmented, .chip,
+  .btn:not(.primary):not(.ghost), .badge, .side-toggle, .cmd-btn, .mp-box, .mp-list, .form select, .form textarea, .inline-select, .layout-intro, .banner,
+  .form input:not([type=range]):not([type=color]):not([type=checkbox]):not([type=radio])) {
   background-color: var(--lg-glass);
   background-image: var(--lg-sheen);
   -webkit-backdrop-filter: var(--lg-blur);
@@ -1593,7 +1595,7 @@ html.style-glass .progress { height: 10px; background: var(--lg-glass-soft); box
 html.style-glass .progress > span { background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 70%, white), var(--primary)); box-shadow: 0 0 10px rgba(var(--primary-rgb), .5); border-radius: 999px; }
 html.style-glass .progress.good > span { background: linear-gradient(180deg, #6ee7a0, #16a34a); box-shadow: 0 0 10px rgba(22, 163, 74, .45); }
 
-html.style-glass :is(.form input, .form select, .form textarea) { border-radius: 14px; }
+html.style-glass :where(.form select, .form textarea, .form input:not([type=range]):not([type=color]):not([type=checkbox]):not([type=radio])) { border-radius: 14px; }
 html.style-glass .form .mp .mp-input { background: transparent; box-shadow: none; border: 0; -webkit-backdrop-filter: none; backdrop-filter: none; }
 html.style-glass dialog { border-radius: 30px; background-color: var(--lg-glass-strong); }
 html.style-glass dialog::backdrop { background: rgba(20, 24, 40, .18); -webkit-backdrop-filter: blur(6px) saturate(140%); backdrop-filter: blur(6px) saturate(140%); }
@@ -1634,3 +1636,13 @@ html.style-glass .topbar::before {
 /* Einstellungen: Transparenz-Regler */
 .glass-range { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; max-width: 420px; }
 .glass-range input { width: 100%; accent-color: var(--primary); }
+/* Formulare in den Einstellungen: nicht wie im Dialog in der Höhe begrenzen und in sich scrollen */
+.sec-body .form { max-height: none; overflow: visible; }
+
+/* Glas auf dem Handy: Timer mit Abstand über der schwebenden Tab-Leiste; Inhalt endet über beiden */
+@media (max-width: 640px) {
+  html.style-glass .timer-indicator { bottom: calc(var(--lg-nav-h, 76px) + 22px + env(safe-area-inset-bottom)); left: 14px; right: 14px; }
+  html.style-glass .container { padding-bottom: calc(var(--lg-nav-h, 76px) + 36px + env(safe-area-inset-bottom)); }
+  html.style-glass body:has(#timer-indicator:not([hidden])) .container { padding-bottom: calc(var(--lg-nav-h, 76px) + 110px + env(safe-area-inset-bottom)); }
+}
+.form input[type=range] { background: transparent; border: 0; padding: 0; box-shadow: none; min-height: 0; }
