@@ -1782,7 +1782,14 @@ h1 .ic, h2 .ic, h3 .ic { color: var(--primary); margin-right: 2px; }
 .proj-tint .page-head::before {
   content: ''; position: absolute; inset: -16px -16px -10px; z-index: -1; border-radius: 0 0 24px 24px; pointer-events: none;
   background: linear-gradient(180deg, color-mix(in srgb, var(--proj) 16%, transparent), transparent);
+  /* weiche Ränder rundum – keine sichtbare Kastenkante */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
 }
+/* Glas: dort färbt die Projektfarbe schon den Seitenhintergrund – kein zusätzlicher Kasten */
+html.style-glass.proj-tint .page-head::before { display: none; }
+/* Glas: Abstand der Hinweisleiste nicht aus dem Seitenhintergrund herausfallen lassen (sonst heller Streifen oben) */
+html.style-glass body { display: flow-root; }
 .proj-tint .project-title .dot-color { box-shadow: 0 0 0 4px color-mix(in srgb, var(--proj) 25%, transparent); }
 html.style-glass.proj-tint body {
   background: radial-gradient(70vmax 55vmax at 50% -10%, color-mix(in srgb, var(--proj) 45%, transparent), transparent 60%), var(--lg-bg, transparent), var(--lg-page, transparent);

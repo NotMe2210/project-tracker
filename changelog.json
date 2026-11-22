@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-11",
+      "date": "2026-11-22",
+      "de": [
+        "🐞 Stil „Glas“: heller Streifen über dem Sicherungs-Hinweis entfernt; Projektfarbe ohne sichtbaren Kasten im Projektkopf"
+      ],
+      "en": [
+        "🐞 “Glass” style: removed the light strip above the backup notice; project colour without a visible box in the project header"
+      ]
+    },
+    {
       "version": "2026.11.22-10",
       "date": "2026-11-22",
       "de": [
