@@ -1658,3 +1658,107 @@ html.style-glass .topbar::before {
   .task-bar-btn.danger { color: var(--bad); }
   html.style-glass .task-bar-btn { border-radius: 999px; }
 }
+
+/* ---- Formulare: auf dem Computer unverändert, auf dem Handy als Blatt im iOS-Stil ---- */
+.sheet-head, .fgroup { display: contents; }
+.sheet-btn { display: none; }
+@media (min-width: 641px) { .form.grid .sheet-head > h2 { grid-column: 1 / -1; } }
+:root { --sh-bg: #f2f2f7; --sh-group: #ffffff; --sh-line: rgba(60, 60, 67, .16); --sh-field: rgba(118, 118, 128, .12); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sh-bg: #16181f; --sh-group: #23262f; --sh-line: rgba(255, 255, 255, .09); --sh-field: rgba(255, 255, 255, .08); } }
+:root[data-theme="dark"] { --sh-bg: #16181f; --sh-group: #23262f; --sh-line: rgba(255, 255, 255, .09); --sh-field: rgba(255, 255, 255, .08); }
+html.style-glass { --sh-bg: #eef0f6; --sh-group: rgba(255, 255, 255, .85); }
+@media (prefers-color-scheme: dark) { html.style-glass:not([data-theme="light"]) { --sh-bg: #1a1c25; --sh-group: rgba(255, 255, 255, .07); } }
+html.style-glass[data-theme="dark"] { --sh-bg: #1a1c25; --sh-group: rgba(255, 255, 255, .07); }
+
+@media (max-width: 640px) {
+  /* Blatt von unten: oben bleibt ein Streifen der Seite sichtbar */
+  #modal:has(> .form) {
+    inset: auto 0 0 0; top: auto; height: calc(100% - 12px - env(safe-area-inset-top)); max-height: none;
+    border-radius: 22px 22px 0 0; background: var(--sh-bg); border: 0; box-shadow: 0 -10px 40px rgba(0, 0, 0, .3);
+    -webkit-backdrop-filter: none; backdrop-filter: none; background-image: none;
+  }
+  #modal:has(> .form)::before { content: ''; position: absolute; z-index: 5; top: 6px; left: 50%; width: 38px; height: 5px; margin-left: -19px; border-radius: 3px; background: var(--muted); opacity: .4; pointer-events: none; }
+  #modal > .form { background: none; }
+  #modal > .form > h2, #modal > .form > .form-actions { background: var(--sh-bg); border-color: var(--sh-line); }
+  #modal > .form > h2 { padding-top: calc(22px + env(safe-area-inset-top, 0px) * 0); }
+
+  /* Kopfzeile: Abbrechen · Titel · Sichern */
+  .sheet-form > * { flex: none; }
+  .sheet-form { gap: 16px; padding-bottom: calc(24px + env(safe-area-inset-bottom)) !important; }
+  .sheet-form > .sheet-head {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px;
+    position: sticky; top: 0; z-index: 3; margin: 0 -16px; padding: 20px 16px 10px; background: var(--sh-bg);
+  }
+  .sheet-form > .sheet-head > h2 { position: static; margin: 0; padding: 0; border: 0; background: none; font-size: 1.02rem; font-weight: 700; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sheet-btn { display: block; appearance: none; -webkit-appearance: none; border: 0; background: none; font: inherit; font-size: 1.02rem; color: var(--primary); padding: 8px 0; min-height: 44px; cursor: pointer; }
+  .sheet-btn.save { font-weight: 700; }
+  /* Unten nur noch Zusatzknöpfe (z. B. „Verwerfen“) */
+  .sheet-form > .form-actions > [data-close], .sheet-form > .form-actions > [type=submit] { display: none; }
+  .sheet-form > .form-actions { position: static; margin: 0; padding: 0; border: 0; background: none; }
+  .sheet-form > .form-actions:not(:has(> :not([data-close]):not([type=submit]))) { display: none; }
+  .sheet-form > .form-actions > .btn { flex: 1; margin: 0 !important; min-height: 46px; border-radius: 14px; background: var(--sh-group); border: 0; box-shadow: none; }
+  .sheet-form > .form-error:empty { display: none; }
+
+  /* Gruppen mit Listenzeilen: Beschriftung links, Wert rechts */
+  .sheet-form .fgroup { display: flex; flex-direction: column; background: var(--sh-group); border-radius: 14px; overflow: hidden; }
+  .sheet-form .fgroup > .row2, .sheet-form .fgroup > .fcell, .sheet-form > .row2 { display: contents; }
+  .sheet-form .fi {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px;
+    position: relative; min-height: 48px; padding: 6px 14px; font-size: 1rem; font-weight: 400;
+  }
+  .sheet-form .fi:not(.fgroup .fi) { background: var(--sh-group); border-radius: 14px; }
+  .sheet-form .fgroup .fi::before { content: ''; position: absolute; top: 0; left: 14px; right: 0; border-top: 1px solid var(--sh-line); }
+  .sheet-form .fgroup > .fi:first-child::before, .sheet-form .fgroup > :first-child > .fi:first-child::before { display: none; }
+  .sheet-form .fi > .flabel { grid-column: 1; min-width: 0; }
+  .sheet-form .fi > .hint { grid-column: 1 / -1; margin: 0 0 4px; font-size: .76rem; }
+  .sheet-form .fi > input, .sheet-form .fi > select {
+    grid-column: 2; grid-row: 1; width: auto; max-width: 56vw; min-height: 36px; margin: 0;
+    border: 0; border-radius: 8px; box-shadow: none; background: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+    color: var(--muted); font-size: 1rem; text-align: right; text-align-last: right; padding: 4px 0;
+  }
+  .sheet-form .fi > select {
+    -webkit-appearance: none; appearance: none; padding-right: 18px; text-overflow: ellipsis;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='16' viewBox='0 0 10 16' fill='none' stroke='%238e8e93' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6l3-3 3 3M2 10l3 3 3-3'/%3E%3C/svg%3E") no-repeat right center / 10px 16px;
+  }
+  .sheet-form .fi > input[type=date] { width: 9.5em; background: var(--sh-field); color: var(--primary); padding: 6px 10px; text-align: center; }
+  .sheet-form .fi > input[type=text], .sheet-form .fi > input[type=number] { width: 9em; }
+  .sheet-form .fi > input[type=color] { width: 52px; height: 32px; padding: 2px; background: var(--sh-field); }
+  .sheet-form .fi > input:focus, .sheet-form .fi > select:focus { outline: none; color: var(--text); }
+
+  /* Freie Felder: Überschrift klein darüber, Eingabe als Karte */
+  .sheet-form .ff { gap: 6px; }
+  .sheet-form .ff > .flabel, .sheet-form .ff > .field-label { font-size: .76rem; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 0 14px; margin: 0; }
+  .sheet-form .ff > .hint { padding: 0 14px; font-size: .76rem; }
+  .sheet-form .ff > textarea, .sheet-form .ff > input, .sheet-form .ff .mp-box, .sheet-form .ff > .check-chips, .sheet-form .ff > .subtasks-editor {
+    background: var(--sh-group); border: 0; border-radius: 14px; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; font-size: 1rem;
+  }
+  .sheet-form .ff > textarea, .sheet-form .ff > input { padding: 12px 14px; }
+  .sheet-form .ff > .check-chips, .sheet-form .ff > .subtasks-editor { padding: 10px 12px; }
+  .sheet-form .ff > .subtasks-editor > .btn { background: none; border: 0; box-shadow: none; color: var(--primary); padding: 6px 2px; }
+  .sheet-form .ff > textarea:focus, .sheet-form .ff > input:focus { outline: 2px solid color-mix(in srgb, var(--primary) 60%, transparent); outline-offset: 0; }
+  .sheet-form > .fill-chips, .sheet-form .fcell > .fill-chips { padding: 0 6px; }
+
+  /* Kanban: eine Spalte, Umschalten über die Status-Leiste */
+  .kanban { display: block; overflow: visible; padding: 0; }
+  .kanban .kb-col, html.style-glass .kanban .kb-col { background: none; border: 0; padding: 0; min-height: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .kanban .kb-col:not(.show) { display: none; }
+  .kanban .kb-head { display: none; }
+  .kanban .kb-list { display: flex; flex-direction: column; gap: 10px; }
+  .kb-empty-drag, .kb-hint-wide { display: none; }
+}
+.kb-seg { display: none; }
+.kb-empty-none, .kb-hint-phone { display: none; }
+@media (max-width: 640px) {
+  .kb-empty-none { display: inline; }
+  .kb-hint-phone { display: block; }
+  .kb-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px; margin: 2px 0 14px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); }
+  .kb-seg-btn { appearance: none; -webkit-appearance: none; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; font-size: .88rem;
+    min-height: 40px; padding: 6px 4px; border-radius: 999px; display: flex; justify-content: center; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s; }
+  .kb-seg-btn b { font-size: .75rem; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--border); color: var(--text); font-weight: 600; }
+  .kb-seg-btn.on { background: var(--surface); color: var(--text); box-shadow: 0 2px 8px rgba(0, 0, 0, .14); }
+  .kb-seg-btn.on b { background: var(--primary); color: #fff; }
+  .kb-seg-btn.over { box-shadow: inset 0 0 0 2px var(--primary); }
+  html.style-glass .kb-seg { background: var(--lg-glass-soft); border-color: var(--lg-edge-dim); }
+  html.style-glass .kb-seg-btn.on { background: var(--lg-glass-strong); box-shadow: inset 0 1px 0 var(--lg-edge), 0 3px 10px rgba(0, 0, 0, .2); }
+}
+@media (prefers-reduced-motion: reduce) { .kb-seg-btn { transition: none; } }

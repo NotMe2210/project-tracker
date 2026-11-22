@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-8';
+const APP_VERSION = '2026.11.22-9';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2823,7 +2823,7 @@ function fieldHTML(f) {
   if (f.type === 'checks') {
     const vals = new Set(v || []);
     if (f.multi) autoMultiFields.set(f.name, f);
-    return `<div class="field"><div class="field-label">${esc(f.label)}</div>
+    return `<div class="field ff"><div class="field-label">${esc(f.label)}</div>
       <div class="check-chips" data-checks="${f.name}" ${f.multi ? 'data-auto-multi' : ''}>${f.options.map((o) => (o.group
         ? `<span class="check-group small muted">${esc(o.group)}</span>`
         : `<label class="check-chip"><input type="checkbox" value="${esc(o.value)}" ${vals.has(o.value) ? 'checked' : ''}><span>${o.html || esc(o.label)}</span></label>`)).join('')}</div>${hint}</div>`;
@@ -2831,7 +2831,7 @@ function fieldHTML(f) {
   if (f.type === 'multi') {
     multiOptions.set(f.name, f.options);
     const byVal = new Map(f.options.filter((o) => !o.group).map((o) => [o.value, o]));
-    return `<div class="field"><label class="field-label" for="${id}">${esc(f.label)}</label>
+    return `<div class="field ff"><label class="field-label" for="${id}">${esc(f.label)}</label>
       <div class="mp" data-multi="${f.name}">
         <div class="mp-box">${(v || []).filter((x) => byVal.has(x)).map((x) => multiChip(byVal.get(x))).join('')}<input id="${id}" class="mp-input" type="text" autocomplete="off" spellcheck="false"
           placeholder="${esc(f.placeholder || tr('Suchen und hinzufügen …'))}" role="combobox" aria-expanded="false" aria-autocomplete="list" enterkeyhint="done"></div>
@@ -2839,7 +2839,7 @@ function fieldHTML(f) {
       </div>${hint}</div>`;
   }
   if (f.type === 'subtasks') {
-    return `<div class="field"><div class="field-label">${esc(f.label)}</div>
+    return `<div class="field ff"><div class="field-label">${esc(f.label)}</div>
       <div class="subtasks-editor" data-subtasks="${f.name}">
         <div class="subtask-rows">${(v || []).map(subtaskRowHTML).join('')}</div>
         <button type="button" class="btn small" data-sub-add>${tr('+ Unterpunkt')}</button>
@@ -2857,8 +2857,12 @@ function fieldHTML(f) {
   }
   const chips = f.chips?.length ? `<div class="fill-chips">${f.chips.map((c) =>
     `<button type="button" class="chip ${String(c).toLocaleLowerCase('de') === String(v).toLocaleLowerCase('de') ? 'active' : ''}" data-fill="${id}" data-value="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '';
-  return `<label for="${id}">${esc(f.label)}${f.required ? ' *' : ''}${input}${hint}</label>${chips}`;
+  // Auf dem Handy: kurze Auswahlwerte als Listenzeile (Beschriftung links, Wert rechts), Freitext in voller Breite
+  const kind = fieldIsRow(f) ? 'fi' : 'ff';
+  return `<label class="${kind}" for="${id}"><span class="flabel">${esc(f.label)}${f.required ? ' *' : ''}</span>${input}${hint}</label>${chips}`;
 }
+
+const fieldIsRow = (f) => !f.list && ['select', 'date', 'number', 'decimal', 'duration', 'color'].includes(f.type);
 
 function subtaskRowHTML(st = {}) {
   return `<div class="subtask-row" data-id="${esc(st.id || '')}">
@@ -2878,20 +2882,29 @@ const growAll = (root = document) => root.querySelectorAll('textarea.autogrow').
 
 function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide = false }) {
   const dlg = $('#modal');
-  const rows = [];
+  const chunks = []; // { html, row }: row = nur Listenzeilen (auf dem Handy in einer Gruppe zusammengefasst)
   if (wide) {
     // Breites Raster (Computer): jedes Feld belegt w von 4 Spalten; auf schmalen Bildschirmen einspaltig
-    fields.forEach((f) => rows.push(`<div class="fcell w${f.w || 4}">${fieldHTML(f)}</div>`));
+    fields.forEach((f) => chunks.push({ html: `<div class="fcell w${f.w || 4}">${fieldHTML(f)}</div>`, row: fieldIsRow(f) }));
   } else {
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i];
-      if (f.half && fields[i + 1]?.half) { rows.push(`<div class="row2">${fieldHTML(f)}${fieldHTML(fields[i + 1])}</div>`); i++; }
-      else rows.push(fieldHTML(f));
+      if (f.half && fields[i + 1]?.half) { chunks.push({ html: `<div class="row2">${fieldHTML(f)}${fieldHTML(fields[i + 1])}</div>`, row: fieldIsRow(f) && fieldIsRow(fields[i + 1]) }); i++; }
+      else chunks.push({ html: fieldHTML(f), row: fieldIsRow(f) });
     }
   }
+  const rows = [];
+  let group = [];
+  const flush = () => { if (group.length) rows.push(`<div class="fgroup">${group.join('')}</div>`); group = []; };
+  for (const c of chunks) { if (c.row) group.push(c.html); else { flush(); rows.push(c.html); } }
+  flush();
   dlg.classList.toggle('wide', wide);
-  dlg.innerHTML = `<form class="form ${wide ? 'grid' : ''}" novalidate>
-    <h2>${esc(title)}</h2>
+  dlg.innerHTML = `<form class="form sheet-form ${wide ? 'grid' : ''}" novalidate>
+    <div class="sheet-head">
+      <button type="button" class="sheet-btn" data-close>${tr('Abbrechen')}</button>
+      <h2>${esc(title)}</h2>
+      <button type="submit" class="sheet-btn save">${esc(submitLabel)}</button>
+    </div>
     ${rows.join('')}
     <div class="form-error"></div>
     <div class="form-actions">
@@ -2948,7 +2961,7 @@ function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide
     unlockScroll();
   });
   const showError = (msg) => { form.querySelector('.form-error').textContent = msg; };
-  form.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
+  form.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { dlg.close(); unlockScroll(); }));
 
   // Vorschlags-Chips füllen das zugehörige Feld
   form.addEventListener('click', (e) => {
@@ -2993,7 +3006,7 @@ function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide
   growAll(form);
   // Auf Touch-Geräten nicht automatisch fokussieren – sonst springt die Tastatur auf und verschiebt die Ansicht.
   if (!matchMedia('(hover: none)').matches) form.querySelector('input,textarea,select')?.focus();
-  else form.scrollTop = 0;
+  else { form.scrollTop = 0; document.activeElement?.blur(); } // showModal fokussiert sonst „Abbrechen“ im Kopf
 }
 
 let lockedScrollY = 0;
@@ -3024,6 +3037,30 @@ $('#modal').addEventListener('pointerdown', (e) => { modalPressOutside = outside
 $('#modal').addEventListener('click', (e) => {
   if (modalPressOutside && outsideModal(e)) $('#modal').close();
   modalPressOutside = false;
+});
+
+/* Handy: Fenster erscheint als Blatt von unten – am Kopf nach unten ziehen schließt es */
+let sheetDrag = null;
+$('#modal').addEventListener('touchstart', (e) => {
+  const d = $('#modal'), form = d.querySelector(':scope > .form');
+  if (!form || !smallScreen() || e.touches.length !== 1 || e.target.closest('input, select, textarea, button, a')) return;
+  const y = e.touches[0].clientY, top = d.getBoundingClientRect().top;
+  const head = form.querySelector('.sheet-head, :scope > h2');
+  if (y - top > (head ? head.getBoundingClientRect().bottom - top : 60) || form.scrollTop > 0) return;
+  sheetDrag = { y0: y, dy: 0 };
+}, { passive: true });
+$('#modal').addEventListener('touchmove', (e) => {
+  if (!sheetDrag) return;
+  sheetDrag.dy = Math.max(0, e.touches[0].clientY - sheetDrag.y0);
+  $('#modal').style.transform = `translateY(${sheetDrag.dy}px)`;
+}, { passive: true });
+$('#modal').addEventListener('touchend', () => {
+  if (!sheetDrag) return;
+  const d = $('#modal'), close = sheetDrag.dy > 110;
+  sheetDrag = null;
+  d.style.transition = 'transform .2s ease';
+  d.style.transform = close ? 'translateY(100%)' : '';
+  setTimeout(() => { d.style.transition = ''; if (close) { d.close(); d.style.transform = ''; } }, 200);
 });
 
 const projectOptions = () => liveProjects()
@@ -7098,18 +7135,24 @@ function kanbanCard(t) {
 const KB_SUBS_KEY = 'projekttracker.ui.kbSubs';
 let kbSubsState = (() => { try { return JSON.parse(localStorage.getItem(KB_SUBS_KEY) || '{}'); } catch { return {}; } })();
 const kbSubsOpen = (t) => (t.id in kbSubsState ? kbSubsState[t.id] : !t.done && t.status === 'doing');
+/* Handy: nur eine Spalte sichtbar, gewählt über den Status-Umschalter (wird gemerkt) */
+const KB_COL_KEY = 'projekttracker.ui.kbCol';
+let kbMobileCol = (() => { try { return localStorage.getItem(KB_COL_KEY) || 'open'; } catch { return 'open'; } })();
 function kanbanBoard(open, done) {
   const cols = [
     ['open', tr('Offen'), open.filter((t) => t.status !== 'doing')],
     ['doing', tr('In Arbeit'), open.filter((t) => t.status === 'doing')],
     ['done', tr('Erledigt'), done],
   ];
-  return `<div class="kanban">${cols.map(([key, label, list]) => `<div class="kb-col" data-kb-col="${key}">
+  return `<div class="kb-seg" role="tablist" aria-label="${tr('Status')}">${cols.map(([key, label, list]) => `<button type="button" class="kb-seg-btn ${key === kbMobileCol ? 'on' : ''}"
+      data-action="kbShowCol" data-col="${key}" data-kb-col="${key}" role="tab" aria-selected="${key === kbMobileCol}">${label} <b>${list.length}</b></button>`).join('')}</div>
+    <div class="kanban">${cols.map(([key, label, list]) => `<div class="kb-col ${key === kbMobileCol ? 'show' : ''}" data-kb-col="${key}">
       <div class="kb-head"><span>${key === 'doing' ? '▶ ' : key === 'done' ? '✓ ' : ''}${label}</span><span class="muted small">${list.length}</span></div>
-      <div class="kb-list">${list.slice(0, key === 'done' ? 15 : 200).map(kanbanCard).join('') || `<div class="kb-empty small muted">${tr('Hierher ziehen')}</div>`}
+      <div class="kb-list">${list.slice(0, key === 'done' ? 15 : 200).map(kanbanCard).join('') || `<div class="kb-empty small muted"><span class="kb-empty-drag">${tr('Hierher ziehen')}</span><span class="kb-empty-none">${tr('Keine Aufgaben mit diesem Status.')}</span></div>`}
         ${key === 'done' && list.length > 15 ? `<div class="small muted kb-more">${tr('… und {n} weitere', { n: list.length - 15 })}</div>` : ''}</div>
     </div>`).join('')}</div>
-    <p class="small muted g-hint">${tr('Karten zwischen den Spalten ziehen · antippen = Status und Aktionen · doppelt antippen = bearbeiten.')}</p>`;
+    <p class="small muted g-hint kb-hint-wide">${tr('Karten zwischen den Spalten ziehen · antippen = Status und Aktionen · doppelt antippen = bearbeiten.')}</p>
+    <p class="small muted g-hint kb-hint-phone">${tr('Karte antippen = Status ändern und Aktionen · doppelt antippen = bearbeiten.')}</p>`;
 }
 
 function setTaskStatus(id, status) {
@@ -7147,9 +7190,9 @@ document.addEventListener('pointermove', (e) => {
   }
   kbDrag.ghost.style.left = `${e.clientX - kbDrag.dx}px`;
   kbDrag.ghost.style.top = `${e.clientY - kbDrag.dy}px`;
-  document.querySelectorAll('.kb-col.over').forEach((c) => c.classList.remove('over'));
+  document.querySelectorAll('.kb-col.over, .kb-seg-btn.over').forEach((c) => c.classList.remove('over'));
   kbDrag.ghost.style.display = 'none';
-  document.elementFromPoint(e.clientX, e.clientY)?.closest('.kb-col')?.classList.add('over');
+  document.elementFromPoint(e.clientX, e.clientY)?.closest('.kb-col, .kb-seg-btn')?.classList.add('over');
   kbDrag.ghost.style.display = '';
 });
 document.addEventListener('pointerup', (e) => {
@@ -7160,8 +7203,8 @@ document.addEventListener('pointerup', (e) => {
   kbJustDragged = Date.now();
   d.ghost.remove();
   d.card.classList.remove('kb-placeholder');
-  const col = document.querySelector('.kb-col.over');
-  document.querySelectorAll('.kb-col.over').forEach((c) => c.classList.remove('over'));
+  const col = document.querySelector('.kb-col.over, .kb-seg-btn.over');
+  document.querySelectorAll('.kb-col.over, .kb-seg-btn.over').forEach((c) => c.classList.remove('over'));
   if (col) setTaskStatus(d.id, col.dataset.kbCol);
 });
 let kbJustDragged = 0;
@@ -7217,6 +7260,12 @@ document.addEventListener('keydown', (e) => {
 });
 
 Object.assign(actions, {
+  kbShowCol({ col }) {
+    kbMobileCol = col;
+    try { localStorage.setItem(KB_COL_KEY, col); } catch {}
+    document.querySelectorAll('.kb-seg-btn').forEach((b) => { b.classList.toggle('on', b.dataset.col === col); b.setAttribute('aria-selected', b.dataset.col === col); });
+    document.querySelectorAll('.kanban .kb-col').forEach((c) => c.classList.toggle('show', c.dataset.kbCol === col));
+  },
   toggleKbSubs({ id }) {
     const t = data.tasks.find((x) => x.id === id);
     if (!t) return;

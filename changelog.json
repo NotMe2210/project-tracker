@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-9",
+      "date": "2026-11-22",
+      "de": [
+        "📱 Eingabefenster auf dem Smartphone im iOS-Stil: als Blatt von unten, „Abbrechen“ und „Speichern“ oben, Auswahlfelder als übersichtliche Liste – zum Schließen nach unten ziehen",
+        "🗂 Kanban-Board auf dem Smartphone: statt seitlich zu wischen wählst du die Spalte über „Offen · In Arbeit · Erledigt“ – mit Anzahl je Status"
+      ],
+      "en": [
+        "📱 Input windows on smartphones in iOS style: a sheet from the bottom, “Cancel” and “Save” at the top, choices as a tidy list – drag down to close",
+        "🗂 Kanban board on smartphones: instead of swiping sideways, pick the column via “Open · In progress · Done” – with a count per status"
+      ]
+    },
+    {
       "version": "2026.11.22-8",
       "date": "2026-11-22",
       "de": [
