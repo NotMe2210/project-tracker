@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-4';
+const APP_VERSION = '2026.11.22-10';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -24,6 +24,8 @@ const DEFAULT_DATA = {
     reminderShowNext: true,
     theme: 'system', // 'system' | 'light' | 'dark'
     accent: '#4f46e5',
+    style: 'classic', // 'classic' | 'glass' (angelehnt an Apples Liquid Glass)
+    glassTransparency: 60, // 0 = deckend … 100 = sehr durchsichtig
     syncService: 'icloud', // Dienst für den Gerätewechsel (nur für Anleitung & Hinweise)
     bannerFx: 'both', // Animation im Motivationsbereich: both | flames | bar | off
     pomoWork: 25, // Minuten Fokus
@@ -356,6 +358,21 @@ function isDarkTheme(theme) {
 }
 
 /** Setzt Hell/Dunkel und leitet alle Akzent-Farbtöne aus der gewählten Farbe ab (lesbar in beiden Modi). */
+/** Stil „Glas“: Klasse setzen und die Deckkraft der Glasflächen aus dem Transparenz-Regler berechnen */
+function applyGlass(settings = data.settings) {
+  const root = document.documentElement;
+  const on = settings.style === 'glass';
+  root.classList.toggle('style-glass', on);
+  if (!on) return;
+  const t = Math.max(0, Math.min(100, Number(settings.glassTransparency ?? 60))) / 100;
+  const f = (v) => v.toFixed(3);
+  const a = 0.94 - 0.64 * t, ad = 0.92 - 0.6 * t; // hell / dunkel
+  root.style.setProperty('--lg-a', f(a));
+  root.style.setProperty('--lg-as', f(Math.min(0.97, a + 0.2)));
+  root.style.setProperty('--lg-ao', f(a * 0.62));
+  root.style.setProperty('--lg-ad', f(ad));
+  root.style.setProperty('--lg-ads', f(Math.min(0.97, ad + 0.22)));
+}
 function applyTheme(settings = data.settings) {
   const root = document.documentElement;
   const theme = settings.theme || 'system';
@@ -386,6 +403,7 @@ function applyTheme(settings = data.settings) {
     '--heat-4': dark ? mixColor(accent, '#ffffff', 0.45) : mixColor(accent, '#000000', 0.3),
   };
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+  applyGlass(settings);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#181c25' : primary);
 }
 darkQuery.addEventListener?.('change', () => applyTheme());
@@ -704,6 +722,7 @@ function render() {
   else if (r.view === 'woche') html = renderWeekReview(r.id);
   else html = renderDashboard();
   app.innerHTML = html;
+  afterRender(r);
   // Zeitachse an die tatsächliche Breite anpassen (höchstens ein zusätzlicher Durchgang)
   if (measureCharts() && !render.refit) { render.refit = true; try { render(); } finally { render.refit = false; } return; }
   restoreGanttScroll();
@@ -715,6 +734,104 @@ function render() {
   });
   renderTimer();
 }
+
+/* Nach jedem Zeichnen: Projektfarbe als Akzent, Titel für die Kopfleiste, aktiver Reiter sichtbar,
+   beim Wechsel der Ansicht sanft einblenden (nicht bei jedem Speichern) */
+let lastRouteKey = '';
+function afterRender(r) {
+  const p = r.view === 'projekt' ? getProject(r.id) : null;
+  const root = document.documentElement;
+  root.classList.toggle('proj-tint', !!p);
+  if (p) root.style.setProperty('--proj', p.color || 'var(--primary)'); else root.style.removeProperty('--proj');
+  const ct = $('#compact-title');
+  if (ct) ct.textContent = $('#app h1')?.textContent.trim() || '';
+  const at = $('#app .tabs a.active');
+  if (at) { const tb = at.parentElement; tb.scrollLeft = at.offsetLeft - (tb.clientWidth - at.offsetWidth) / 2; }
+  const key = `${r.view}/${r.id || ''}/${r.tab}`;
+  if (key !== lastRouteKey) {
+    if (lastRouteKey) { const app = $('#app'); app.classList.remove('view-in'); void app.offsetWidth; app.classList.add('view-in'); }
+    lastRouteKey = key;
+  }
+  updateCompactTitle();
+}
+/* Handy: großer Titel – ist er aus dem Bild gescrollt, steht er klein in der Kopfleiste */
+function updateCompactTitle() {
+  const h1 = $('#app h1'), bar = document.querySelector('.topbar');
+  if (bar) document.documentElement.style.setProperty('--topbar-bottom', `${Math.round(bar.getBoundingClientRect().bottom)}px`);
+  const on = !!(h1 && bar && smallScreen() && h1.getBoundingClientRect().bottom < bar.getBoundingClientRect().bottom);
+  document.documentElement.classList.toggle('title-compact', on);
+}
+window.addEventListener('scroll', () => requestAnimationFrame(updateCompactTitle), { passive: true });
+window.addEventListener('resize', () => requestAnimationFrame(updateCompactTitle));
+$('#app').addEventListener('animationend', (e) => { if (e.target.id === 'app') e.target.classList.remove('view-in'); });
+
+/* Einheitliche Linien-Symbole statt Emojis in Navigation, Knöpfen, Reitern und Überschriften.
+   Emojis mit Gefühl (🍅, 🔥, 🏆, Erfolge, Motivation) bleiben bewusst erhalten. */
+const ICON_PATHS = {
+  chart: '<path d="M3 3v18h18"/><path d="M8 16v-5M13 16V7M18 16v-3"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  sliders: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  gear: '<path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.8l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.3a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.3a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.8v-.5a2 2 0 0 1 1-1.7l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  save: '<path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3M7 21v-7h10v7"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M10 2h4"/>',
+  flag: '<path d="M5 22V4M5 4h12l-2 4 2 4H5"/>',
+  check: '<rect x="3" y="3" width="18" height="18" rx="5"/><path d="m8 12 3 3 5-6"/>',
+  clip: '<path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>',
+  trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>',
+  note: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+  euro: '<circle cx="12" cy="12" r="9"/><path d="M15 9.2a4 4 0 1 0 0 5.6M7.5 11h6M7.5 13h6"/>',
+  wallet: '<path d="M3 7h15a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z"/><path d="M3 7l12-4v4M17 14h.01"/>',
+  cal: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 10h18"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  alert: '<path d="M12 3 22 21H2z"/><path d="M12 10v4M12 17.5h.01"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  msg: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/>',
+  play: '<path d="M8 5v14l11-7z"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  award: '<circle cx="12" cy="9" r="6"/><path d="M8.5 14 7 22l5-3 5 3-1.5-8"/>',
+  pause: '<path d="M8 5v14M16 5v14"/>',
+  inbox: '<path d="M3 13h5l1 3h6l1-3h5"/><path d="M5 5h14l2 8v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z"/>',
+  pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  layout: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 10h18M10 10v11"/>',
+  archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>',
+};
+const ICON_EMOJI = { '📊': 'chart', '🗂️': 'folder', '🗂': 'folder', '⚙️': 'gear', '⚙': 'gear', '🔎': 'search', '⚡': 'bolt', '💾': 'save', '⏱️': 'timer', '⏱': 'timer',
+  '🏁': 'flag', '✅': 'check', '📎': 'clip', '🗑️': 'trash', '🗑': 'trash', '📝': 'note', '💶': 'euro', '💰': 'wallet', '📅': 'cal', '🗓️': 'cal', '🗓': 'cal', '🎯': 'target',
+  '☀️': 'sun', '⚠️': 'alert', '👉': 'arrow', '🕘': 'clock', '💭': 'msg', '▶': 'play', '⏹️': 'stop', '■': 'stop', '🏅': 'award', '⏸': 'pause', '✏️': 'pencil', '✎': 'pencil',
+  '📋': 'note', '🧩': 'layout', '🗄️': 'archive' };
+const ICON_KEYS = Object.keys(ICON_EMOJI).sort((a, b) => b.length - a.length);
+const ICON_SEL = '.nav .ico, h1, h2, h3, .btn, .tabs a, .pop-item, .task-bar-btn, .cmd-btn, .w-label';
+const iconSVG = (k) => `<svg class="ic${k === 'play' || k === 'stop' ? ' fill' : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[k]}</svg>`;
+function iconizeEl(el) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let n;
+  while ((n = walker.nextNode())) {
+    if (!n.nodeValue.trim()) continue;
+    const t = n.nodeValue.replace(/^\s+/, '');
+    const k = ICON_KEYS.find((e) => t.startsWith(e));
+    if (!k) return;
+    let name = ICON_EMOJI[k];
+    if (name === 'gear' && el.matches('.nav .ico')) name = 'sliders';
+    const rest = t.slice(k.length).replace(/^\uFE0F/, '');
+    n.nodeValue = rest.replace(/^ /, '');
+    n.parentNode.insertBefore(document.createRange().createContextualFragment(iconSVG(name) + (rest.startsWith(' ') ? ' ' : '')), n);
+    return;
+  }
+}
+function iconize(root) {
+  if (!(root instanceof Element)) return;
+  const own = root.closest(ICON_SEL);
+  if (own) iconizeEl(own);
+  root.querySelectorAll(ICON_SEL).forEach(iconizeEl);
+  // 9 · leere Bereiche bekommen ein Symbol
+  root.querySelectorAll('.empty:not(.has-ico)').forEach((e) => { e.classList.add('has-ico'); e.insertAdjacentHTML('afterbegin', `<span class="empty-ico">${iconSVG('inbox')}</span>`); });
+}
+new MutationObserver((list) => { for (const m of list) iconize(m.target); }).observe(document.body, { childList: true, subtree: true });
+iconize(document.body);
 
 /* Hinweisleiste unter der Navigation: Import-Erinnerung beim Öffnen bzw. Export-Erinnerung bei ungesicherten Änderungen. */
 function renderBackupBar() {
@@ -1775,13 +1892,27 @@ function taskTimeBadge(t) {
   return `<span class="badge time ${over ? 'over' : ''}" title="${title}">⏱ ${fmtHM(spent)}${est ? ` / ${fmtHM(est)}` : ''}</span>`;
 }
 
+/* Kleine Bildschirme: Aktionen erst nach Antippen der Aufgabe, als Reihe großer Symbolknöpfe (44 px) */
+let selectedTaskId = null;
+function taskBar(t) {
+  const btn = (action, icon, label, extra = '', cls = '') => `<button type="button" class="btn task-bar-btn ${cls}" data-action="${action}" ${extra} title="${esc(label)}" aria-label="${esc(label)}">${icon}</button>`;
+  const timer = t.done ? '' : data.timer?.taskId === t.id
+    ? btn('stopTimer', '⏹️', tr('Timer stoppen'), '', 'timer-on')
+    : btn('startTimer', '⏱️', tr('Timer für diese Aufgabe starten'), `data-id="${t.projectId}" data-task="${t.id}"`);
+  return `<div class="task-bar" role="group" aria-label="${tr('Aktionen')}">${timer}
+    ${btn('addDoc', '📎', tr('Dokument verknüpfen'), `data-id="${t.projectId}" data-task="${t.id}"`)}
+    ${btn('editTask', '⚙️', tr('Aufgabe bearbeiten'), `data-id="${t.id}"`)}
+    ${btn('deleteTask', '🗑', tr('Löschen'), `data-id="${t.id}"`, 'danger')}</div>`;
+}
+const smallScreen = () => window.matchMedia('(max-width: 640px)').matches;
+
 function taskItem(t, { showProject = false } = {}) {
   const p = getProject(t.projectId);
   const ms = t.milestoneId ? data.milestones.find((m) => m.id === t.milestoneId) : null;
   const subs = t.subtasks || [];
   const subsDone = subs.filter((st) => st.done).length;
   const partial = subs.length && !t.done && subsDone > 0;
-  return `<li class="${t.done ? 'done' : ''} task">
+  return `<li class="${t.done ? 'done' : ''} task ${selectedTaskId === t.id ? 'sel' : ''}">
     <button class="check ${partial ? 'partial' : ''}" data-action="toggleTask" data-id="${t.id}"
       title="${t.done ? tr('Wieder öffnen') : subs.length ? tr('{done} von {n} Unterpunkten erledigt', { done: subsDone, n: subs.length }) : tr('Erledigt')}">${t.done ? '✓' : partial ? '–' : ''}</button>
     <div class="grow">
@@ -1800,6 +1931,7 @@ function taskItem(t, { showProject = false } = {}) {
         ${t.notes ? `<span>${esc(t.notes)}</span>` : ''}
         ${docChips(data.docs.filter((d) => d.taskId === t.id))}
       </div>
+      ${taskBar(t)}
       ${subs.length ? `<ul class="subtasks">${subs.map((st) => `
         <li class="${st.done ? 'done' : ''}">
           <button class="check small ${st.done ? 'done' : ''}" data-action="toggleSubtask" data-id="${t.id}" data-sub="${st.id}" title="${st.done ? tr('Wieder öffnen') : tr('Erledigt')}">${st.done ? '✓' : ''}</button>
@@ -2294,6 +2426,7 @@ function projectNotes(p) {
 
 /* ---------------------------- Einstellungen ------------------------------ */
 
+const STYLES = () => [['classic', tr('Klassisch')], ['glass', tr('🪟 Glas')]];
 function renderAppearanceSettings() {
   const set = data.settings;
   const theme = set.theme || 'system';
@@ -2314,6 +2447,20 @@ function renderAppearanceSettings() {
           ${THEMES.map(([v, l]) => `<label><input type="radio" name="theme" value="${v}" data-theme-opt ${v === theme ? 'checked' : ''}>${tr(l)}</label>`).join('')}
         </div>
         <div class="hint" style="margin-top:6px">${tr('„Wie Gerät“ folgt automatisch dem Hell-/Dunkelmodus deines iPhones, iPads, Macs oder PCs.')}</div>
+      </div>
+      <div>
+        <div class="field-label">${tr('Stil')}</div>
+        <div class="segmented" role="radiogroup" aria-label="${tr('Stil')}">
+          ${STYLES().map(([v, l]) => `<label><input type="radio" name="style" value="${v}" data-style-opt ${v === (set.style || 'classic') ? 'checked' : ''}>${l}</label>`).join('')}
+        </div>
+        <div class="hint" style="margin-top:6px">${tr('„Glas“ zeigt durchscheinende, schwebende Flächen im Stil von Apples Liquid Glass.')}</div>
+        ${set.style === 'glass' ? `<div style="margin-top:12px">
+          <div class="field-label">${tr('Transparenz')}</div>
+          <div class="glass-range"><span class="small muted">${tr('deckend')}</span>
+            <input type="range" min="0" max="100" step="5" value="${Math.round(Number(set.glassTransparency ?? 60))}" data-glass-range aria-label="${tr('Transparenz')}">
+            <span class="small muted">${tr('durchsichtig')}</span></div>
+          <div class="hint" style="margin-top:6px">${tr('Weniger Transparenz verbessert die Lesbarkeit und schont ältere Geräte. Ist auf deinem Gerät „Transparenz reduzieren“ eingeschaltet, ist das Glas automatisch deckend.')}</div>
+        </div>` : ''}
       </div>
       <div>
         <div class="field-label">${tr('Akzentfarbe')}</div>
@@ -2586,7 +2733,7 @@ function renderSettings() {
     </div>
 
     ${settingsSection('darstellung', '🎨', tr('Darstellung'),
-      `🌐 ${esc(langName)} · ${esc(themeName)} · <span class="dot-color" style="background:${esc(accent)}"></span> ${esc(accentName)}`,
+      `🌐 ${esc(langName)} · ${esc(themeName)} · ${data.settings.style === 'glass' ? `${tr('🪟 Glas')} · ` : ''}<span class="dot-color" style="background:${esc(accent)}"></span> ${esc(accentName)}`,
       renderAppearanceSettings())}
 
     ${settingsSection('uebersicht', '🧩', tr('Übersicht & Projektansicht'),
@@ -2675,6 +2822,18 @@ function renderSettings() {
    Tastatur: ↑ ↓ wählen, Enter hinzufügen, Rücktaste entfernt den letzten Chip, Esc schließt.
    Optionen: { value, label, html?, hint?, muted? } oder { group } als Überschrift. */
 const multiOptions = new Map(); // Feldname → Optionen des offenen Formulars
+const autoMultiFields = new Map(); // Chip-Felder, die bei zu vielen Zeilen zum Suchfeld werden
+/** Nach dem Öffnen: Chip-Felder mit mehr als MULTI_MAX_ROWS Zeilen durch das Suchfeld ersetzen (Auswahl bleibt) */
+function applyAutoMulti(form) {
+  form.querySelectorAll('[data-checks][data-auto-multi]').forEach((box) => {
+    const f = autoMultiFields.get(box.dataset.checks);
+    if (!f) return;
+    const rows = new Set([...box.querySelectorAll('.check-chip')].filter((el) => el.offsetParent).map((el) => el.offsetTop)).size; // Gruppen-Überschriften zählen nicht
+    if (rows <= MULTI_MAX_ROWS) return;
+    const value = [...box.querySelectorAll('input:checked')].map((i) => i.value);
+    box.closest('.field').outerHTML = fieldHTML({ ...f, type: 'multi', options: f.multi.options, placeholder: f.multi.placeholder, value });
+  });
+}
 const multiChip = (o) => `<span class="mp-chip ${o.muted ? 'muted' : ''}" data-value="${esc(o.value)}">${o.html || esc(o.label)}<button type="button" class="mp-x" aria-label="${esc(tr('{name} entfernen', { name: o.label }))}">✕</button></span>`;
 function multiRender(mp) {
   const input = mp.querySelector('.mp-input'), list = mp.querySelector('.mp-list');
@@ -2762,15 +2921,16 @@ function fieldHTML(f) {
   let input;
   if (f.type === 'checks') {
     const vals = new Set(v || []);
-    return `<div class="field"><div class="field-label">${esc(f.label)}</div>
-      <div class="check-chips" data-checks="${f.name}">${f.options.map((o) => (o.group
+    if (f.multi) autoMultiFields.set(f.name, f);
+    return `<div class="field ff"><div class="field-label">${esc(f.label)}</div>
+      <div class="check-chips" data-checks="${f.name}" ${f.multi ? 'data-auto-multi' : ''}>${f.options.map((o) => (o.group
         ? `<span class="check-group small muted">${esc(o.group)}</span>`
         : `<label class="check-chip"><input type="checkbox" value="${esc(o.value)}" ${vals.has(o.value) ? 'checked' : ''}><span>${o.html || esc(o.label)}</span></label>`)).join('')}</div>${hint}</div>`;
   }
   if (f.type === 'multi') {
     multiOptions.set(f.name, f.options);
     const byVal = new Map(f.options.filter((o) => !o.group).map((o) => [o.value, o]));
-    return `<div class="field"><label class="field-label" for="${id}">${esc(f.label)}</label>
+    return `<div class="field ff"><label class="field-label" for="${id}">${esc(f.label)}</label>
       <div class="mp" data-multi="${f.name}">
         <div class="mp-box">${(v || []).filter((x) => byVal.has(x)).map((x) => multiChip(byVal.get(x))).join('')}<input id="${id}" class="mp-input" type="text" autocomplete="off" spellcheck="false"
           placeholder="${esc(f.placeholder || tr('Suchen und hinzufügen …'))}" role="combobox" aria-expanded="false" aria-autocomplete="list" enterkeyhint="done"></div>
@@ -2778,7 +2938,7 @@ function fieldHTML(f) {
       </div>${hint}</div>`;
   }
   if (f.type === 'subtasks') {
-    return `<div class="field"><div class="field-label">${esc(f.label)}</div>
+    return `<div class="field ff"><div class="field-label">${esc(f.label)}</div>
       <div class="subtasks-editor" data-subtasks="${f.name}">
         <div class="subtask-rows">${(v || []).map(subtaskRowHTML).join('')}</div>
         <button type="button" class="btn small" data-sub-add>${tr('+ Unterpunkt')}</button>
@@ -2796,8 +2956,12 @@ function fieldHTML(f) {
   }
   const chips = f.chips?.length ? `<div class="fill-chips">${f.chips.map((c) =>
     `<button type="button" class="chip ${String(c).toLocaleLowerCase('de') === String(v).toLocaleLowerCase('de') ? 'active' : ''}" data-fill="${id}" data-value="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : '';
-  return `<label for="${id}">${esc(f.label)}${f.required ? ' *' : ''}${input}${hint}</label>${chips}`;
+  // Auf dem Handy: kurze Auswahlwerte als Listenzeile (Beschriftung links, Wert rechts), Freitext in voller Breite
+  const kind = fieldIsRow(f) ? 'fi' : 'ff';
+  return `<label class="${kind}" for="${id}"><span class="flabel">${esc(f.label)}${f.required ? ' *' : ''}</span>${input}${hint}</label>${chips}`;
 }
+
+const fieldIsRow = (f) => !f.list && ['select', 'date', 'number', 'decimal', 'duration', 'color'].includes(f.type);
 
 function subtaskRowHTML(st = {}) {
   return `<div class="subtask-row" data-id="${esc(st.id || '')}">
@@ -2817,20 +2981,29 @@ const growAll = (root = document) => root.querySelectorAll('textarea.autogrow').
 
 function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide = false }) {
   const dlg = $('#modal');
-  const rows = [];
+  const chunks = []; // { html, row }: row = nur Listenzeilen (auf dem Handy in einer Gruppe zusammengefasst)
   if (wide) {
     // Breites Raster (Computer): jedes Feld belegt w von 4 Spalten; auf schmalen Bildschirmen einspaltig
-    fields.forEach((f) => rows.push(`<div class="fcell w${f.w || 4}">${fieldHTML(f)}</div>`));
+    fields.forEach((f) => chunks.push({ html: `<div class="fcell w${f.w || 4}">${fieldHTML(f)}</div>`, row: fieldIsRow(f) }));
   } else {
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i];
-      if (f.half && fields[i + 1]?.half) { rows.push(`<div class="row2">${fieldHTML(f)}${fieldHTML(fields[i + 1])}</div>`); i++; }
-      else rows.push(fieldHTML(f));
+      if (f.half && fields[i + 1]?.half) { chunks.push({ html: `<div class="row2">${fieldHTML(f)}${fieldHTML(fields[i + 1])}</div>`, row: fieldIsRow(f) && fieldIsRow(fields[i + 1]) }); i++; }
+      else chunks.push({ html: fieldHTML(f), row: fieldIsRow(f) });
     }
   }
+  const rows = [];
+  let group = [];
+  const flush = () => { if (group.length) rows.push(`<div class="fgroup">${group.join('')}</div>`); group = []; };
+  for (const c of chunks) { if (c.row) group.push(c.html); else { flush(); rows.push(c.html); } }
+  flush();
   dlg.classList.toggle('wide', wide);
-  dlg.innerHTML = `<form class="form ${wide ? 'grid' : ''}" novalidate>
-    <h2>${esc(title)}</h2>
+  dlg.innerHTML = `<form class="form sheet-form ${wide ? 'grid' : ''}" novalidate>
+    <div class="sheet-head">
+      <button type="button" class="sheet-btn" data-close>${tr('Abbrechen')}</button>
+      <h2>${esc(title)}</h2>
+      <button type="submit" class="sheet-btn save">${esc(submitLabel)}</button>
+    </div>
     ${rows.join('')}
     <div class="form-error"></div>
     <div class="form-actions">
@@ -2845,7 +3018,9 @@ function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide
     const values = {};
     for (const f of fields) {
       if (f.type === 'checks') {
-        values[f.name] = [...form.querySelectorAll(`[data-checks="${f.name}"] input:checked`)].map((i) => i.value);
+        values[f.name] = form.querySelector(`[data-multi="${f.name}"]`) // zum Suchfeld umgeschaltet
+          ? [...form.querySelectorAll(`[data-multi="${f.name}"] .mp-chip`)].map((c) => c.dataset.value)
+          : [...form.querySelectorAll(`[data-checks="${f.name}"] input:checked`)].map((i) => i.value);
         continue;
       }
       if (f.type === 'multi') {
@@ -2885,7 +3060,7 @@ function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide
     unlockScroll();
   });
   const showError = (msg) => { form.querySelector('.form-error').textContent = msg; };
-  form.querySelector('[data-close]').addEventListener('click', () => { dlg.close(); unlockScroll(); });
+  form.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { dlg.close(); unlockScroll(); }));
 
   // Vorschlags-Chips füllen das zugehörige Feld
   form.addEventListener('click', (e) => {
@@ -2926,10 +3101,11 @@ function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide
 
   lockScroll();
   dlg.showModal();
+  applyAutoMulti(form);
   growAll(form);
   // Auf Touch-Geräten nicht automatisch fokussieren – sonst springt die Tastatur auf und verschiebt die Ansicht.
   if (!matchMedia('(hover: none)').matches) form.querySelector('input,textarea,select')?.focus();
-  else form.scrollTop = 0;
+  else { form.scrollTop = 0; document.activeElement?.blur(); } // showModal fokussiert sonst „Abbrechen“ im Kopf
 }
 
 let lockedScrollY = 0;
@@ -2960,6 +3136,30 @@ $('#modal').addEventListener('pointerdown', (e) => { modalPressOutside = outside
 $('#modal').addEventListener('click', (e) => {
   if (modalPressOutside && outsideModal(e)) $('#modal').close();
   modalPressOutside = false;
+});
+
+/* Handy: Fenster erscheint als Blatt von unten – am Kopf nach unten ziehen schließt es */
+let sheetDrag = null;
+$('#modal').addEventListener('touchstart', (e) => {
+  const d = $('#modal'), form = d.querySelector(':scope > .form');
+  if (!form || !smallScreen() || e.touches.length !== 1 || e.target.closest('input, select, textarea, button, a')) return;
+  const y = e.touches[0].clientY, top = d.getBoundingClientRect().top;
+  const head = form.querySelector('.sheet-head, :scope > h2');
+  if (y - top > (head ? head.getBoundingClientRect().bottom - top : 60) || form.scrollTop > 0) return;
+  sheetDrag = { y0: y, dy: 0 };
+}, { passive: true });
+$('#modal').addEventListener('touchmove', (e) => {
+  if (!sheetDrag) return;
+  sheetDrag.dy = Math.max(0, e.touches[0].clientY - sheetDrag.y0);
+  $('#modal').style.transform = `translateY(${sheetDrag.dy}px)`;
+}, { passive: true });
+$('#modal').addEventListener('touchend', () => {
+  if (!sheetDrag) return;
+  const d = $('#modal'), close = sheetDrag.dy > 110;
+  sheetDrag = null;
+  d.style.transition = 'transform .2s ease';
+  d.style.transform = close ? 'translateY(100%)' : '';
+  setTimeout(() => { d.style.transition = ''; if (close) { d.close(); d.style.transform = ''; } }, 200);
 });
 
 const projectOptions = () => liveProjects()
@@ -3497,8 +3697,8 @@ function projectForm(p) {
   });
 }
 
-/** Ab so vielen Einträgen wird aus der Chip-Liste ein Suchfeld */
-const MULTI_FROM = 8;
+/** Ab so vielen Zeilen wird aus der Chip-Liste ein Suchfeld (gemessen beim Öffnen, abhängig von der Fensterbreite) */
+const MULTI_MAX_ROWS = 2; // mehr Chip-Zeilen → Suchfeld
 /** Vorgänger-Auswahl: offene Aufgaben nach Meilenstein gruppiert (eigener Meilenstein zuerst), erledigte am Ende */
 function predecessorOptions(t, others) {
   const open = others.filter((x) => !x.done), done = others.filter((x) => x.done);
@@ -3537,8 +3737,8 @@ function taskForm(t) {
   fields.push({ name: 'startAfter', label: tr('Frühester Start'), type: 'date', value: t.startAfter, half: true, hint: tr('optional') });
   const others = sortTasks(data.tasks.filter((x) => x.projectId === pid && x.id !== t.id));
   if (others.length) fields.push({ name: 'dependsOn', label: tr('Vorgänger – startet erst, wenn diese erledigt sind'), value: t.dependsOn || [],
-    ...(others.length > MULTI_FROM ? { type: 'multi', options: predecessorOptions(t, others), placeholder: tr('Aufgabe suchen …') }
-      : { type: 'checks', options: others.map((x) => ({ value: x.id, label: `${x.done ? '✓ ' : ''}${x.title}` })) }) });
+    type: 'checks', options: others.map((x) => ({ value: x.id, label: `${x.done ? '✓ ' : ''}${x.title}` })),
+    multi: { options: predecessorOptions(t, others), placeholder: tr('Aufgabe suchen …') } });
   fields.push({ name: 'subtasks', label: tr('Unterpunkte'), type: 'subtasks', value: t.subtasks || [],
     hint: tr('Die Aufgabe ist erst fertig, wenn alle Unterpunkte abgehakt sind. Eingabetaste = nächster Unterpunkt.') });
   fields.push({ name: 'notes', label: tr('Notiz'), type: 'textarea', value: t.notes });
@@ -4430,11 +4630,13 @@ function projectMenuHTML(p) {
     <button class="pop-item" data-action="addTask" data-id="${p.id}">✅ ${tr('Aufgabe anlegen')}</button>
     <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 ${tr('Notiz')}</button>
     <button class="pop-item" data-action="goProject" data-id="${p.id}">🗂️ ${tr('Projekt öffnen')}</button>
+    <button class="pop-item" data-action="editProject" data-id="${p.id}">✎ ${tr('Projekt bearbeiten')}</button>
     <div class="pop-sep"></div>
     <button class="pop-item" data-action="duplicateProject" data-id="${p.id}">⧉ ${tr('Projekt duplizieren')}</button>
     <button class="pop-item" data-action="saveTemplate" data-id="${p.id}">📋 ${tr('Als Vorlage speichern')}</button>
     ${p.archived ? `<button class="pop-item" data-action="unarchiveProject" data-id="${p.id}">♻️ ${tr('Wiederherstellen')}</button>`
       : `<button class="pop-item" data-action="archiveProject" data-id="${p.id}">🗄️ ${tr('Archivieren')}</button>`}
+    <button class="pop-item danger" data-action="deleteProject" data-id="${p.id}">🗑 ${tr('Projekt löschen')}</button>
     <div class="pop-sep"></div>
     <div class="pop-label">${tr('Status')}</div>
     <div class="pop-chips">${STATUS.map((st) => `<button class="chip ${p.status === st.value ? 'active' : ''}" data-action="setProjectStatus" data-id="${p.id}" data-status="${st.value}">${st.label}</button>`).join('')}</div>`;
@@ -4695,6 +4897,7 @@ function paletteCommands() {
   add('🗺️', tr('Roadmap'), () => actions.openRoadmap(), tr('Zeitleiste Gantt Projekte'));
   add('📝', tr('Wochenrückblick'), () => { location.hash = '#/woche'; }, tr('Woche planen Fokus Reflexion'));
   add('🧩', tr('Übersicht anpassen'), () => actions.customizeDashboard(), 'Layout');
+  STYLES().forEach(([v, l]) => add('🪟', tr('Stil: {name}', { name: l.replace(/^🪟 /, '') }), () => { data.settings.style = v; commit(); }, tr('Design Glas Liquid Klassisch')));
   THEMES.forEach(([v, l]) => add(l.split(' ')[0], tr('Darstellung: {theme}', { theme: tr(l).replace(/^\S+\s/, '') }), () => { data.settings.theme = v; commit(); }, tr('Theme Hell Dunkel')));
   LANGUAGES.forEach(([code, name]) => add('🌐', tr('Sprache: {lang}', { lang: name }), () => { data.settings.language = code; commit(); }, 'Language Sprache'));
   add('↔', tr('Seitenleiste ein-/ausklappen'), () => actions.toggleSidebar(), nav);
@@ -4919,6 +5122,15 @@ document.addEventListener('change', (e) => {
   if (!e.target.matches('[data-lang-opt]')) return;
   data.settings.language = e.target.value;
   commit();
+});
+
+// Stil (Klassisch / Glas) und Transparenz
+document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-style-opt]')) { data.settings.style = e.target.value; commit(); }
+  if (e.target.matches('[data-glass-range]')) { data.settings.glassTransparency = Number(e.target.value); commit(); }
+});
+document.addEventListener('input', (e) => { // live beim Ziehen, gespeichert wird beim Loslassen
+  if (e.target.matches('[data-glass-range]')) applyGlass({ ...data.settings, glassTransparency: Number(e.target.value) });
 });
 
 // Animation im Motivationsbereich
@@ -7024,18 +7236,24 @@ function kanbanCard(t) {
 const KB_SUBS_KEY = 'projekttracker.ui.kbSubs';
 let kbSubsState = (() => { try { return JSON.parse(localStorage.getItem(KB_SUBS_KEY) || '{}'); } catch { return {}; } })();
 const kbSubsOpen = (t) => (t.id in kbSubsState ? kbSubsState[t.id] : !t.done && t.status === 'doing');
+/* Handy: nur eine Spalte sichtbar, gewählt über den Status-Umschalter (wird gemerkt) */
+const KB_COL_KEY = 'projekttracker.ui.kbCol';
+let kbMobileCol = (() => { try { return localStorage.getItem(KB_COL_KEY) || 'open'; } catch { return 'open'; } })();
 function kanbanBoard(open, done) {
   const cols = [
     ['open', tr('Offen'), open.filter((t) => t.status !== 'doing')],
     ['doing', tr('In Arbeit'), open.filter((t) => t.status === 'doing')],
     ['done', tr('Erledigt'), done],
   ];
-  return `<div class="kanban">${cols.map(([key, label, list]) => `<div class="kb-col" data-kb-col="${key}">
+  return `<div class="kb-seg" role="tablist" aria-label="${tr('Status')}">${cols.map(([key, label, list]) => `<button type="button" class="kb-seg-btn ${key === kbMobileCol ? 'on' : ''}"
+      data-action="kbShowCol" data-col="${key}" data-kb-col="${key}" role="tab" aria-selected="${key === kbMobileCol}">${label} <b>${list.length}</b></button>`).join('')}</div>
+    <div class="kanban">${cols.map(([key, label, list]) => `<div class="kb-col ${key === kbMobileCol ? 'show' : ''}" data-kb-col="${key}">
       <div class="kb-head"><span>${key === 'doing' ? '▶ ' : key === 'done' ? '✓ ' : ''}${label}</span><span class="muted small">${list.length}</span></div>
-      <div class="kb-list">${list.slice(0, key === 'done' ? 15 : 200).map(kanbanCard).join('') || `<div class="kb-empty small muted">${tr('Hierher ziehen')}</div>`}
+      <div class="kb-list">${list.slice(0, key === 'done' ? 15 : 200).map(kanbanCard).join('') || `<div class="kb-empty small muted"><span class="kb-empty-drag">${tr('Hierher ziehen')}</span><span class="kb-empty-none">${tr('Keine Aufgaben mit diesem Status.')}</span></div>`}
         ${key === 'done' && list.length > 15 ? `<div class="small muted kb-more">${tr('… und {n} weitere', { n: list.length - 15 })}</div>` : ''}</div>
     </div>`).join('')}</div>
-    <p class="small muted g-hint">${tr('Karten zwischen den Spalten ziehen · antippen = Status und Aktionen · doppelt antippen = bearbeiten.')}</p>`;
+    <p class="small muted g-hint kb-hint-wide">${tr('Karten zwischen den Spalten ziehen · antippen = Status und Aktionen · doppelt antippen = bearbeiten.')}</p>
+    <p class="small muted g-hint kb-hint-phone">${tr('Karte antippen = Status ändern und Aktionen · doppelt antippen = bearbeiten.')}</p>`;
 }
 
 function setTaskStatus(id, status) {
@@ -7073,9 +7291,9 @@ document.addEventListener('pointermove', (e) => {
   }
   kbDrag.ghost.style.left = `${e.clientX - kbDrag.dx}px`;
   kbDrag.ghost.style.top = `${e.clientY - kbDrag.dy}px`;
-  document.querySelectorAll('.kb-col.over').forEach((c) => c.classList.remove('over'));
+  document.querySelectorAll('.kb-col.over, .kb-seg-btn.over').forEach((c) => c.classList.remove('over'));
   kbDrag.ghost.style.display = 'none';
-  document.elementFromPoint(e.clientX, e.clientY)?.closest('.kb-col')?.classList.add('over');
+  document.elementFromPoint(e.clientX, e.clientY)?.closest('.kb-col, .kb-seg-btn')?.classList.add('over');
   kbDrag.ghost.style.display = '';
 });
 document.addEventListener('pointerup', (e) => {
@@ -7086,8 +7304,8 @@ document.addEventListener('pointerup', (e) => {
   kbJustDragged = Date.now();
   d.ghost.remove();
   d.card.classList.remove('kb-placeholder');
-  const col = document.querySelector('.kb-col.over');
-  document.querySelectorAll('.kb-col.over').forEach((c) => c.classList.remove('over'));
+  const col = document.querySelector('.kb-col.over, .kb-seg-btn.over');
+  document.querySelectorAll('.kb-col.over, .kb-seg-btn.over').forEach((c) => c.classList.remove('over'));
   if (col) setTaskStatus(d.id, col.dataset.kbCol);
 });
 let kbJustDragged = 0;
@@ -7119,8 +7337,19 @@ document.addEventListener('click', (e) => {
   const id = li.querySelector('[data-action="toggleTask"]')?.dataset.id;
   if (!id) return;
   const now = Date.now();
-  if (listTap?.id === id && now - listTap.at < DOUBLE_MS + 120) { listTap = null; return editByDoubleClick(id); }
+  if (listTap?.id === id && now - listTap.at < DOUBLE_MS + 120) {
+    listTap = null;
+    selectedTaskId = null; // Doppeltippen = bearbeiten, Auswahl wieder aufheben
+    document.querySelectorAll('li.task.sel').forEach((x) => x.classList.remove('sel'));
+    return editByDoubleClick(id);
+  }
   listTap = { id, at: now };
+  // Kleine Bildschirme: Antippen blendet die Aktionen der Aufgabe ein bzw. wieder aus
+  if (smallScreen()) {
+    selectedTaskId = selectedTaskId === id ? null : id;
+    document.querySelectorAll('li.task.sel').forEach((x) => x.classList.remove('sel'));
+    if (selectedTaskId) document.querySelectorAll('li.task').forEach((x) => { if (x.querySelector(`[data-action="toggleTask"][data-id="${CSS.escape(id)}"]`)) x.classList.add('sel'); });
+  }
 });
 document.addEventListener('pointercancel', () => { if (kbDrag?.ghost) { kbDrag.ghost.remove(); kbDrag.card.classList.remove('kb-placeholder'); } kbDrag = null; });
 document.addEventListener('keydown', (e) => {
@@ -7132,6 +7361,12 @@ document.addEventListener('keydown', (e) => {
 });
 
 Object.assign(actions, {
+  kbShowCol({ col }) {
+    kbMobileCol = col;
+    try { localStorage.setItem(KB_COL_KEY, col); } catch {}
+    document.querySelectorAll('.kb-seg-btn').forEach((b) => { b.classList.toggle('on', b.dataset.col === col); b.setAttribute('aria-selected', b.dataset.col === col); });
+    document.querySelectorAll('.kanban .kb-col').forEach((c) => c.classList.toggle('show', c.dataset.kbCol === col));
+  },
   toggleKbSubs({ id }) {
     const t = data.tasks.find((x) => x.id === id);
     if (!t) return;
@@ -7634,9 +7869,9 @@ function assigneeBadges(list) {
 
 /** Auswahl für „Zuständig“: Teams und Personen; Projektteams und deren Mitglieder zuerst */
 function assigneeField(pid, value) {
-  const big = data.people.length + data.teams.length > MULTI_FROM;
-  return { name: 'assignees', label: tr('Zuständig'), type: big ? 'multi' : 'checks', options: assigneeOptions(pid), value: value || [],
-    ...(big ? { placeholder: tr('Person oder Team suchen …') } : {}) };
+  const options = assigneeOptions(pid);
+  return { name: 'assignees', label: tr('Zuständig'), type: 'checks', options, value: value || [],
+    multi: { options, placeholder: tr('Person oder Team suchen …') } };
 }
 function assigneeOptions(pid) {
   const projTeams = new Set(getProject(pid)?.teamIds || []);

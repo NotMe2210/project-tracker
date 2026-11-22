@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Protrac by R3DO</title>
   <meta name="description" content="Persönlicher Projekttracker für Zeit, Investitionen, Meilensteine und Aufgaben – mit Motivationshilfen.">
-  <link rel="icon" href="favicon.ico?v=2026.11.22-4" sizes="any">
-  <link rel="shortcut icon" href="favicon.ico?v=2026.11.22-4">
-  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=2026.11.22-4">
-  <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png?v=2026.11.22-4">
-  <link rel="apple-touch-icon" href="icon-180.png?v=2026.11.22-4">
+  <link rel="icon" href="favicon.ico?v=2026.11.22-10" sizes="any">
+  <link rel="shortcut icon" href="favicon.ico?v=2026.11.22-10">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=2026.11.22-10">
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png?v=2026.11.22-10">
+  <link rel="apple-touch-icon" href="icon-180.png?v=2026.11.22-10">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -19,7 +19,7 @@
     // Eingeklappte Seitenleiste sofort anwenden (vermeidet Flackern beim Laden)
     try { if (localStorage.getItem('projekttracker.ui.sidebar') === 'collapsed') document.documentElement.classList.add('side-collapsed'); } catch (e) {}
   </script>
-  <link rel="stylesheet" href="styles.css?v=2026.11.22-4">
+  <link rel="stylesheet" href="styles.css?v=2026.11.22-10">
 </head>
 <body>
   <header class="topbar">
@@ -27,6 +27,7 @@
       <a class="brand" href="#/" title="Protrac by R3DO" aria-label="Protrac by R3DO"><img class="brand-mark" src="logo.png" alt="" aria-hidden="true"><span class="brand-text"><span class="brand-name">Protrac</span><span class="brand-by">by R3DO</span></span></a>
       <button id="side-toggle" class="side-toggle" type="button" data-action="toggleSidebar" title="Seitenleiste einklappen" aria-label="Seitenleiste einklappen">«</button>
     </div>
+    <span id="compact-title" class="compact-title" aria-hidden="true"></span>
     <nav class="nav">
       <a href="#/" data-nav="dashboard" title="Übersicht" data-i18n-title="Übersicht"><span class="ico">📊</span><span class="lbl" data-i18n="Übersicht">Übersicht</span></a>
       <a href="#/projekte" data-nav="projekte" title="Projekte" data-i18n-title="Projekte"><span class="ico">🗂️</span><span class="lbl" data-i18n="Projekte">Projekte</span></a>
@@ -49,8 +50,8 @@
   <dialog id="modal"></dialog>
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
-  <script src="i18n.js?v=2026.11.22-4"></script>
-  <script src="lang-en.js?v=2026.11.22-4"></script>
-  <script src="app.js?v=2026.11.22-4"></script>
+  <script src="i18n.js?v=2026.11.22-10"></script>
+  <script src="lang-en.js?v=2026.11.22-10"></script>
+  <script src="app.js?v=2026.11.22-10"></script>
 </body>
 </html>

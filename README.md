@@ -41,6 +41,8 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - ✅ **Aufgaben** mit Priorität, Fälligkeitsdatum und Notiz
   - **Unterpunkte** zum Abhaken. Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.
   - 🗂️ **Kanban-Board** (Ansicht *Liste · Board*): Spalten Offen, **In Arbeit** und Erledigt, Karten per Drag-and-drop verschieben. **Unterpunkte** lassen sich auf der Karte über „☑ 1/4“ aufklappen und direkt abhaken; bei Aufgaben „In Arbeit“ sind sie schon aufgeklappt, der gewählte Zustand wird gemerkt.
+  - 📱 Auf dem Smartphone zeigt das Board eine Spalte in voller Breite; gewechselt wird über den Umschalter **Offen · In Arbeit · Erledigt** (mit Anzahl). Antippen einer Karte ändert den Status.
+  - 📱 **Auf dem Smartphone** stehen keine Knöpfe neben dem Titel. **Antippen** einer Aufgabe blendet eine Reihe großer Knöpfe ein (⏱️ Timer · 📎 Dokument · ⚙️ Bearbeiten · 🗑 Löschen, je 44 px), erneutes Antippen blendet sie aus. Am Computer bleiben die Knöpfe neben dem Titel.
   - ✏️ **Doppelklick** (bzw. doppelt antippen) auf eine Aufgabe öffnet sie direkt zum Bearbeiten – in der Liste und auf dem Board. Ein einfacher Klick auf eine Board-Karte öffnet weiterhin Status und Aktionen.
   - ⏱ **Zeit auf Aufgaben buchen:** ▶ an der Aufgabe startet den Timer dafür (Status „In Arbeit“), Zeiteinträge und Pomodoros lassen sich einer Aufgabe zuordnen. Mit **geschätztem Aufwand** zeigt das Abzeichen *gebucht / geschätzt* (rot bei Überschreitung); der Reiter *Zeit* vergleicht **Schätzung vs. Ist** und sagt, wie gut deine Schätzungen treffen.
   - 🔁 **Wiederkehrend:** täglich, werktags, wöchentlich, alle 2 Wochen, monatlich, vierteljährlich oder jährlich. Beim Abhaken entsteht automatisch die nächste Aufgabe mit neuem Fälligkeitsdatum (verpasste Termine werden übersprungen).
@@ -49,6 +51,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 **Sprache & Darstellung**
 - 🌐 **Deutsch und Englisch.** Die Sprache richtet sich automatisch nach der Gerätesprache. Ist die Gerätesprache nicht verfügbar, gilt Englisch. Unter *Einstellungen › Darstellung › Sprache* lässt sie sich fest einstellen. Datums-, Zahlen- und Währungsformate passen sich mit an.
 - Hintergrund **hell, dunkel oder wie das Gerät** (Einstellungen › Darstellung)
+- 🪟 **Stil „Klassisch“ oder „Glas“** (Einstellungen › Darstellung › Stil): „Glas“ ist an Apples Liquid Glass angelehnt – durchscheinende Flächen mit Unschärfe und Glanzkante auf farbigem Hintergrund, schwebende Seiten-, Kopf- und Tab-Leiste, Knöpfe in Kapselform. Die **Transparenz** lässt sich stufenlos von deckend bis durchsichtig einstellen; ist am Gerät „Transparenz reduzieren“ aktiv, wird das Glas automatisch deckend.
 - **Akzentfarbe** frei wählbar (Vorschläge oder eigene Farbe). Abgeleitete Töne werden automatisch angepasst und bleiben in beiden Modi lesbar.
 
 **Übersicht & Motivation**
@@ -62,6 +65,9 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - 🤫 **14 geheime Erfolge** (davon 4 rund ums Team): Name und Bedingung bleiben verborgen (🔒 ???), bis du sie zufällig erreichst. Dann werden sie mit einer eigenen Meldung enthüllt und golden hervorgehoben.
 - 🔎 **Befehlspalette** am Computer mit ⌘K bzw. Strg+K: Seiten, Projekte, Pomodoro, Zeit, Aufgaben, Darstellung …
 - 👆 **Wischgesten** auf dem iPhone: Aufgabe nach rechts wischen = erledigt, nach links = Optionen
+- 📝 **Eingabefenster im iOS-Stil** auf dem Smartphone: Blatt von unten mit „Abbrechen“ und „Speichern“ oben, Auswahlfelder als Liste (Bezeichnung links, Wert rechts); zum Schließen nach unten ziehen
+- 📱 **Smartphone-Feinschliff**: Projekt-Reiter als wischbare Leiste, die oben haftet; große Titel, die beim Scrollen in die Kopfleiste wandern; Kennzahlen zweispaltig; „Bearbeiten“ und „Löschen“ im ⋯-Menü
+- ✨ Einheitliche **Linien-Symbole**, Projektfarbe als Akzent im Projektkopf, leere Bereiche mit Symbol und sanfte Übergänge (aus bei „Bewegung reduzieren“)
 - **Leerer Start mit Einführung:** Auf einem neuen Gerät beginnen Übersicht und Projektansicht leer. Eine Karte erklärt in vier Schritten, wie man Bereiche einblendet und anordnet; „Empfohlene Auswahl übernehmen“ setzt mit einem Klick die Standardauswahl. Gibt es schon eine gespeicherte Projektansicht, fragt Protrac beim Anlegen eines Projekts, ob sie übernommen oder leer gestartet werden soll. Bestehende Daten bleiben unverändert.
 - **Anpassbare Übersicht und Projektansicht** direkt auf der Seite (⚙️ Anpassen bzw. ✏️ Ansicht anpassen): Bereiche per **Drag-and-drop** am ⠿-Griff verschieben (Maus, Finger oder Pfeiltasten) mit sofortiger Vorschau, Breite **¼ Viertel / ½ Halb / ¾ Dreiviertel / voll** (4-Spalten-Raster), ausblenden ✕, wieder einblenden, Kennzahlen-Kacheln wählen. **✂ Aufteilen** zerlegt die Kennzahlen in einzelne Kacheln, die sich frei anordnen lassen. Die Projektansicht gilt wahlweise **für alle Projekte** oder **nur für ein Projekt**. Zusätzliche Bereiche: fällige Aufgaben, Zeit je Projekt, Stunden pro Woche (gestapelt nach Projekt), letzte Aktivitäten, Projektkacheln, offene Aufgaben, Investitionen nach Kategorie.
 - Dashboard mit Wochenstunden, Wochenziel, Streak, offenen bzw. überfälligen Aufgaben und Investitionen
@@ -82,7 +88,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - Im Aufgaben-Reiter lässt sich nach Zuständigen filtern: Alle, Meine, Team, Person oder ohne Zuständige.
 
 **🗓 Zeitplan & kritischer Pfad** (Projekt-Reiter *Zeitplan*)
-- Aufgaben bekommen optional eine **Dauer** (Arbeitstage), einen **frühesten Start** und **Vorgänger** („startet erst, wenn … erledigt ist“). Bei mehr als acht Aufgaben wird die Vorgänger-Auswahl zum **Suchfeld mit Auswahl-Chips**: tippen zum Filtern, nach Meilenstein gruppiert, erledigte Aufgaben am Ende; ✕ oder Rücktaste entfernt. Dasselbe gilt für **„Zuständig“** bei mehr als acht Personen und Teams.
+- Aufgaben bekommen optional eine **Dauer** (Arbeitstage), einen **frühesten Start** und **Vorgänger** („startet erst, wenn … erledigt ist“). Bräuchte die Vorgänger-Auswahl mehr als zwei Zeilen (abhängig von der Fensterbreite), wird sie zum **Suchfeld mit Auswahl-Chips**: tippen zum Filtern, nach Meilenstein gruppiert, erledigte Aufgaben am Ende; ✕ oder Rücktaste entfernt. Dasselbe gilt für **„Zuständig“**.
 - Protrac berechnet daraus nach der Critical-Path-Methode:
   - frühesten und spätesten Start jeder Aufgabe
   - **Puffer** jeder Aufgabe
