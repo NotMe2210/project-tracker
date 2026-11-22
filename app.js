@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-17';
+const APP_VERSION = '2026.11.22-18';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -804,7 +804,7 @@ const ICON_EMOJI = { '📊': 'chart', '🗂️': 'folder', '🗂': 'folder', '�
   '☀️': 'sun', '⚠️': 'alert', '👉': 'arrow', '🕘': 'clock', '💭': 'msg', '▶': 'play', '⏹️': 'stop', '■': 'stop', '🏅': 'award', '⏸': 'pause', '✏️': 'pencil', '✎': 'pencil',
   '📋': 'note', '🧩': 'layout', '🗄️': 'archive' };
 const ICON_KEYS = Object.keys(ICON_EMOJI).sort((a, b) => b.length - a.length);
-const ICON_SEL = '.nav .ico, h1, h2, h3, .btn, .tabs a, .pop-item, .task-bar-btn, .swipe-act, .cmd-btn, .w-label';
+const ICON_SEL = '.nav .ico, h1, h2, h3, .btn, .tabs a, .seg-btn, .pop-item, .task-bar-btn, .swipe-act, .cmd-btn, .w-label';
 const iconSVG = (k) => `<svg class="ic${k === 'play' || k === 'stop' ? ' fill' : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[k]}</svg>`;
 function iconizeEl(el) {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -1904,6 +1904,23 @@ function taskBar(t) {
     ${btn('editTask', '⚙️', tr('Aufgabe bearbeiten'), `data-id="${t.id}"`)}
     ${btn('deleteTask', '🗑', tr('Löschen'), `data-id="${t.id}"`, 'danger')}</div>`;
 }
+/* Meilensteine: dieselben großen Knöpfe nach Antippen wie bei Aufgaben (bei eigener Reihenfolge mit ↑ ↓) */
+function msBar(m, move) {
+  const btn = (action, icon, label, extra = '', cls = '') => `<button type="button" class="btn task-bar-btn ${cls}" data-action="${action}" ${extra} title="${esc(label)}" aria-label="${esc(label)}">${icon}</button>`;
+  return `<div class="task-bar" role="group" aria-label="${tr('Aktionen')}">
+    ${move ? `${btn('moveMilestone', '↑', tr('Nach oben'), `data-id="${m.id}" data-dir="-1" ${move.first ? 'disabled' : ''}`)}${btn('moveMilestone', '↓', tr('Nach unten'), `data-id="${m.id}" data-dir="1" ${move.last ? 'disabled' : ''}`)}` : ''}
+    ${btn('addDoc', '📎', tr('Dokument verknüpfen'), `data-id="${m.projectId}" data-ms="${m.id}"`)}
+    ${btn('editMilestone', '⚙️', tr('Meilenstein bearbeiten'), `data-id="${m.id}"`)}
+    ${btn('deleteMilestone', '🗑', tr('Löschen'), `data-id="${m.id}"`, 'danger')}</div>`;
+}
+function msMenuHTML(m) {
+  return `<div class="pop-title">🏁 ${esc(m.title)}</div>
+    <button class="pop-item" data-action="editMilestone" data-id="${m.id}">✎ ${tr('Bearbeiten')}</button>
+    <button class="pop-item" data-action="addDoc" data-id="${m.projectId}" data-ms="${m.id}">📎 ${tr('Dokument verknüpfen')}</button>
+    <button class="pop-item" data-action="toggleMilestone" data-id="${m.id}">${m.done ? `↺ ${tr('Wieder öffnen')}` : `✓ ${tr('Erreicht')}`}</button>
+    <div class="pop-sep"></div>
+    <button class="pop-item danger" data-action="deleteMilestone" data-id="${m.id}">🗑 ${tr('Löschen')}</button>`;
+}
 const smallScreen = () => window.matchMedia('(max-width: 640px)').matches;
 
 function taskItem(t, { showProject = false } = {}) {
@@ -1912,7 +1929,7 @@ function taskItem(t, { showProject = false } = {}) {
   const subs = t.subtasks || [];
   const subsDone = subs.filter((st) => st.done).length;
   const partial = subs.length && !t.done && subsDone > 0;
-  return `<li class="${t.done ? 'done' : ''} task ${selectedTaskId === t.id ? 'sel' : ''}">
+  return `<li class="${t.done ? 'done' : ''} task ${selectedTaskId === t.id ? 'sel' : ''}" data-row="task" data-rid="${t.id}">
     <button class="check ${partial ? 'partial' : ''}" data-action="toggleTask" data-id="${t.id}"
       title="${t.done ? tr('Wieder öffnen') : subs.length ? tr('{done} von {n} Unterpunkten erledigt', { done: subsDone, n: subs.length }) : tr('Erledigt')}">${t.done ? '✓' : partial ? '–' : ''}</button>
     <div class="grow">
@@ -1954,7 +1971,7 @@ function milestoneItem(m, { showProject = false, move = null } = {}) {
   const p = getProject(m.projectId);
   const tasks = sortTasks(data.tasks.filter((t) => t.milestoneId === m.id));
   const done = tasks.filter((t) => t.done).length;
-  return `<li class="${m.done ? 'done' : ''}">
+  return `<li class="${m.done ? 'done' : ''} task ms-row ${selectedTaskId === m.id ? 'sel' : ''}" data-row="ms" data-rid="${m.id}">
     <button class="check round" data-action="toggleMilestone" data-id="${m.id}" title="${m.done ? tr('Wieder öffnen') : tr('Erreicht')}">${m.done ? '✓' : ''}</button>
     <div class="grow">
       <div class="title">${esc(m.title)}</div>
@@ -1964,6 +1981,7 @@ function milestoneItem(m, { showProject = false, move = null } = {}) {
         ${assigneeBadges(m.assignees)}
         ${milestonePlanBadge(m)}
       </div>
+      ${msBar(m, move)}
       ${m.description ? `<div class="small muted">${esc(m.description)}</div>` : ''}
       ${docChips(data.docs.filter((d) => d.milestoneId === m.id), true)}
       ${tasks.length && !m.done ? `<div style="margin-top:6px;max-width:240px">${progressBar((done / tasks.length) * 100)}</div>` : ''}
@@ -2197,7 +2215,7 @@ function renderProjectWidget(id, p, s, cfg) {
     case 'milestones': {
       const ms = sortMilestonesOf(p.id).filter((m) => !m.done).slice(0, 3);
       return `<section class="card">
-        <div class="card-head"><h2>🏁 ${tr('Nächste Meilensteine')}</h2><button class="btn small" data-action="addMilestone" data-id="${p.id}">${tr('+ Meilenstein')}</button></div>
+        <div class="card-head"><h2>🏁 ${tr('Nächste Meilensteine')}</h2><button class="btn small add-icon" data-action="addMilestone" data-id="${p.id}" title="${tr('Meilenstein anlegen')}" aria-label="${tr('Meilenstein anlegen')}">+</button></div>
         ${ms.length ? `<ul class="list">${ms.map((m) => milestoneItem(m)).join('')}</ul>` : `<div class="empty">${tr('Keine offenen Meilensteine.')}</div>`}
       </section>`;
     }
@@ -2284,15 +2302,11 @@ function projectMilestones(p) {
   const ms = sortMilestonesOf(p.id);
   const manual = p.msSort === 'manual';
   return `<section class="card">
-    <div class="card-head"><h2>${tr('Meilensteine')}</h2><button class="btn primary small" data-action="addMilestone" data-id="${p.id}">${tr('+ Meilenstein')}</button></div>
-    ${ms.length > 1 ? `<div class="ms-sort">
-      <span class="small muted">${tr('Reihenfolge:')}</span>
-      <div class="segmented" role="radiogroup" aria-label="${tr('Reihenfolge der Meilensteine')}">
-        <button type="button" class="seg-btn ${manual ? '' : 'active'}" data-action="setMilestoneSort" data-id="${p.id}" data-mode="date" aria-pressed="${!manual}">📅 ${tr('Nach Zieldatum')}</button>
-        <button type="button" class="seg-btn ${manual ? 'active' : ''}" data-action="setMilestoneSort" data-id="${p.id}" data-mode="manual" aria-pressed="${manual}">✋ ${tr('Eigene Reihenfolge')}</button>
-      </div>
-      ${manual ? `<span class="small muted">${tr('Mit ↑ ↓ verschieben.')}</span>` : ''}
-    </div>` : ''}
+    <div class="card-head"><h2>${tr('Meilensteine')} (${ms.length})</h2><span class="btn-row">${ms.length > 1 ? `<div class="segmented" role="group" aria-label="${tr('Reihenfolge der Meilensteine')}">
+        <button type="button" class="seg-btn ${manual ? '' : 'active'}" data-action="setMilestoneSort" data-id="${p.id}" data-mode="date" aria-pressed="${!manual}" title="${tr('Nach Zieldatum')}" aria-label="${tr('Nach Zieldatum')}">📅 <span>${tr('Nach Zieldatum')}</span></button>
+        <button type="button" class="seg-btn ${manual ? 'active' : ''}" data-action="setMilestoneSort" data-id="${p.id}" data-mode="manual" aria-pressed="${manual}" title="${tr('Eigene Reihenfolge')}" aria-label="${tr('Eigene Reihenfolge')}">⇅ <span>${tr('Eigene Reihenfolge')}</span></button>
+      </div>` : ''}<button class="btn primary small add-icon" data-action="addMilestone" data-id="${p.id}" title="${tr('Meilenstein anlegen')}" aria-label="${tr('Meilenstein anlegen')}">+</button></span></div>
+    ${ms.length > 1 && manual ? `<p class="small muted g-hint ms-hint"><span class="kb-hint-wide">${tr('Mit ↑ ↓ verschieben.')}</span><span class="kb-hint-phone">${tr('Meilenstein antippen, dann mit ↑ ↓ verschieben.')}</span></p>` : ''}
     ${ms.length ? `<ul class="list">${ms.map((m, i) => milestoneItem(m, { move: manual ? { first: i === 0, last: i === ms.length - 1 } : null })).join('')}</ul>`
       : `<div class="empty">${tr('Noch keine Meilensteine. Teile dein Projekt in 3–5 große Etappen auf – das macht Fortschritt sichtbar.')}</div>`}
   </section>`;
@@ -2796,6 +2810,8 @@ function renderSettings() {
         <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
         <button class="btn" data-action="exportIcs">📅 ${tr('Termine als Kalender-Datei (.ics)')}</button>
         <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
+        <button class="btn" data-action="exportPlan">⬇ ${tr('Aufgaben & Meilensteine als CSV')}</button>
+        <button class="btn" data-action="importPlan">⬆ ${tr('Aufgaben & Meilensteine aus CSV importieren')}</button>
         <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
       </div>
       ${renderFolderBackupSettings()}
@@ -4634,6 +4650,8 @@ function projectMenuHTML(p) {
     <div class="pop-sep"></div>
     <button class="pop-item" data-action="duplicateProject" data-id="${p.id}">⧉ ${tr('Projekt duplizieren')}</button>
     <button class="pop-item" data-action="saveTemplate" data-id="${p.id}">📋 ${tr('Als Vorlage speichern')}</button>
+    <button class="pop-item" data-action="exportPlan" data-id="${p.id}">⬇ ${tr('Aufgaben & Meilensteine exportieren')}</button>
+    <button class="pop-item" data-action="importPlan" data-id="${p.id}">⬆ ${tr('Aufgaben & Meilensteine importieren')}</button>
     ${p.archived ? `<button class="pop-item" data-action="unarchiveProject" data-id="${p.id}">♻️ ${tr('Wiederherstellen')}</button>`
       : `<button class="pop-item" data-action="archiveProject" data-id="${p.id}">🗄️ ${tr('Archivieren')}</button>`}
     <button class="pop-item danger" data-action="deleteProject" data-id="${p.id}">🗑 ${tr('Projekt löschen')}</button>
@@ -4894,6 +4912,8 @@ function paletteCommands() {
   add('⬆', tr('Sicherung importieren'), () => actions.importData(), 'Backup');
   add('📅', tr('Termine als Kalender-Datei (.ics)'), () => actions.exportIcs(), tr('Kalender iCal Outlook Termine'));
   add('📄', tr('Zeit & Investitionen aus CSV importieren'), () => actions.importCsv(), 'CSV Excel Import');
+  add('📄', tr('Aufgaben & Meilensteine aus CSV importieren'), () => actions.importPlan(), 'CSV Excel Import');
+  add('📄', tr('Aufgaben & Meilensteine als CSV'), () => actions.exportPlan(), 'CSV Excel Export');
   add('🗺️', tr('Roadmap'), () => actions.openRoadmap(), tr('Zeitleiste Gantt Projekte'));
   add('📝', tr('Wochenrückblick'), () => { location.hash = '#/woche'; }, tr('Woche planen Fokus Reflexion'));
   add('🧩', tr('Übersicht anpassen'), () => actions.customizeDashboard(), 'Layout');
@@ -4994,7 +5014,8 @@ const SW_BTN = 46, SW_GAP = 10, SW_OPEN = SW_BTN * 2 + SW_GAP * 3; // Breite der
 let swipe = null;      // laufende Geste
 let swipeOpen = null;  // { li, box, id } – Zeile, deren Knöpfe offen stehen
 let suppressClick = false;
-const swipeTaskId = (li) => li.querySelector('[data-action="toggleTask"]')?.dataset.id;
+const swipeTaskId = (li) => li.dataset.rid;
+const swipeIsMs = (li) => li.dataset.row === 'ms';
 function swipeBox(li) {
   const ul = li.parentElement;
   if (getComputedStyle(ul).position === 'static') ul.style.position = 'relative';
@@ -5043,7 +5064,7 @@ document.addEventListener('pointerdown', (e) => {
     if (st.li.contains(e.target)) { suppressClick = true; setTimeout(() => (suppressClick = false), 350); return; }
   }
   const li = e.target.closest('li.task');
-  if (!li || e.target.closest('button, a, input, textarea') || li.closest('.wgrid.editing')) return;
+  if (!li || e.target.closest('button, a, input, textarea, summary, details') || li.closest('.wgrid.editing')) return;
   if (li.classList.contains('sel')) return; // ausgewählt: Knöpfe stehen schon in der Zeile – kein Wischen nötig
   swipe = { li, x0: e.clientX, y0: e.clientY, dx: 0, dir: null, id: e.pointerId };
 });
@@ -5076,8 +5097,9 @@ function endSwipe() {
   const id = swipeTaskId(st.li);
   const rowW = st.li.offsetWidth;
   st.li.style.transition = 'transform .25s cubic-bezier(.2,.8,.2,1)';
-  if (st.dx > 80) { swipeClose(st); if (id) { navigator.vibrate?.(15); setTimeout(() => actions.toggleTask({ id }), 200); } return; }
-  if (st.dx < -rowW * 0.6) { swipeClose(st); if (id) setTimeout(() => actions.deleteTask({ id }), 200); return; }
+  const ms = swipeIsMs(st.li);
+  if (st.dx > 80) { swipeClose(st); if (id) { navigator.vibrate?.(15); setTimeout(() => (ms ? actions.toggleMilestone({ id }) : actions.toggleTask({ id })), 200); } return; }
+  if (st.dx < -rowW * 0.6) { swipeClose(st); if (id) setTimeout(() => (ms ? actions.deleteMilestone({ id }) : actions.deleteTask({ id })), 200); return; }
   if (st.dx < -50) { // offen halten
     st.dx = -SW_OPEN; swipeRender(st);
     st.box.style.transition = 'width .25s cubic-bezier(.2,.8,.2,1)';
@@ -5099,8 +5121,10 @@ document.addEventListener('click', (e) => {
   const id = li && swipeTaskId(li);
   if (st) swipeClose(st);
   if (!id) return;
-  if (btn.dataset.sw === 'delete') actions.deleteTask({ id });
-  else if (btn.dataset.sw === 'toggle') actions.toggleTask({ id });
+  const ms = swipeIsMs(li);
+  if (btn.dataset.sw === 'delete') (ms ? actions.deleteMilestone : actions.deleteTask)({ id });
+  else if (btn.dataset.sw === 'toggle') (ms ? actions.toggleMilestone : actions.toggleTask)({ id });
+  else if (ms) { const m = data.milestones.find((x) => x.id === id); if (m) openPopover(li, msMenuHTML(m)); }
   else { const t = data.tasks.find((x) => x.id === id); if (t) openPopover(li, taskMenuHTML(t)); }
 }, true);
 window.addEventListener('scroll', () => { if (swipeOpen) swipeClose(swipeOpen); }, { passive: true });
@@ -5834,6 +5858,149 @@ function renderServerBackupSettings(size) {
    wieder importieren – bereits vorhandene Einträge werden übersprungen.
    ------------------------------------------------------------------------ */
 
+/* ---- Aufgaben & Meilensteine als CSV (Excel, Numbers, Google Tabellen) ----
+   Eine Zeile je Meilenstein bzw. Aufgabe. Aufgaben verweisen über den Titel auf ihren Meilenstein
+   und ihre Vorgänger; Unterpunkte stehen in einer Zelle („[x] erledigt | [ ] offen“). */
+const PLAN_COLUMNS = {
+  type: ['typ', 'type', 'art', 'kind'],
+  project: ['projekt', 'project', 'projektname', 'projectname'],
+  title: ['titel', 'title', 'name', 'aufgabe', 'task'],
+  milestone: ['meilenstein', 'milestone'],
+  priority: ['prioritat', 'priority', 'prio'],
+  status: ['status', 'zustand', 'state'],
+  due: ['falligam', 'fallig', 'zieldatum', 'termin', 'due', 'duedate', 'deadline', 'targetdate'],
+  start: ['fruhesterstart', 'start', 'startdatum', 'startafter', 'earlieststart', 'startdate'],
+  duration: ['dauer', 'dauerarbeitstage', 'arbeitstage', 'duration', 'workdays', 'days'],
+  estimate: ['aufwand', 'geschatzteraufwand', 'schatzung', 'estimate', 'effort'],
+  deps: ['vorganger', 'predecessors', 'dependson', 'dependencies'],
+  subtasks: ['unterpunkte', 'subtasks', 'checkliste', 'checklist'],
+  notes: ['notiz', 'notizen', 'beschreibung', 'notes', 'note', 'description'],
+  doneAt: ['erledigtam', 'erreichtam', 'doneat', 'completedat', 'completed'],
+  repeat: ['wiederholen', 'wiederholung', 'repeat', 'recurrence'],
+};
+function exportPlanCsv(pid) {
+  const q = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+  const sep = LANG === 'de' ? ';' : ',';
+  const head = [tr('Typ'), tr('Projekt'), tr('Titel'), tr('Meilenstein'), tr('Priorität'), tr('Status'), tr('Fällig am'), tr('Frühester Start'),
+    tr('Dauer (Arbeitstage)'), tr('Aufwand'), tr('Vorgänger'), tr('Unterpunkte'), tr('Notiz'), tr('Erledigt am'), tr('Wiederholen')];
+  const rows = [head.map(q).join(sep)];
+  const projects = pid ? [getProject(pid)] : data.projects;
+  let n = 0;
+  for (const p of projects) {
+    const tasks = sortTasks(data.tasks.filter((t) => t.projectId === p.id));
+    for (const m of sortMilestonesOf(p.id)) {
+      rows.push([tr('Meilenstein'), p.name, m.title, '', '', m.done ? tr('erreicht') : tr('offen'), m.dueDate || '', '', '', '', '', '', m.description || '', m.done ? m.doneAt || '' : '', ''].map(q).join(sep));
+      n++;
+    }
+    for (const t of tasks) {
+      const ms = t.milestoneId ? data.milestones.find((m) => m.id === t.milestoneId)?.title : '';
+      const deps = (t.dependsOn || []).map((id) => data.tasks.find((x) => x.id === id)?.title).filter(Boolean).join(' | ');
+      const subs = (t.subtasks || []).map((s) => `[${s.done ? 'x' : ' '}] ${s.title}`).join(' | ');
+      const status = t.done ? tr('erledigt') : t.status === 'doing' ? tr('In Arbeit') : tr('offen');
+      rows.push([tr('Aufgabe'), p.name, t.title, ms || '', prioLabel(t.priority), status, t.dueDate || '', t.startAfter || '', t.duration || '', t.estimate ? fmtHM(t.estimate) : '', deps, subs, t.notes || '', t.done ? t.doneAt || '' : '', t.repeat || ''].map(q).join(sep));
+      n++;
+    }
+  }
+  if (!n) return toast(tr('Keine Aufgaben oder Meilensteine zum Exportieren.'));
+  const base = pid ? `protrac-${slugify(getProject(pid).name)}` : 'protrac';
+  download(`${base}-${tr('aufgaben')}-${todayISO()}.csv`, '\uFEFF' + rows.join('\r\n'), 'text/csv');
+}
+const slugify = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ß/g, 'ss').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'projekt';
+
+/** CSV einlesen → { rows: [{ kind, project, title, … }], hasProject } */
+function readPlanCsv(text) {
+  const all = parseCsv(text);
+  if (all.length < 2) throw new Error(tr('Die Datei enthält keine Datenzeilen.'));
+  const idx = {};
+  all[0].forEach((h, i) => { const k = csvKey(h); for (const [key, names] of Object.entries(PLAN_COLUMNS)) if (idx[key] === undefined && names.includes(k)) idx[key] = i; });
+  if (idx.title === undefined) throw new Error(tr('Keine Spalte „Titel“ gefunden.'));
+  const get = (r, k) => (idx[k] === undefined ? '' : String(r[idx[k]] ?? '').trim());
+  const rows = all.slice(1).map((r) => {
+    const type = csvKey(get(r, 'type'));
+    return {
+      kind: ['meilenstein', 'milestone', 'ms', 'etappe'].includes(type) ? 'ms' : 'task',
+      project: get(r, 'project'), title: get(r, 'title').replace(/\s*\n\s*/g, ' '), milestone: get(r, 'milestone'),
+      priority: get(r, 'priority'), status: get(r, 'status'), due: get(r, 'due'), start: get(r, 'start'), duration: get(r, 'duration'),
+      estimate: get(r, 'estimate'), deps: get(r, 'deps'), subtasks: get(r, 'subtasks'), notes: get(r, 'notes'), doneAt: get(r, 'doneAt'), repeat: get(r, 'repeat'),
+    };
+  }).filter((r) => r.title);
+  return { rows, hasProject: idx.project !== undefined };
+}
+const planPriority = (s) => { const k = csvKey(s); return ['hoch', 'high', 'h', 'wichtig', 'dringend', 'urgent'].includes(k) ? 'hoch' : ['niedrig', 'low', 'l', 'gering'].includes(k) ? 'niedrig' : 'mittel'; };
+const planStatus = (s) => { const k = csvKey(s); return ['erledigt', 'done', 'fertig', 'erreicht', 'reached', 'completed', 'abgeschlossen', 'ja', 'yes', 'x'].includes(k) ? 'done' : ['inarbeit', 'inprogress', 'doing', 'laufend', 'aktiv', 'active'].includes(k) ? 'doing' : 'open'; };
+const planRepeat = (s) => { const k = csvKey(s); return REPEATS.find((r) => r.value && (r.value === k || csvKey(r.label) === k))?.value || null; };
+const findProjectByName = (name) => { const k = String(name || '').trim().toLocaleLowerCase(LOCALE); return k ? data.projects.find((p) => p.name.trim().toLocaleLowerCase(LOCALE) === k) : null; };
+
+function openPlanImport(text, pid) {
+  const { rows, hasProject } = readPlanCsv(text);
+  if (!rows.length) throw new Error(tr('Die Datei enthält keine Datenzeilen.'));
+  const nMs = rows.filter((r) => r.kind === 'ms').length, nTasks = rows.length - nMs;
+  const named = hasProject && rows.some((r) => findProjectByName(r.project));
+  const projects = liveProjects().length ? liveProjects() : data.projects;
+  openForm({
+    title: tr('Aufgaben & Meilensteine importieren'),
+    submitLabel: tr('Importieren'),
+    fields: [
+      { name: 'target', label: tr('In Projekt'), type: 'select', value: pid || (named ? '__file' : projects[0]?.id),
+        options: [...(named ? [{ value: '__file', label: tr('Laut Spalte „Projekt“ der Datei') }] : []), ...projects.map((p) => ({ value: p.id, label: p.name }))],
+        hint: tr('Gefunden: {ms} Meilensteine und {tasks} Aufgaben.', { ms: nMs, tasks: nTasks }) },
+      { name: 'dups', label: tr('Gleichnamige Einträge'), type: 'select', value: 'skip',
+        options: [{ value: 'skip', label: tr('Überspringen (nicht doppelt anlegen)') }, { value: 'add', label: tr('Trotzdem neu anlegen') }] },
+    ],
+    onSubmit(v) {
+      const res = importPlanRows(rows, v.target, v.dups === 'skip');
+      toast(tr('⬆ Importiert: {ms} Meilensteine, {tasks} Aufgaben{skipped}.', { ms: res.ms, tasks: res.tasks, skipped: res.skipped ? tr(' · {n} übersprungen', { n: res.skipped }) : '' }));
+    },
+  });
+}
+function importPlanRows(rows, target, skipDup) {
+  const res = { ms: 0, tasks: 0, skipped: 0 };
+  const now = new Date().toISOString();
+  const same = (a, b) => String(a || '').trim().toLocaleLowerCase(LOCALE) === String(b || '').trim().toLocaleLowerCase(LOCALE);
+  const pidOf = (r) => (target === '__file' ? findProjectByName(r.project)?.id : target);
+  const created = []; // [{ task, row }] für die Vorgänger
+  // 1. Meilensteine
+  for (const r of rows.filter((x) => x.kind === 'ms')) {
+    const pid = pidOf(r);
+    if (!pid) { res.skipped++; continue; }
+    if (skipDup && data.milestones.some((m) => m.projectId === pid && same(m.title, r.title))) { res.skipped++; continue; }
+    const doneAt = parseDateFlexible(r.doneAt), isDone = !!doneAt || planStatus(r.status) === 'done';
+    const order = Math.max(-1, ...data.milestones.filter((x) => x.projectId === pid).map((x) => x.order ?? -1)) + 1;
+    data.milestones.push({ id: uid(), projectId: pid, createdAt: now, order, title: r.title, dueDate: parseDateFlexible(r.due) || null,
+      description: r.notes || '', done: isDone, doneAt: isDone ? doneAt || todayISO() : null, assignees: [] });
+    res.ms++;
+  }
+  // 2. Aufgaben
+  for (const r of rows.filter((x) => x.kind === 'task')) {
+    const pid = pidOf(r);
+    if (!pid) { res.skipped++; continue; }
+    if (skipDup && data.tasks.some((t) => t.projectId === pid && same(t.title, r.title))) { res.skipped++; continue; }
+    const st = planStatus(r.status), doneAt = parseDateFlexible(r.doneAt), isDone = st === 'done' || !!doneAt;
+    const ms = r.milestone ? data.milestones.find((m) => m.projectId === pid && same(m.title, r.milestone)) : null;
+    const subtasks = r.subtasks ? r.subtasks.split(/\s*[|\n]\s*/).map((s) => s.trim()).filter(Boolean).map((s) => {
+      const m = s.match(/^\[(x|X|✓| )?\]\s*(.*)$/); const sd = !!(m && m[1] && m[1].trim());
+      return { id: uid(), title: m ? m[2] : s.replace(/^[-•*]\s*/, ''), done: sd, doneAt: sd ? todayISO() : null };
+    }).filter((s) => s.title) : [];
+    const dur = Number(String(r.duration).replace(',', '.'));
+    const task = { id: uid(), projectId: pid, createdAt: now, title: r.title, priority: planPriority(r.priority), status: st === 'doing' ? 'doing' : 'open',
+      dueDate: parseDateFlexible(r.due) || null, startAfter: parseDateFlexible(r.start) || null, duration: dur > 0 ? Math.round(dur) : null,
+      estimate: r.estimate ? parseDuration(r.estimate) || null : null, milestoneId: ms?.id || null, notes: r.notes || '', repeat: planRepeat(r.repeat),
+      subtasks, dependsOn: [], assignees: [], done: isDone, doneAt: isDone ? doneAt || todayISO() : null };
+    data.tasks.push(task);
+    created.push({ task, row: r });
+    res.tasks++;
+  }
+  // 3. Vorgänger über den Titel (innerhalb des Projekts), ohne Kreise
+  for (const { task, row } of created) {
+    if (!row.deps) continue;
+    const ids = row.deps.split(/\s*[|;\n]\s*/).map((s) => s.trim()).filter(Boolean)
+      .map((title) => data.tasks.find((t) => t.projectId === task.projectId && t.id !== task.id && same(t.title, title))?.id).filter(Boolean);
+    for (const id of new Set(ids)) if (!wouldCycle(task.id, [...task.dependsOn, id])) task.dependsOn.push(id);
+  }
+  if (res.ms || res.tasks) commit();
+  return res;
+}
+
 /** CSV-Text in Zeilen/Zellen zerlegen (Anführungszeichen, "" und Zeilenumbrüche in Zellen) */
 function parseCsv(text) {
   text = String(text || '').replace(/^﻿/, '');
@@ -6136,6 +6303,20 @@ function renderCsvPreview(el, r) {
 
 Object.assign(actions, {
   importCsv({ id } = {}) { openCsvImport(id && getProject(id) ? id : null); },
+  exportPlan({ id } = {}) { exportPlanCsv(id && getProject(id) ? id : null); },
+  importPlan({ id } = {}) {
+    if (!data.projects.length) return toast(tr('Lege zuerst ein Projekt an.'));
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv,text/csv,text/plain';
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
+      try { openPlanImport(await file.text(), id && getProject(id) ? id : null); }
+      catch (e) { toast(tr('Import fehlgeschlagen: {msg}', { msg: e.message }), 'error'); }
+    };
+    input.click();
+  },
 });
 
 /* ------------------------------------------------------------------------
@@ -7403,14 +7584,15 @@ function editByDoubleClick(id) {
 let listTap = null; // { id, at }
 document.addEventListener('click', (e) => {
   const li = e.target.closest('li.task');
-  if (!li || e.target.closest('a, button, input, textarea, select, label') || li.closest('.wgrid.editing')) return;
-  const id = li.querySelector('[data-action="toggleTask"]')?.dataset.id;
+  if (!li || e.target.closest('a, button, input, textarea, select, label, summary, details') || li.closest('.wgrid.editing')) return;
+  const id = li.dataset.rid, isMs = li.dataset.row === 'ms';
   if (!id) return;
   const now = Date.now();
   if (listTap?.id === id && now - listTap.at < DOUBLE_MS + 120) {
     listTap = null;
     selectedTaskId = null; // Doppeltippen = bearbeiten, Auswahl wieder aufheben
     document.querySelectorAll('li.task.sel').forEach((x) => x.classList.remove('sel'));
+    if (isMs) { window.getSelection?.()?.removeAllRanges(); closePopover(); return actions.editMilestone({ id }); }
     return editByDoubleClick(id);
   }
   listTap = { id, at: now };
@@ -7418,7 +7600,7 @@ document.addEventListener('click', (e) => {
   if (smallScreen()) {
     selectedTaskId = selectedTaskId === id ? null : id;
     document.querySelectorAll('li.task.sel').forEach((x) => x.classList.remove('sel'));
-    if (selectedTaskId) document.querySelectorAll('li.task').forEach((x) => { if (x.querySelector(`[data-action="toggleTask"][data-id="${CSS.escape(id)}"]`)) x.classList.add('sel'); });
+    if (selectedTaskId) document.querySelectorAll(`li.task[data-rid="${CSS.escape(id)}"]`).forEach((x) => x.classList.add('sel'));
   }
 });
 document.addEventListener('pointercancel', () => { if (kbDrag?.ghost) { kbDrag.ghost.remove(); kbDrag.card.classList.remove('kb-placeholder'); } kbDrag = null; });

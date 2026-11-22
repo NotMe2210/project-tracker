@@ -2,6 +2,20 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-18",
+      "date": "2026-11-22",
+      "de": [
+        "🏁 Meilensteine bedienst du jetzt wie Aufgaben: antippen zeigt große Knöpfe (bei eigener Reihenfolge mit ↑ ↓), doppelt antippen bearbeitet, wischen wie in iOS",
+        "🏁 Meilensteine: runder „+“-Knopf und kompakter Umschalter für die Reihenfolge (📅 nach Zieldatum · ⇅ eigene Reihenfolge) im Kartenkopf",
+        "⬇⬆ Aufgaben & Meilensteine als CSV exportieren und importieren – im ⋯-Menü des Projekts und unter Einstellungen › Datensicherung. Meilenstein-Zuordnung, Vorgänger, Unterpunkte, Status und Aufwand bleiben erhalten; Gleichnamiges wird auf Wunsch übersprungen"
+      ],
+      "en": [
+        "🏁 Milestones now work like tasks: tap shows large buttons (with ↑ ↓ for custom order), double-tap edits, swipe like in iOS",
+        "🏁 Milestones: round “+” button and a compact order switch (📅 by target date · ⇅ custom order) in the card header",
+        "⬇⬆ Export and import tasks & milestones as CSV – in the project’s ⋯ menu and under Settings › Backup. Milestone links, predecessors, subtasks, status and effort are kept; entries with the same title can be skipped"
+      ]
+    },
+    {
       "version": "2026.11.22-17",
       "date": "2026-11-22",
       "de": [
