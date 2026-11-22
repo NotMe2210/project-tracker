@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-16",
+      "date": "2026-11-22",
+      "de": [
+        "👆 Ausgewählte Aufgaben lassen sich nicht mehr wischen – ihre Knöpfe (⏱️ 📎 ⚙️ 🗑) stehen ja schon in der Zeile"
+      ],
+      "en": [
+        "👆 Selected tasks no longer react to swiping – their buttons (⏱️ 📎 ⚙️ 🗑) are already shown in the row"
+      ]
+    },
+    {
       "version": "2026.11.22-15",
       "date": "2026-11-22",
       "de": [

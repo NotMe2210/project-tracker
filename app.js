@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-15';
+const APP_VERSION = '2026.11.22-16';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -5044,6 +5044,7 @@ document.addEventListener('pointerdown', (e) => {
   }
   const li = e.target.closest('li.task');
   if (!li || e.target.closest('button, a, input, textarea') || li.closest('.wgrid.editing')) return;
+  if (li.classList.contains('sel')) return; // ausgewählt: Knöpfe stehen schon in der Zeile – kein Wischen nötig
   swipe = { li, x0: e.clientX, y0: e.clientY, dx: 0, dir: null, id: e.pointerId };
 });
 document.addEventListener('pointermove', (e) => {
