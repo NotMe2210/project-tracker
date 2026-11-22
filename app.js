@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.21-19';
+const APP_VERSION = '2026.11.22-2';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2670,6 +2670,90 @@ function renderSettings() {
    Formulare (Dialog)
    ------------------------------------------------------------------------ */
 
+/* ---- Mehrfachauswahl mit Suche („multi“) ---------------------------------
+   Gewählte Einträge stehen als Chips im Feld; Tippen filtert die Liste darunter.
+   Tastatur: ↑ ↓ wählen, Enter hinzufügen, Rücktaste entfernt den letzten Chip, Esc schließt.
+   Optionen: { value, label, html?, hint?, muted? } oder { group } als Überschrift. */
+const multiOptions = new Map(); // Feldname → Optionen des offenen Formulars
+const multiChip = (o) => `<span class="mp-chip ${o.muted ? 'muted' : ''}" data-value="${esc(o.value)}">${o.html || esc(o.label)}<button type="button" class="mp-x" aria-label="${esc(tr('{name} entfernen', { name: o.label }))}">✕</button></span>`;
+function multiRender(mp) {
+  const input = mp.querySelector('.mp-input'), list = mp.querySelector('.mp-list');
+  const chosen = new Set([...mp.querySelectorAll('.mp-chip')].map((c) => c.dataset.value));
+  const words = input.value.toLocaleLowerCase(LOCALE).split(/\s+/).filter(Boolean);
+  const opts = multiOptions.get(mp.dataset.multi) || [];
+  const rows = [];
+  let group = null, n = 0;
+  for (const o of opts) {
+    if (o.group) { group = o.group; continue; }
+    if (chosen.has(o.value)) continue;
+    const hay = `${o.label} ${o.hint || ''}`.toLocaleLowerCase(LOCALE);
+    if (!words.every((w) => hay.includes(w))) continue;
+    if (group) { rows.push(`<li class="mp-group" role="presentation">${esc(group)}</li>`); group = null; }
+    rows.push(`<li class="mp-opt ${o.muted ? 'muted' : ''}" role="option" data-value="${esc(o.value)}" data-i="${n++}">${o.html || esc(o.label)}${o.hint ? `<span class="mp-hint">${esc(o.hint)}</span>` : ''}</li>`);
+  }
+  list.innerHTML = rows.length ? rows.join('') : `<li class="mp-empty">${tr('Nichts gefunden')}</li>`;
+  mp.dataset.active = n ? Math.min(Number(mp.dataset.active || 0), n - 1) : -1;
+  multiHighlight(mp);
+}
+function multiHighlight(mp) {
+  const a = Number(mp.dataset.active);
+  mp.querySelectorAll('.mp-opt').forEach((li) => { const on = Number(li.dataset.i) === a; li.classList.toggle('active', on); li.setAttribute('aria-selected', on); if (on) li.scrollIntoView({ block: 'nearest' }); });
+}
+function multiOpen(mp, open = true) {
+  const list = mp.querySelector('.mp-list');
+  if (open) { mp.dataset.active = 0; multiRender(mp); }
+  list.hidden = !open;
+  mp.querySelector('.mp-input').setAttribute('aria-expanded', open);
+  mp.classList.toggle('open', open);
+}
+function multiAdd(mp, value) {
+  const o = (multiOptions.get(mp.dataset.multi) || []).find((x) => x.value === value);
+  const input = mp.querySelector('.mp-input');
+  if (!o) return;
+  input.insertAdjacentHTML('beforebegin', multiChip(o));
+  input.value = '';
+  multiRender(mp);
+  input.focus();
+}
+document.addEventListener('focusin', (e) => { const mp = e.target.closest?.('.mp'); if (mp && e.target.classList.contains('mp-input') && mp.querySelector('.mp-list').hidden) multiOpen(mp); });
+document.addEventListener('focusout', (e) => {
+  const mp = e.target.closest?.('.mp');
+  if (mp) setTimeout(() => { if (!mp.contains(document.activeElement)) multiOpen(mp, false); }, 120);
+});
+document.addEventListener('input', (e) => { const mp = e.target.closest?.('.mp'); if (mp && e.target.classList.contains('mp-input')) { mp.dataset.active = 0; multiOpen(mp); } });
+document.addEventListener('mousedown', (e) => { if (e.target.closest?.('.mp-list')) e.preventDefault(); }); // Fokus im Eingabefeld behalten
+document.addEventListener('click', (e) => {
+  const mp = e.target.closest?.('.mp');
+  if (!mp) return;
+  const opt = e.target.closest('.mp-opt');
+  if (opt) return multiAdd(mp, opt.dataset.value);
+  const x = e.target.closest('.mp-x');
+  if (x) { x.closest('.mp-chip').remove(); multiRender(mp); return mp.querySelector('.mp-input').focus(); }
+  if (e.target.closest('.mp-box')) { mp.querySelector('.mp-input').focus(); if (mp.querySelector('.mp-list').hidden) multiOpen(mp); }
+});
+document.addEventListener('keydown', (e) => {
+  const mp = e.target.closest?.('.mp');
+  if (!mp || !e.target.classList.contains('mp-input')) return;
+  const n = mp.querySelectorAll('.mp-opt').length, open = !mp.querySelector('.mp-list').hidden;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!open) return multiOpen(mp);
+    if (n) { mp.dataset.active = (Number(mp.dataset.active) + (e.key === 'ArrowDown' ? 1 : -1) + n) % n; multiHighlight(mp); }
+  } else if (e.key === 'Enter') {
+    e.preventDefault(); // nicht das Formular absenden
+    const li = mp.querySelector('.mp-opt.active');
+    if (open && li) multiAdd(mp, li.dataset.value);
+  } else if (e.key === 'Escape' && open) {
+    e.preventDefault(); e.stopPropagation(); // nur die Liste schließen, nicht den Dialog
+    multiOpen(mp, false);
+  } else if (e.key === 'Backspace' && !e.target.value) {
+    const chips = mp.querySelectorAll('.mp-chip');
+    if (chips.length) { chips[chips.length - 1].remove(); multiRender(mp); }
+  }
+}, true);
+// Esc im Dialog: bei offener Liste nur diese schließen
+document.addEventListener('cancel', (e) => { const mp = document.querySelector('.mp.open'); if (mp && e.target.id === 'modal') { e.preventDefault(); multiOpen(mp, false); } }, true);
+
 function fieldHTML(f) {
   const id = 'f_' + f.name;
   const v = f.value ?? '';
@@ -2682,6 +2766,16 @@ function fieldHTML(f) {
       <div class="check-chips" data-checks="${f.name}">${f.options.map((o) => (o.group
         ? `<span class="check-group small muted">${esc(o.group)}</span>`
         : `<label class="check-chip"><input type="checkbox" value="${esc(o.value)}" ${vals.has(o.value) ? 'checked' : ''}><span>${o.html || esc(o.label)}</span></label>`)).join('')}</div>${hint}</div>`;
+  }
+  if (f.type === 'multi') {
+    multiOptions.set(f.name, f.options);
+    const byVal = new Map(f.options.filter((o) => !o.group).map((o) => [o.value, o]));
+    return `<div class="field"><label class="field-label" for="${id}">${esc(f.label)}</label>
+      <div class="mp" data-multi="${f.name}">
+        <div class="mp-box">${(v || []).filter((x) => byVal.has(x)).map((x) => multiChip(byVal.get(x))).join('')}<input id="${id}" class="mp-input" type="text" autocomplete="off" spellcheck="false"
+          placeholder="${esc(f.placeholder || tr('Suchen und hinzufügen …'))}" role="combobox" aria-expanded="false" aria-autocomplete="list" enterkeyhint="done"></div>
+        <ul class="mp-list" role="listbox" hidden></ul>
+      </div>${hint}</div>`;
   }
   if (f.type === 'subtasks') {
     return `<div class="field"><div class="field-label">${esc(f.label)}</div>
@@ -2752,6 +2846,10 @@ function openForm({ title, fields, submitLabel = tr('Speichern'), onSubmit, wide
     for (const f of fields) {
       if (f.type === 'checks') {
         values[f.name] = [...form.querySelectorAll(`[data-checks="${f.name}"] input:checked`)].map((i) => i.value);
+        continue;
+      }
+      if (f.type === 'multi') {
+        values[f.name] = [...form.querySelectorAll(`[data-multi="${f.name}"] .mp-chip`)].map((c) => c.dataset.value);
         continue;
       }
       if (f.type === 'subtasks') {
@@ -3384,6 +3482,22 @@ function projectForm(p) {
   });
 }
 
+/** Ab so vielen Einträgen wird aus der Chip-Liste ein Suchfeld */
+const MULTI_FROM = 8;
+/** Vorgänger-Auswahl: offene Aufgaben nach Meilenstein gruppiert (eigener Meilenstein zuerst), erledigte am Ende */
+function predecessorOptions(t, others) {
+  const open = others.filter((x) => !x.done), done = others.filter((x) => x.done);
+  const ms = sortMilestonesOf(t.projectId).filter((m) => open.some((x) => x.milestoneId === m.id));
+  if (t.milestoneId) ms.sort((a, b) => Number(b.id === t.milestoneId) - Number(a.id === t.milestoneId));
+  const opt = (x, muted = false) => ({ value: x.id, label: x.title, muted, html: `${muted ? '✓ ' : ''}${esc(x.title)}` });
+  const out = [];
+  ms.forEach((m) => { out.push({ group: `🏁 ${m.title}` }, ...open.filter((x) => x.milestoneId === m.id).map((x) => opt(x))); });
+  const rest = open.filter((x) => !x.milestoneId || !ms.some((m) => m.id === x.milestoneId));
+  if (rest.length) out.push({ group: ms.length ? tr('Ohne Meilenstein') : tr('Offen') }, ...rest.map((x) => opt(x)));
+  if (done.length) out.push({ group: tr('Erledigt') }, ...done.map((x) => opt(x, true)));
+  return out;
+}
+
 function taskForm(t) {
   const isNew = !t.id;
   const pid = t.projectId;
@@ -3397,7 +3511,7 @@ function taskForm(t) {
     const opts = data.milestones.filter((m) => m.projectId === pid && (!m.done || m.id === t.milestoneId));
     fields.push({ name: 'milestoneId', label: tr('Meilenstein'), type: 'select', value: t.milestoneId || '', options: [{ value: '', label: tr('– keiner –') }, ...opts.map((m) => ({ value: m.id, label: m.title }))] });
   }
-  if (data.people.length || data.teams.length) fields.push({ name: 'assignees', label: tr('Zuständig'), type: 'checks', options: assigneeOptions(pid), value: t.assignees || [] });
+  if (data.people.length || data.teams.length) fields.push(assigneeField(pid, t.assignees));
   fields.push({ name: 'repeat', label: tr('Wiederholen'), type: 'select', half: true, value: t.repeat || '',
     options: REPEATS.map((r) => ({ value: r.value, label: r.label })), hint: tr('Beim Abhaken entsteht die nächste Aufgabe') });
   fields.push({ name: 'estimate', label: tr('Geschätzter Aufwand'), type: 'duration', half: true, placeholder: '2:00',
@@ -3407,8 +3521,9 @@ function taskForm(t) {
     hint: tr('Für Zeitplan & kritischen Pfad – leer = 1 Tag') });
   fields.push({ name: 'startAfter', label: tr('Frühester Start'), type: 'date', value: t.startAfter, half: true, hint: tr('optional') });
   const others = sortTasks(data.tasks.filter((x) => x.projectId === pid && x.id !== t.id));
-  if (others.length) fields.push({ name: 'dependsOn', label: tr('Vorgänger – startet erst, wenn diese erledigt sind'), type: 'checks', value: t.dependsOn || [],
-    options: others.map((x) => ({ value: x.id, label: `${x.done ? '✓ ' : ''}${x.title}` })) });
+  if (others.length) fields.push({ name: 'dependsOn', label: tr('Vorgänger – startet erst, wenn diese erledigt sind'), value: t.dependsOn || [],
+    ...(others.length > MULTI_FROM ? { type: 'multi', options: predecessorOptions(t, others), placeholder: tr('Aufgabe suchen …') }
+      : { type: 'checks', options: others.map((x) => ({ value: x.id, label: `${x.done ? '✓ ' : ''}${x.title}` })) }) });
   fields.push({ name: 'subtasks', label: tr('Unterpunkte'), type: 'subtasks', value: t.subtasks || [],
     hint: tr('Die Aufgabe ist erst fertig, wenn alle Unterpunkte abgehakt sind. Eingabetaste = nächster Unterpunkt.') });
   fields.push({ name: 'notes', label: tr('Notiz'), type: 'textarea', value: t.notes });
@@ -3440,7 +3555,7 @@ function milestoneForm(m) {
       { name: 'title', label: tr('Meilenstein'), required: true, value: m.title, placeholder: tr('z. B. Prototyp fertig') },
       { name: 'dueDate', label: tr('Zieldatum'), type: 'date', value: m.dueDate, half: true },
       { name: 'doneAt', label: tr('Erreicht am'), type: 'date', value: m.done ? m.doneAt : '', half: true },
-      ...(data.people.length || data.teams.length ? [{ name: 'assignees', label: tr('Zuständig'), type: 'checks', options: assigneeOptions(m.projectId), value: m.assignees || [] }] : []),
+      ...(data.people.length || data.teams.length ? [assigneeField(m.projectId, m.assignees)] : []),
       { name: 'description', label: tr('Beschreibung / Kriterien'), type: 'textarea', value: m.description,
         hint: tr('„Erreicht am“ nur ausfüllen, wenn der Meilenstein schon geschafft ist – z. B. beim Nachtragen früherer Etappen. Leer = noch offen.') },
     ],
@@ -6897,7 +7012,7 @@ function kanbanBoard(open, done) {
       <div class="kb-list">${list.slice(0, key === 'done' ? 15 : 200).map(kanbanCard).join('') || `<div class="kb-empty small muted">${tr('Hierher ziehen')}</div>`}
         ${key === 'done' && list.length > 15 ? `<div class="small muted kb-more">${tr('… und {n} weitere', { n: list.length - 15 })}</div>` : ''}</div>
     </div>`).join('')}</div>
-    <p class="small muted g-hint">${tr('Karten zwischen den Spalten ziehen – oder antippen, um den Status zu wählen.')}</p>`;
+    <p class="small muted g-hint">${tr('Karten zwischen den Spalten ziehen · antippen = Status und Aktionen · doppelt antippen = bearbeiten.')}</p>`;
 }
 
 function setTaskStatus(id, status) {
@@ -6953,11 +7068,36 @@ document.addEventListener('pointerup', (e) => {
   if (col) setTaskStatus(d.id, col.dataset.kbCol);
 });
 let kbJustDragged = 0;
+/* Einfacher Klick = Menü (kurz verzögert), Doppelklick bzw. Doppeltippen = direkt bearbeiten */
+const DOUBLE_MS = 280;
+let kbPending = null; // { id, timer }
 document.addEventListener('click', (e) => {
   const card = e.target.closest('.kb-card');
   if (!card || e.target.closest('a, button') || Date.now() - kbJustDragged < 250) return;
-  const t = data.tasks.find((x) => x.id === card.dataset.kb);
-  if (t) openPopover(card, taskMenuHTML(t));
+  const id = card.dataset.kb;
+  if (kbPending?.id === id) { clearTimeout(kbPending.timer); kbPending = null; return editByDoubleClick(id); }
+  if (kbPending) clearTimeout(kbPending.timer);
+  kbPending = { id, timer: setTimeout(() => {
+    kbPending = null;
+    const t = data.tasks.find((x) => x.id === id);
+    if (t && card.isConnected) openPopover(card, taskMenuHTML(t));
+  }, DOUBLE_MS) };
+});
+function editByDoubleClick(id) {
+  window.getSelection?.()?.removeAllRanges(); // Doppelklick markiert sonst ein Wort
+  closePopover();
+  if (data.tasks.some((x) => x.id === id)) actions.editTask({ id });
+}
+// Listenansicht: Doppelklick / Doppeltippen auf eine Aufgabe öffnet die Bearbeitung
+let listTap = null; // { id, at }
+document.addEventListener('click', (e) => {
+  const li = e.target.closest('li.task');
+  if (!li || e.target.closest('a, button, input, textarea, select, label') || li.closest('.wgrid.editing')) return;
+  const id = li.querySelector('[data-action="toggleTask"]')?.dataset.id;
+  if (!id) return;
+  const now = Date.now();
+  if (listTap?.id === id && now - listTap.at < DOUBLE_MS + 120) { listTap = null; return editByDoubleClick(id); }
+  listTap = { id, at: now };
 });
 document.addEventListener('pointercancel', () => { if (kbDrag?.ghost) { kbDrag.ghost.remove(); kbDrag.card.classList.remove('kb-placeholder'); } kbDrag = null; });
 document.addEventListener('keydown', (e) => {
@@ -7463,14 +7603,19 @@ function assigneeBadges(list) {
 }
 
 /** Auswahl für „Zuständig“: Teams und Personen; Projektteams und deren Mitglieder zuerst */
+function assigneeField(pid, value) {
+  const big = data.people.length + data.teams.length > MULTI_FROM;
+  return { name: 'assignees', label: tr('Zuständig'), type: big ? 'multi' : 'checks', options: assigneeOptions(pid), value: value || [],
+    ...(big ? { placeholder: tr('Person oder Team suchen …') } : {}) };
+}
 function assigneeOptions(pid) {
   const projTeams = new Set(getProject(pid)?.teamIds || []);
   const projPeople = new Set(data.teams.filter((tm) => projTeams.has(tm.id)).flatMap((tm) => tm.memberIds || []));
   const teams = [...data.teams].sort((a, b) => Number(projTeams.has(b.id)) - Number(projTeams.has(a.id)) || a.name.localeCompare(b.name));
   const people = [...data.people].sort((a, b) => Number(projPeople.has(b.id)) - Number(projPeople.has(a.id)) || a.name.localeCompare(b.name));
   return [
-    ...(teams.length ? [{ group: tr('Teams') }, ...teams.map((tm) => ({ value: `t:${tm.id}`, html: teamBadge(tm) }))] : []),
-    ...(people.length ? [{ group: tr('Personen') }, ...people.map((p) => ({ value: `p:${p.id}`, html: `${personAvatar(p, 'small')} ${esc(p.name)}` }))] : []),
+    ...(teams.length ? [{ group: tr('Teams') }, ...teams.map((tm) => ({ value: `t:${tm.id}`, label: tm.name, html: teamBadge(tm) }))] : []),
+    ...(people.length ? [{ group: tr('Personen') }, ...people.map((p) => ({ value: `p:${p.id}`, label: p.name, hint: p.short || '', html: `${personAvatar(p, 'small')} ${esc(p.name)}` }))] : []),
   ];
 }
 

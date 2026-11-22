@@ -1149,7 +1149,7 @@ I18N.en = {
   "geplant": "planned",
   "erledigt": "done",
   "Balken ziehen = Start verschieben · rechten Rand ziehen = Dauer ändern · ◆ ziehen = Zieldatum · antippen = bearbeiten. Nachfolger rücken automatisch mit.": "Drag a bar = move the start · drag the right edge = change the duration · drag ◆ = target date · tap = edit. Successors move along automatically.",
-  "Ohne Meilenstein": "Without milestone",
+  "Ohne Meilenstein": "No milestone",
   "T": "d",
   "🏁 Zieldatum: {date}": "🏁 Target date: {date}",
   "⏱ Dauer: {d}": "⏱ Duration: {d}",
@@ -1454,4 +1454,9 @@ I18N.en = {
   "Noch keine Datei": "No file yet",
   "🌊 Meeresrauschen": "🌊 Ocean waves",
   "🐦 Vogelgezwitscher": "🐦 Birdsong",
+  "Suchen und hinzufügen …": "Search and add …",
+  "{name} entfernen": "Remove {name}",
+  "Aufgabe suchen …": "Search task …",
+  "Person oder Team suchen …": "Search person or team …",
+  "Karten zwischen den Spalten ziehen · antippen = Status und Aktionen · doppelt antippen = bearbeiten.": "Drag cards between columns · tap = status and actions · double-tap = edit.",
 };

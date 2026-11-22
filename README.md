@@ -41,6 +41,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - ✅ **Aufgaben** mit Priorität, Fälligkeitsdatum und Notiz
   - **Unterpunkte** zum Abhaken. Die Aufgabe ist erst fertig, wenn alle Unterpunkte erledigt sind.
   - 🗂️ **Kanban-Board** (Ansicht *Liste · Board*): Spalten Offen, **In Arbeit** und Erledigt, Karten per Drag-and-drop verschieben.
+  - ✏️ **Doppelklick** (bzw. doppelt antippen) auf eine Aufgabe öffnet sie direkt zum Bearbeiten – in der Liste und auf dem Board. Ein einfacher Klick auf eine Board-Karte öffnet weiterhin Status und Aktionen.
   - ⏱ **Zeit auf Aufgaben buchen:** ▶ an der Aufgabe startet den Timer dafür (Status „In Arbeit“), Zeiteinträge und Pomodoros lassen sich einer Aufgabe zuordnen. Mit **geschätztem Aufwand** zeigt das Abzeichen *gebucht / geschätzt* (rot bei Überschreitung); der Reiter *Zeit* vergleicht **Schätzung vs. Ist** und sagt, wie gut deine Schätzungen treffen.
   - 🔁 **Wiederkehrend:** täglich, werktags, wöchentlich, alle 2 Wochen, monatlich, vierteljährlich oder jährlich. Beim Abhaken entsteht automatisch die nächste Aufgabe mit neuem Fälligkeitsdatum (verpasste Termine werden übersprungen).
 - 📝 **Logbuch** für Ideen, Entscheidungen und kleine Erfolge
@@ -81,7 +82,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - Im Aufgaben-Reiter lässt sich nach Zuständigen filtern: Alle, Meine, Team, Person oder ohne Zuständige.
 
 **🗓 Zeitplan & kritischer Pfad** (Projekt-Reiter *Zeitplan*)
-- Aufgaben bekommen optional eine **Dauer** (Arbeitstage), einen **frühesten Start** und **Vorgänger** („startet erst, wenn … erledigt ist“).
+- Aufgaben bekommen optional eine **Dauer** (Arbeitstage), einen **frühesten Start** und **Vorgänger** („startet erst, wenn … erledigt ist“). Bei mehr als acht Aufgaben wird die Vorgänger-Auswahl zum **Suchfeld mit Auswahl-Chips**: tippen zum Filtern, nach Meilenstein gruppiert, erledigte Aufgaben am Ende; ✕ oder Rücktaste entfernt. Dasselbe gilt für **„Zuständig“** bei mehr als acht Personen und Teams.
 - Protrac berechnet daraus nach der Critical-Path-Methode:
   - frühesten und spätesten Start jeder Aufgabe
   - **Puffer** jeder Aufgabe
