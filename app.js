@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-3';
+const APP_VERSION = '2026.11.22-4';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -7007,15 +7007,23 @@ function kanbanCard(t) {
     <div class="kb-title">${esc(t.title)}</div>
     <div class="meta">
       <span class="badge ${t.priority}">${prioLabel(t.priority)}</span>
-      ${subs.length ? `<span class="badge">☑ ${subs.filter((s) => s.done).length}/${subs.length}</span>` : ''}
+      ${subs.length ? `<button type="button" class="badge kb-subs-toggle ${kbSubsOpen(t) ? 'open' : ''}" data-action="toggleKbSubs" data-id="${t.id}" aria-expanded="${kbSubsOpen(t)}"
+        title="${kbSubsOpen(t) ? tr('Unterpunkte zuklappen') : tr('Unterpunkte anzeigen und abhaken')}">☑ ${subs.filter((s) => s.done).length}/${subs.length} <span class="kb-chev" aria-hidden="true">›</span></button>` : ''}
       ${taskTimeBadge(t)}
       ${t.repeat ? `<span class="badge">🔁</span>` : ''}
       ${t.done ? `<span>${fmtRelative(t.doneAt)}</span>` : dueBadge(t.dueDate)}
       ${ms ? `<span>🏁 ${esc(ms.title)}</span>` : ''}
       ${assigneeBadges(t.assignees)}
     </div>
+    ${subs.length && kbSubsOpen(t) ? `<ul class="kb-subs">${subs.map((st) => `<li><button type="button" class="kb-sub ${st.done ? 'done' : ''}" data-action="toggleSubtask" data-id="${t.id}" data-sub="${st.id}" aria-pressed="${!!st.done}">
+        <span class="check small ${st.done ? 'done' : ''}" aria-hidden="true">${st.done ? '✓' : ''}</span><span class="kb-sub-text">${esc(st.title)}</span></button></li>`).join('')}
+      ${t.done ? '' : `<li><button type="button" class="kb-sub add" data-action="addSubtask" data-id="${t.id}">${tr('+ Unterpunkt')}</button></li>`}</ul>` : ''}
   </div>`;
 }
+/* Unterpunkte auf Board-Karten: „In Arbeit“ standardmäßig aufgeklappt, sonst zu; Wahl wird gemerkt */
+const KB_SUBS_KEY = 'projekttracker.ui.kbSubs';
+let kbSubsState = (() => { try { return JSON.parse(localStorage.getItem(KB_SUBS_KEY) || '{}'); } catch { return {}; } })();
+const kbSubsOpen = (t) => (t.id in kbSubsState ? kbSubsState[t.id] : !t.done && t.status === 'doing');
 function kanbanBoard(open, done) {
   const cols = [
     ['open', tr('Offen'), open.filter((t) => t.status !== 'doing')],
@@ -7047,7 +7055,7 @@ function setTaskStatus(id, status) {
 let kbDrag = null;
 document.addEventListener('pointerdown', (e) => {
   const card = e.target.closest('.kb-card');
-  if (!card || e.button > 0) return;
+  if (!card || e.button > 0 || e.target.closest('button, .kb-subs')) return; // Knöpfe & Unterpunkte nicht ziehen
   kbDrag = { card, id: card.dataset.kb, x0: e.clientX, y0: e.clientY, moved: false, touch: e.pointerType !== 'mouse' };
 });
 document.addEventListener('pointermove', (e) => {
@@ -7088,7 +7096,7 @@ const DOUBLE_MS = 280;
 let kbPending = null; // { id, timer }
 document.addEventListener('click', (e) => {
   const card = e.target.closest('.kb-card');
-  if (!card || e.target.closest('a, button') || Date.now() - kbJustDragged < 250) return;
+  if (!card || e.target.closest('a, button, .kb-subs') || Date.now() - kbJustDragged < 250) return;
   const id = card.dataset.kb;
   if (kbPending?.id === id) { clearTimeout(kbPending.timer); kbPending = null; return editByDoubleClick(id); }
   if (kbPending) clearTimeout(kbPending.timer);
@@ -7117,13 +7125,20 @@ document.addEventListener('click', (e) => {
 document.addEventListener('pointercancel', () => { if (kbDrag?.ghost) { kbDrag.ghost.remove(); kbDrag.card.classList.remove('kb-placeholder'); } kbDrag = null; });
 document.addEventListener('keydown', (e) => {
   const card = e.target.closest?.('.kb-card');
-  if (!card || (e.key !== 'Enter' && e.key !== ' ')) return;
+  if (!card || e.target !== card || (e.key !== 'Enter' && e.key !== ' ')) return; // nur die Karte selbst, nicht Knöpfe darin
   e.preventDefault();
   const t = data.tasks.find((x) => x.id === card.dataset.kb);
   if (t) openPopover(card, taskMenuHTML(t));
 });
 
 Object.assign(actions, {
+  toggleKbSubs({ id }) {
+    const t = data.tasks.find((x) => x.id === id);
+    if (!t) return;
+    kbSubsState[id] = !kbSubsOpen(t);
+    try { localStorage.setItem(KB_SUBS_KEY, JSON.stringify(kbSubsState)); } catch { /* ignorieren */ }
+    render();
+  },
   setTaskView({ id }) {
     taskView = id === 'board' ? 'board' : 'list';
     try { localStorage.setItem('projekttracker.ui.taskView', taskView); } catch { /* ignorieren */ }
