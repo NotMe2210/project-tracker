@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-14",
+      "date": "2026-11-22",
+      "de": [
+        "👆 Wischen über Aufgaben wie in iOS: Die Zeile wird zur abgerundeten Fläche, daneben wachsen runde Knöpfe. Nach links: ⋯ Optionen und 🗑 Löschen – loslassen hält die Zeile offen, ein langer Wisch löscht (mit Rückfrage). Nach rechts: ✓ Erledigt"
+      ],
+      "en": [
+        "👆 Swiping tasks like in iOS: the row becomes a rounded card with round buttons growing beside it. Left: ⋯ Options and 🗑 Delete – release keeps the row open, a long swipe deletes (with confirmation). Right: ✓ Done"
+      ]
+    },
+    {
       "version": "2026.11.22-13",
       "date": "2026-11-22",
       "de": [

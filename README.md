@@ -64,7 +64,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 - 🏅 **Erfolge:** 42 Abzeichen für Stunden, Serien, aktive Tage, Pomodoros, Aufgaben, Unterpunkte, Meilensteine, Notizen, Wochenrückblicke, Einnahmen sowie Zusammenarbeit und Dokumente (z. B. Teamplayer, Delegierer, Gemeinsam stark, Archivar), mit Fortschritt, sortiert von erreicht über Fortschritt bis offen. Neue Erfolge werden gefeiert.
 - 🤫 **14 geheime Erfolge** (davon 4 rund ums Team): Name und Bedingung bleiben verborgen (🔒 ???), bis du sie zufällig erreichst. Dann werden sie mit einer eigenen Meldung enthüllt und golden hervorgehoben.
 - 🔎 **Befehlspalette** am Computer mit ⌘K bzw. Strg+K: Seiten, Projekte, Pomodoro, Zeit, Aufgaben, Darstellung …
-- 👆 **Wischgesten** auf dem iPhone: Aufgabe nach rechts wischen = erledigt, nach links = Optionen
+- 👆 **Wischgesten wie in iOS**: Aufgabe nach rechts wischen = erledigt; nach links erscheinen runde Knöpfe ⋯ Optionen und 🗑 Löschen (Zeile bleibt offen), ein langer Wisch nach links löscht nach Rückfrage
 - 📝 **Eingabefenster im iOS-Stil** auf dem Smartphone: Blatt von unten mit „Abbrechen“ und „Speichern“ oben, Auswahlfelder als Liste (Bezeichnung links, Wert rechts); zum Schließen nach unten ziehen
 - 📱 **Smartphone-Feinschliff**: Projekt-Reiter als wischbare Leiste, die oben haftet; große Titel, die beim Scrollen in die Kopfleiste wandern; Kennzahlen zweispaltig; „Bearbeiten“ und „Löschen“ im ⋯-Menü
 - ✨ Einheitliche **Linien-Symbole**, Projektfarbe als Akzent im Projektkopf, leere Bereiche mit Symbol und sanfte Übergänge (aus bei „Bewegung reduzieren“)

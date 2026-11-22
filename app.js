@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-13';
+const APP_VERSION = '2026.11.22-14';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -804,7 +804,7 @@ const ICON_EMOJI = { '📊': 'chart', '🗂️': 'folder', '🗂': 'folder', '�
   '☀️': 'sun', '⚠️': 'alert', '👉': 'arrow', '🕘': 'clock', '💭': 'msg', '▶': 'play', '⏹️': 'stop', '■': 'stop', '🏅': 'award', '⏸': 'pause', '✏️': 'pencil', '✎': 'pencil',
   '📋': 'note', '🧩': 'layout', '🗄️': 'archive' };
 const ICON_KEYS = Object.keys(ICON_EMOJI).sort((a, b) => b.length - a.length);
-const ICON_SEL = '.nav .ico, h1, h2, h3, .btn, .tabs a, .pop-item, .task-bar-btn, .cmd-btn, .w-label';
+const ICON_SEL = '.nav .ico, h1, h2, h3, .btn, .tabs a, .pop-item, .task-bar-btn, .swipe-act, .cmd-btn, .w-label';
 const iconSVG = (k) => `<svg class="ic${k === 'play' || k === 'stop' ? ' fill' : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[k]}</svg>`;
 function iconizeEl(el) {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -4987,10 +4987,61 @@ document.addEventListener('keydown', (e) => {
 /* ---------------------------- Wischgesten (Touch) ------------------------- */
 /* Aufgabe nach rechts wischen = erledigt, nach links = Optionen */
 
-let swipe = null;
+/* Wie in iOS: Die Zeile wird zur abgerundeten Fläche und gleitet zur Seite; daneben wachsen runde Knöpfe.
+   Nach links: ⋯ Optionen und 🗑 Löschen – loslassen hält die Zeile offen, ein langer Wisch löscht (mit Rückfrage).
+   Nach rechts: ✓ Erledigt bzw. ↺ Wieder öffnen – loslassen nach kurzer Strecke löst aus. */
+const SW_BTN = 46, SW_GAP = 10, SW_OPEN = SW_BTN * 2 + SW_GAP * 3; // Breite der offenen Knopfleiste links
+let swipe = null;      // laufende Geste
+let swipeOpen = null;  // { li, box, id } – Zeile, deren Knöpfe offen stehen
 let suppressClick = false;
+const swipeTaskId = (li) => li.querySelector('[data-action="toggleTask"]')?.dataset.id;
+function swipeBox(li) {
+  const ul = li.parentElement;
+  if (getComputedStyle(ul).position === 'static') ul.style.position = 'relative';
+  const box = document.createElement('div');
+  box.className = 'swipe-actions';
+  Object.assign(box.style, { top: `${li.offsetTop}px`, height: `${li.offsetHeight}px` });
+  ul.insertBefore(box, li);
+  return box;
+}
+function swipeRender(st) {
+  const { li, box, dx } = st;
+  const done = li.classList.contains('done');
+  const w = Math.abs(dx), rowW = li.offsetWidth;
+  const left = li.offsetLeft, right = li.parentElement.clientWidth - left - rowW;
+  li.style.transform = `translateX(${dx}px)`;
+  if (dx > 0) {
+    const size = Math.min(SW_BTN, Math.max(0, w - SW_GAP * 2));
+    const armed = w > 80;
+    Object.assign(box.style, { left: `${left}px`, right: 'auto', width: `${w}px` });
+    box.className = `swipe-actions right ${armed ? 'armed' : ''}`;
+    box.innerHTML = `<button type="button" class="swipe-act good" data-sw="toggle" style="width:${armed ? Math.max(size, w - SW_GAP * 2) : size}px;height:${size}px;font-size:${Math.round(size * 0.42)}px"
+      aria-label="${done ? tr('Wieder öffnen') : tr('Erledigt')}">${done ? '↺' : '✓'}</button>`;
+  } else {
+    const full = w > rowW * 0.6;
+    const scale = Math.min(1, w / SW_OPEN);
+    const size = Math.round(SW_BTN * scale);
+    Object.assign(box.style, { right: `${right}px`, left: 'auto', width: `${w}px` });
+    box.className = `swipe-actions left ${full ? 'full' : ''}`;
+    const delW = full ? Math.max(size, w - SW_GAP * 2) : Math.max(size, w - SW_BTN - SW_GAP * 3);
+    box.innerHTML = `${full ? '' : `<button type="button" class="swipe-act more" data-sw="more" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.42)}px" aria-label="${tr('Optionen')}">⋯</button>`}
+      <button type="button" class="swipe-act bad" data-sw="delete" style="width:${delW}px;height:${size}px" aria-label="${tr('Löschen')}">🗑</button>`;
+  }
+}
+function swipeClose(st, animate = true) {
+  if (!st) return;
+  const { li, box } = st;
+  if (animate) { li.style.transition = 'transform .25s cubic-bezier(.2,.8,.2,1)'; box.style.transition = 'width .25s cubic-bezier(.2,.8,.2,1), opacity .25s'; box.style.width = '0px'; box.style.opacity = '0'; }
+  li.style.transform = '';
+  setTimeout(() => { li.style.transition = ''; li.classList.remove('swiping'); box.remove(); }, animate ? 260 : 0);
+  if (swipeOpen === st) swipeOpen = null;
+}
 document.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'touch') return;
+  if (swipeOpen && !e.target.closest('.swipe-actions')) { // offene Zeile: Tippen irgendwo schließt sie nur
+    const st = swipeOpen; swipeClose(st);
+    if (st.li.contains(e.target)) { suppressClick = true; setTimeout(() => (suppressClick = false), 350); return; }
+  }
   const li = e.target.closest('li.task');
   if (!li || e.target.closest('button, a, input, textarea') || li.closest('.wgrid.editing')) return;
   swipe = { li, x0: e.clientX, y0: e.clientY, dx: 0, dir: null, id: e.pointerId };
@@ -5002,41 +5053,56 @@ document.addEventListener('pointermove', (e) => {
     if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
     if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) {
       swipe.dir = 'h';
-      const li = swipe.li, ul = li.parentElement;
-      ul.style.position = 'relative';
-      swipe.bg = document.createElement('div');
-      swipe.bg.className = 'swipe-bg';
-      Object.assign(swipe.bg.style, { top: `${li.offsetTop}px`, height: `${li.offsetHeight}px` });
-      ul.insertBefore(swipe.bg, li);
-      li.classList.add('swiping');
+      swipe.box = swipeBox(swipe.li);
+      swipe.li.classList.add('swiping');
     } else return;
   }
-  swipe.dx = Math.max(-140, Math.min(140, dx));
-  swipe.li.style.transform = `translateX(${swipe.dx}px)`;
-  const done = swipe.li.classList.contains('done');
-  swipe.bg.className = `swipe-bg ${swipe.dx > 0 ? 'right' : 'left'} ${Math.abs(swipe.dx) > 80 ? 'armed' : ''}`;
-  // Farbfläche füllt nur den frei werdenden Streifen neben der Aufgabe – nichts scheint durch die Aufgabe hindurch
-  const w = Math.max(0, Math.abs(swipe.dx) - 6);
-  Object.assign(swipe.bg.style, swipe.dx > 0 ? { left: `${swipe.li.offsetLeft}px`, right: 'auto', width: `${w}px` } : { left: 'auto', right: `${swipe.li.parentElement.clientWidth - swipe.li.offsetLeft - swipe.li.offsetWidth}px`, width: `${w}px` });
-  swipe.bg.innerHTML = swipe.dx > 0 ? `<span>${done ? `↺ ${tr('Wieder öffnen')}` : `✓ ${tr('Erledigt')}`}</span>` : `<span>⋯ ${tr('Optionen')}</span>`;
+  const rowW = swipe.li.offsetWidth;
+  // leichter Widerstand am Ende, wie in iOS
+  const raw = dx > 0 ? Math.min(dx, rowW * 0.7) : Math.max(dx, -rowW * 0.9);
+  const prevFull = swipe.dx < -rowW * 0.6, prevArmed = swipe.dx > 80;
+  swipe.dx = raw;
+  if ((swipe.dx < -rowW * 0.6) !== prevFull || (swipe.dx > 80) !== prevArmed) navigator.vibrate?.(10);
+  swipeRender(swipe);
 });
 function endSwipe() {
   if (!swipe) return;
-  const { li, dx, dir, bg } = swipe;
+  const st = swipe;
   swipe = null;
-  if (dir !== 'h') return;
+  if (st.dir !== 'h') return;
   suppressClick = true;
   setTimeout(() => (suppressClick = false), 350);
-  li.style.transition = 'transform .2s ease';
-  li.style.transform = '';
-  setTimeout(() => { li.style.transition = ''; li.classList.remove('swiping'); bg?.remove(); }, 220);
-  const id = li.querySelector('[data-action="toggleTask"]')?.dataset.id;
-  if (!id) return;
-  if (dx > 80) { navigator.vibrate?.(15); setTimeout(() => actions.toggleTask({ id }), 180); }
-  else if (dx < -80) { const t = data.tasks.find((x) => x.id === id); if (t) openPopover(li, taskMenuHTML(t)); }
+  const id = swipeTaskId(st.li);
+  const rowW = st.li.offsetWidth;
+  st.li.style.transition = 'transform .25s cubic-bezier(.2,.8,.2,1)';
+  if (st.dx > 80) { swipeClose(st); if (id) { navigator.vibrate?.(15); setTimeout(() => actions.toggleTask({ id }), 200); } return; }
+  if (st.dx < -rowW * 0.6) { swipeClose(st); if (id) setTimeout(() => actions.deleteTask({ id }), 200); return; }
+  if (st.dx < -50) { // offen halten
+    st.dx = -SW_OPEN; swipeRender(st);
+    st.box.style.transition = 'width .25s cubic-bezier(.2,.8,.2,1)';
+    setTimeout(() => { st.li.style.transition = ''; st.box.style.transition = ''; }, 260);
+    swipeOpen = st;
+    return;
+  }
+  swipeClose(st);
 }
 document.addEventListener('pointerup', endSwipe);
 document.addEventListener('pointercancel', endSwipe);
+// Knöpfe neben der offenen Zeile
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.swipe-act');
+  if (!btn) return;
+  e.preventDefault(); e.stopPropagation();
+  const st = swipeOpen || null;
+  const li = st?.li || btn.closest('.swipe-actions')?.nextElementSibling;
+  const id = li && swipeTaskId(li);
+  if (st) swipeClose(st);
+  if (!id) return;
+  if (btn.dataset.sw === 'delete') actions.deleteTask({ id });
+  else if (btn.dataset.sw === 'toggle') actions.toggleTask({ id });
+  else { const t = data.tasks.find((x) => x.id === id); if (t) openPopover(li, taskMenuHTML(t)); }
+}, true);
+window.addEventListener('scroll', () => { if (swipeOpen) swipeClose(swipeOpen); }, { passive: true });
 document.addEventListener('click', (e) => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
 
 /* ------------------------------------------------------------------------

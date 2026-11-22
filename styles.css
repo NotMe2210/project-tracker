@@ -886,15 +886,22 @@ dialog:has(.palette) { width: min(620px, calc(100vw - 32px)); align-self: start;
 
 /* Wischgesten */
 @media (hover: none) { .list > li.task { touch-action: pan-y; } }
-li.task.swiping { position: relative; z-index: 1; }
-.swipe-bg {
-  position: absolute; display: flex; align-items: center; justify-content: center; overflow: hidden; white-space: nowrap;
-  font-weight: 600; font-size: .9rem; border-radius: 14px; pointer-events: none; transition: background-color .15s, color .15s;
+/* wie in iOS: Zeile wird zur abgerundeten Fläche, daneben runde Knöpfe */
+li.task.swiping { position: relative; z-index: 1; border-radius: 18px; background: color-mix(in srgb, var(--text) 7%, transparent); border-bottom-color: transparent !important; }
+.list > li.task.swiping:not(.sel) { margin: 0 -8px; padding-left: 8px; padding-right: 8px; }
+.swipe-actions { position: absolute; display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 0 10px; overflow: hidden; pointer-events: auto; box-sizing: border-box; }
+.swipe-actions.right { justify-content: flex-start; }
+.swipe-act {
+  flex: none; display: grid; place-items: center; border: 0; border-radius: 999px; padding: 0; color: #fff; font: inherit; font-size: 1.2rem; font-weight: 700;
+  cursor: pointer; transition: width .18s cubic-bezier(.2,.8,.2,1), background-color .15s; min-width: 0; overflow: hidden;
 }
-.swipe-bg.right { background: var(--good-soft); color: var(--good); }
-.swipe-bg.left { background: var(--primary-soft); color: var(--primary); }
-.swipe-bg.right.armed { background: var(--good); color: #fff; }
-.swipe-bg.left.armed { background: var(--primary); color: var(--primary-contrast); }
+.swipe-act .ic { width: min(1.25rem, 46%); height: min(1.25rem, 46%); }
+.swipe-act[style*="height:1px"], .swipe-act[style*="height:0px"] { visibility: hidden; }
+.swipe-act.bad { background: #ff3b30; }
+.swipe-act.more { background: color-mix(in srgb, var(--text) 30%, var(--surface)); }
+.swipe-act.good { background: color-mix(in srgb, var(--good) 55%, var(--surface)); }
+.swipe-actions.armed .swipe-act.good { background: var(--good); }
+@media (prefers-reduced-motion: reduce) { .swipe-act { transition: none; } }
 
 /* Projektseite: Umschalter Kacheln/Liste und Listenansicht */
 .toolbar-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
