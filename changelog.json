@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-19",
+      "date": "2026-11-22",
+      "de": [
+        "💾 Einstellungen › Datensicherung aufgeräumt: „Backup exportieren“ und „Backup importieren“ stehen groß oben, CSV und Kalender unter „Weitere Formate“ – je Datenart Exportieren und Importieren nebeneinander",
+        "📅 Termine aus Kalender-Dateien (.ics) importieren – aus Apple, Google oder Outlook als Aufgaben oder Meilensteine. Aus Protrac exportierte Termine werden wiedererkannt: Im Kalender verschobene Termine aktualisieren das Datum in Protrac"
+      ],
+      "en": [
+        "💾 Settings › Backup tidied up: “Export backup” and “Import backup” are large at the top, CSV and calendar under “More formats” – export and import side by side for each kind of data",
+        "📅 Import events from calendar files (.ics) – from Apple, Google or Outlook as tasks or milestones. Events exported from Protrac are recognised: moving them in the calendar updates the date in Protrac"
+      ]
+    },
+    {
       "version": "2026.11.22-18",
       "date": "2026-11-22",
       "de": [
