@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-23",
+      "date": "2026-11-22",
+      "de": [
+        "🔁 Wiederkehrende Zahlungen: Bei einer neuen Investition oder Einnahme „Wiederholen“ wählen (wöchentlich, monatlich, vierteljährlich, jährlich) – Abos, Lizenzen oder Miete werden automatisch gebucht, auch rückwirkend ab dem Startdatum. Im Reiter Finanzen siehst du alle Regeln mit nächster Buchung und kannst sie ändern, beenden oder löschen",
+        "📈 Aktivität (12 Wochen): Umschalter für die Ausrichtung – A automatisch, ▥ Wochen senkrecht, ▤ Wochen waagerecht. Automatisch dreht die Kachel in schmalen Breiten (½, ¼, Smartphone) auf waagerecht, mit Wochentagen als Überschrift"
+      ],
+      "en": [
+        "🔁 Recurring payments: choose “Repeat” for a new investment or income (weekly, monthly, quarterly, yearly) – subscriptions, licences or rent are booked automatically, also retroactively from the start date. The Finances tab lists all rules with the next booking; edit, end or delete them there",
+        "📈 Activity (12 weeks): orientation switch – A automatic, ▥ weeks vertical, ▤ weeks horizontal. Automatic turns the tile horizontal in narrow widths (½, ¼, smartphone), with weekdays as headers"
+      ]
+    },
+    {
       "version": "2026.11.22-22",
       "date": "2026-11-22",
       "de": [

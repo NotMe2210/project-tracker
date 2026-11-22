@@ -1921,3 +1921,20 @@ html.style-glass.proj-tint {
   .csv-import .form-actions > [data-csv="check"], .csv-import .form-actions > [data-csv="import"] { flex: 1 1 100%; order: -1; }
   .csv-import .form-actions > .btn { min-width: 0; }
 }
+
+/* Aktivität (12 Wochen): Wochen senkrecht (Spalten) oder waagerecht (Zeilen) */
+.heat-wrap { container-type: inline-size; }
+.heatmap .hm-wd { display: none; font-style: normal; font-size: .68rem; color: var(--muted); text-align: center; line-height: 1; padding-bottom: 2px; }
+.heat-dir .seg-btn { min-width: 30px; padding: 4px 8px; font-size: .8rem; flex: none; }
+.heatmap.hm-rows { grid-auto-flow: row; grid-template-rows: none; grid-template-columns: repeat(7, minmax(10px, 26px)); grid-auto-columns: unset; justify-content: start; overflow: visible; }
+.heatmap.hm-rows span { width: 100%; height: auto; aspect-ratio: 1; }
+.heatmap.hm-rows .hm-wd { display: block; }
+@container (max-width: 560px) {
+  .heatmap.hm-auto { grid-auto-flow: row; grid-template-rows: none; grid-template-columns: repeat(7, minmax(10px, 26px)); grid-auto-columns: unset; justify-content: start; overflow: visible; }
+  .heatmap.hm-auto span { width: 100%; height: auto; aspect-ratio: 1; }
+  .heatmap.hm-auto .hm-wd { display: block; }
+}
+.heat-dir { flex: none; flex-wrap: nowrap; white-space: nowrap; display: inline-flex; }
+
+/* Wiederkehrende Zahlungen */
+.rec-card .list .amount { white-space: nowrap; }

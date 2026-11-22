@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-22';
+const APP_VERSION = '2026.11.22-23';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -56,6 +56,7 @@ const DEFAULT_DATA = {
   weekFocus: {}, // Wochenfokus { 'YYYY-MM-DD' (Wochenbeginn): [Aufgaben-IDs] }
   templates: [], // eigene Projektvorlagen { id, name, icon, createdAt, bp }
   incomes: [], // Einnahmen { id, projectId, description, amount, date, category }
+  recurring: [], // Wiederkehrende Zahlungen { id, projectId, kind: 'inv'|'income', description, amount, category, interval, start, end, skip: [Datum] }
   people: [], // Personen { id, name, short, color, email, accountId (später: Login-Konto), createdAt }
   teams: [], // Teams { id, name, color, memberIds: [Personen-IDs], createdAt }
   timer: null,
@@ -713,6 +714,7 @@ function render() {
   if (typeof hideTip === 'function') hideTip();
   if (isLocked()) { renderLockScreen(); return; }
   document.body.classList.remove('locked');
+  if (generateRecurring()) save(); // fällige wiederkehrende Zahlungen buchen
   const r = parseRoute();
   const app = $('#app');
   let html;
@@ -1450,7 +1452,7 @@ function renderWidget(id, c, cfg) {
     }
 
     case 'activity':
-      return card(tr('📈 Aktivität (12 Wochen)'), heatmap(dayMap()));
+      return card(tr('📈 Aktivität (12 Wochen)'), heatmap(dayMap()), heatDirSwitch());
 
     case 'weekChart':
       return card(`📊 ${chartTitle()}`, stackedWeekBars(), periodSwitch());
@@ -1626,6 +1628,14 @@ function dayTip(iso, d, items) {
     + (items.length > max ? `<span class="tip-sub">${tr('… und {n} weitere', { n: items.length - max })}</span>` : '');
 }
 
+/* Aktivität: Wochen als Spalten (senkrecht) oder als Zeilen (waagerecht); „auto“ dreht in schmalen Kacheln */
+const HEAT_KEY = 'projekttracker.ui.heatDir';
+let heatDir = (() => { try { const v = localStorage.getItem(HEAT_KEY); return ['auto', 'cols', 'rows'].includes(v) ? v : 'auto'; } catch { return 'auto'; } })();
+const heatDirSwitch = () => `<span class="segmented heat-dir" role="group" aria-label="${tr('Ausrichtung der Wochen')}">${[
+  ['auto', 'A', tr('Automatisch – in schmalen Kacheln waagerecht')],
+  ['cols', '▥', tr('Wochen senkrecht (Spalten)')],
+  ['rows', '▤', tr('Wochen waagerecht (Zeilen)')]].map(([v, l, t]) =>
+  `<button type="button" class="seg-btn ${heatDir === v ? 'active' : ''}" data-action="setHeatDir" data-dir="${v}" title="${esc(t)}" aria-label="${esc(t)}" aria-pressed="${heatDir === v}">${l}</button>`).join('')}</span>`;
 function heatmap(map) {
   const today = todayISO();
   const start = addDays(startOfWeek(new Date()), -11 * 7);
@@ -1641,7 +1651,9 @@ function heatmap(map) {
     cells.push(`<span class="l${lvl}${iso === today ? ' today' : ''}" aria-label="${esc(label)}" tabindex="-1" data-detail="day:${iso}" data-tip="${esc(dayTip(iso, d, details[iso]))}"></span>`);
   }
   const active = Object.keys(map).filter((k) => k >= toISO(start) && k <= today).length;
-  return `<div class="heatmap">${cells.join('')}</div>
+  // Wochentage als Überschrift (nur sichtbar, wenn die Wochen waagerecht als Zeilen laufen)
+  const wd = Array.from({ length: 7 }, (_, i) => `<i class="hm-wd" aria-hidden="true">${esc(addDays(startOfWeek(new Date()), i).toLocaleDateString(LOCALE, { weekday: 'narrow' }))}</i>`).join('');
+  return `<div class="heat-wrap"><div class="heatmap hm-${heatDir}">${wd}${cells.join('')}</div></div>
     <div class="legend">${tr('weniger')} <span style="background:var(--heat-0)"></span><span style="background:var(--heat-1)"></span><span style="background:var(--heat-2)"></span><span style="background:var(--heat-3)"></span><span style="background:var(--heat-4)"></span> ${tr('mehr')}
     <span style="flex:1"></span>${tr('{n} aktive Tage', { n: active })}</div>
     <div class="small muted heat-hint">${matchMedia('(hover: none)').matches ? tr('Tipp: Tippe auf einen Tag, um seine Aktivitäten zu sehen.') : tr('Tipp: Fahre auf einen Tag, um seine Aktivitäten zu sehen.')}</div>`;
@@ -2372,6 +2384,7 @@ function projectInvestments(p) {
     ${tile(tr('Pro Stunde'), hours >= 0.5 ? fmtEUR(profit / hours) : '–', hours >= 0.5 ? tr('Ergebnis ÷ {h}', { h: fmtHours(hours * 60) }) : tr('noch zu wenig Zeit erfasst'), profit > 0 ? 'pos' : profit < 0 ? 'neg' : '')}
   </div>
   ${total && income < total && income > 0 ? `<div class="card"><div class="row-between small"><span>${tr('Bis zur Gewinnschwelle')}</span><span>${fmtEUR(total - income)}</span></div>${progressBar((income / total) * 100)}</div>` : ''}
+  ${recurringCard(p)}
   <div class="grid-2">
     <section class="card">
       <div class="card-head"><h2>💰 ${tr('Einnahmen')} · ${fmtEUR(income)}</h2><button class="btn primary small" data-action="addIncome" data-id="${p.id}">${tr('+ Einnahme')}</button></div>
@@ -2407,7 +2420,7 @@ function investmentMonths(pid, items, kind = 'inv') {
         <span class="amount">${fmtEUR(sum(list, (e) => e.amount))}</span></summary>
       <ul class="list">${list.map((e) => `
         <li>
-          <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || tr('Sonstiges'))}</span></div></div>
+          <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || tr('Sonstiges'))}</span>${e.recurringId ? ` <span class="badge" title="${tr('Wiederkehrende Zahlung')}">🔁</span>` : ''}</div></div>
           <span class="amount ${inc ? 'pos' : ''}">${inc ? '+' : ''}${fmtEUR(e.amount)}</span>
           <div class="actions">
             <button class="btn ghost icon" data-action="${inc ? 'editIncome' : 'editInvestment'}" data-id="${e.id}" title="${tr('Bearbeiten')}">✎</button>
@@ -3331,7 +3344,7 @@ const actions = {
     const p = getProject(id);
     if (!confirm(tr('Projekt „{name}“ inklusive aller Zeiten, Investitionen, Aufgaben und Meilensteine löschen?', { name: p.name }))) return;
     data.projects = data.projects.filter((x) => x.id !== id);
-    for (const k of ['timeEntries', 'investments', 'incomes', 'milestones', 'tasks', 'notes', 'docs']) data[k] = (data[k] || []).filter((x) => x.projectId !== id);
+    for (const k of ['timeEntries', 'investments', 'incomes', 'recurring', 'milestones', 'tasks', 'notes', 'docs']) data[k] = (data[k] || []).filter((x) => x.projectId !== id);
     if (data.timer?.projectId === id) data.timer = null;
     save();
     location.hash = '#/projekte';
@@ -3540,12 +3553,14 @@ const actions = {
   editIncome({ id }) { incomeForm(data.incomes.find((e) => e.id === id)); },
   deleteIncome({ id }) {
     if (!confirm(tr('Einnahme löschen?'))) return;
+    recSkip(data.incomes.find((e) => e.id === id));
     data.incomes = data.incomes.filter((e) => e.id !== id);
     commit();
   },
   editInvestment({ id }) { investmentForm(data.investments.find((e) => e.id === id)); },
   deleteInvestment({ id }) {
     if (!confirm(tr('Investition löschen?'))) return;
+    recSkip(data.investments.find((e) => e.id === id));
     data.investments = data.investments.filter((e) => e.id !== id);
     commit();
   },
@@ -3861,22 +3876,154 @@ function timeForm(e, { fromTimer = false } = {}) {
   }
 }
 
+/* ---- Wiederkehrende Zahlungen (Abos, Lizenzen, Miete …) ----
+   Eine Regel bucht an jedem Fälligkeitstag eine normale Investition bzw. Einnahme – auch rückwirkend ab dem Start.
+   Die Buchungen haben feste IDs (rec-<Regel>-<Datum>): So entsteht beim Zusammenführen zweier Geräte nichts doppelt.
+   Gelöschte Buchungen merkt sich die Regel (skip) und legt sie nicht erneut an. */
+const REC_INTERVALS = [
+  { value: 'weekly', get label() { return tr('wöchentlich'); } },
+  { value: 'monthly', get label() { return tr('monatlich'); } },
+  { value: 'quarterly', get label() { return tr('vierteljährlich'); } },
+  { value: 'yearly', get label() { return tr('jährlich'); } },
+];
+const recIntervalLabel = (v) => REC_INTERVALS.find((x) => x.value === v)?.label || '';
+/** n-ter Termin einer Regel (immer vom Start aus gerechnet – so wandert der 31. nicht auf den 28.) */
+function recDate(rule, n) {
+  if (rule.interval === 'weekly') return toISO(addDays(parseISO(rule.start), 7 * n));
+  return addMonthsISO(rule.start, n * ({ monthly: 1, quarterly: 3, yearly: 12 }[rule.interval] || 1));
+}
+function recNextDate(rule, after = todayISO()) {
+  for (let n = 0; n < 2000; n++) { const d = recDate(rule, n); if (rule.end && d > rule.end) return null; if (d > after) return d; }
+  return null;
+}
+function generateRecurring() {
+  const rules = data.recurring || [];
+  if (!rules.length) return false;
+  const today = todayISO();
+  let changed = false;
+  for (const rule of rules) {
+    if (!getProject(rule.projectId) || !rule.start) continue;
+    const list = rule.kind === 'income' ? (data.incomes ||= []) : data.investments;
+    const have = new Set(list.filter((e) => e.recurringId === rule.id).map((e) => e.date));
+    const skip = new Set(rule.skip || []);
+    for (let n = 0; n < 2000; n++) {
+      const date = recDate(rule, n);
+      if (date > today || (rule.end && date > rule.end)) break;
+      if (have.has(date) || skip.has(date)) continue;
+      list.push({ id: `rec-${rule.id}-${date}`, projectId: rule.projectId, description: rule.description, amount: rule.amount, date, category: rule.category || '', recurringId: rule.id });
+      changed = true;
+    }
+  }
+  return changed;
+}
+const recRepeatField = (value = '') => ({ name: 'repeat', label: tr('Wiederholen'), type: 'select', value, half: true,
+  options: [{ value: '', label: tr('– einmalig –') }, ...REC_INTERVALS.map((x) => ({ value: x.value, label: x.label }))],
+  hint: tr('z. B. Abo oder Lizenz – wird automatisch gebucht') });
+const recEndField = (value = '') => ({ name: 'end', label: tr('Endet am'), type: 'date', value, half: true, hint: tr('optional – leer = läuft weiter') });
+/** Nach dem Speichern eines neuen Eintrags mit „Wiederholen“: Regel anlegen und bis heute buchen */
+function createRecurring(kind, projectId, v) {
+  data.recurring ||= [];
+  const rule = { id: uid(), projectId, kind, description: v.description, amount: v.amount, category: v.category || '', interval: v.repeat, start: v.date, end: v.end || null, skip: [] };
+  data.recurring.push(rule);
+  generateRecurring();
+  const n = (kind === 'income' ? data.incomes : data.investments).filter((e) => e.recurringId === rule.id).length;
+  const next = recNextDate(rule);
+  toast(tr('🔁 Wiederkehrend angelegt ({interval}) – {n} bis heute gebucht{next}.', { interval: recIntervalLabel(rule.interval), n, next: next ? tr(', nächste am {date}', { date: fmtDate(next) }) : '' }));
+}
+function recurringForm(rule) {
+  const inc = rule.kind === 'income';
+  openForm({
+    title: tr('Wiederkehrende Zahlung bearbeiten'),
+    fields: [
+      { name: 'description', label: inc ? tr('Woher?') : tr('Wofür?'), required: true, value: rule.description },
+      { name: 'amount', label: tr('Betrag (€)'), type: 'decimal', required: true, value: decimalValue(rule.amount), half: true },
+      { name: 'interval', label: tr('Wiederholen'), type: 'select', value: rule.interval, half: true, options: REC_INTERVALS.map((x) => ({ value: x.value, label: x.label })) },
+      { name: 'category', label: tr('Kategorie'), value: rule.category || '', chips: inc ? [] : investmentCategories() },
+      recEndField(rule.end || ''),
+    ],
+    onSubmit(v) {
+      if (v.amount == null) return tr('Bitte einen Betrag angeben.');
+      if (v.end && v.end < rule.start) return tr('Das Ende liegt vor dem Start ({date}).', { date: fmtDate(rule.start) });
+      Object.assign(rule, { description: v.description, amount: v.amount, interval: v.interval, category: inc ? (v.category || '').trim() : normalizeCategory(v.category), end: v.end || null });
+      commit();
+      toast(tr('🔁 Gespeichert – gilt für alle künftigen Buchungen.'));
+    },
+  });
+}
+function recurringCard(p) {
+  const rules = (data.recurring || []).filter((r) => r.projectId === p.id);
+  if (!rules.length) return '';
+  const today = todayISO();
+  const monthly = (r) => r.amount * ({ weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 }[r.interval] || 1);
+  const active = rules.filter((r) => !r.end || r.end >= today);
+  const perMonth = sum(active.filter((r) => r.kind !== 'income'), monthly) - sum(active.filter((r) => r.kind === 'income'), monthly);
+  return `<section class="card rec-card">
+    <div class="card-head"><h2>🔁 ${tr('Wiederkehrende Zahlungen')}</h2>
+      ${perMonth ? `<span class="small muted">${tr('≈ {amount} pro Monat', { amount: fmtEUR(Math.abs(perMonth)) })}${perMonth < 0 ? ` (${tr('Einnahmen')})` : ''}</span>` : ''}</div>
+    <ul class="list">${rules.map((r) => {
+      const next = recNextDate(r), ended = r.end && r.end < today;
+      return `<li class="${ended ? 'done' : ''}">
+        <div class="grow"><div class="title">${esc(r.description)}</div>
+          <div class="meta"><span class="badge">${r.kind === 'income' ? `💰 ${tr('Einnahme')}` : `💶 ${tr('Investition')}`}</span><span>🔁 ${esc(recIntervalLabel(r.interval))}</span>
+            ${ended ? `<span>${tr('beendet am {date}', { date: fmtDate(r.end) })}</span>` : next ? `<span>${tr('nächste am {date}', { date: fmtDate(next) })}</span>` : ''}
+            ${r.end && !ended ? `<span>${tr('bis {date}', { date: fmtDate(r.end) })}</span>` : ''}</div></div>
+        <span class="amount ${r.kind === 'income' ? 'pos' : ''}">${r.kind === 'income' ? '+' : ''}${fmtEUR(r.amount)}</span>
+        <div class="actions">
+          <button class="btn ghost icon" data-action="editRecurring" data-id="${r.id}" title="${tr('Bearbeiten')}">✎</button>
+          ${ended ? '' : `<button class="btn ghost icon" data-action="endRecurring" data-id="${r.id}" title="${tr('Ab heute beenden')}">⏹️</button>`}
+          <button class="btn ghost icon danger" data-action="deleteRecurring" data-id="${r.id}" title="${tr('Löschen')}">🗑</button>
+        </div></li>`;
+    }).join('')}</ul>
+  </section>`;
+}
+Object.assign(actions, {
+  setHeatDir({ dir }) {
+    heatDir = dir;
+    try { localStorage.setItem(HEAT_KEY, dir); } catch {}
+    document.querySelectorAll('.heatmap').forEach((h) => { h.classList.remove('hm-auto', 'hm-cols', 'hm-rows'); h.classList.add(`hm-${dir}`); });
+    document.querySelectorAll('.heat-dir .seg-btn').forEach((b) => { b.classList.toggle('active', b.dataset.dir === dir); b.setAttribute('aria-pressed', b.dataset.dir === dir); });
+  },
+});
+Object.assign(actions, {
+  editRecurring({ id }) { const r = (data.recurring || []).find((x) => x.id === id); if (r) recurringForm(r); },
+  endRecurring({ id }) {
+    const r = (data.recurring || []).find((x) => x.id === id);
+    if (!r || !confirm(tr('„{name}“ ab heute nicht mehr buchen? Bisherige Buchungen bleiben erhalten.', { name: r.description }))) return;
+    r.end = todayISO() < r.start ? r.start : todayISO();
+    commit();
+  },
+  deleteRecurring({ id }) {
+    const r = (data.recurring || []).find((x) => x.id === id);
+    if (!r || !confirm(tr('Wiederkehrende Zahlung „{name}“ löschen? Bisherige Buchungen bleiben als einzelne Einträge erhalten.', { name: r.description }))) return;
+    data.recurring = data.recurring.filter((x) => x.id !== id);
+    for (const list of [data.investments, data.incomes || []]) list.forEach((e) => { if (e.recurringId === id) delete e.recurringId; });
+    commit();
+  },
+});
+/** Buchung aus einer Regel gelöscht: nicht erneut anlegen */
+const recSkip = (e) => { const r = e?.recurringId && (data.recurring || []).find((x) => x.id === e.recurringId); if (r) (r.skip ||= []).push(e.date); };
+const recHint = (e) => (e?.recurringId && (data.recurring || []).some((x) => x.id === e.recurringId)
+  ? tr('🔁 Teil einer wiederkehrenden Zahlung – Änderungen gelten nur für diese Buchung. Die Regel selbst änderst du unter „Wiederkehrende Zahlungen“.') : '');
+
 function investmentForm(e) {
   const isNew = !e.id;
   openForm({
     title: isNew ? tr('Investition erfassen') : tr('Investition bearbeiten'),
     fields: [
-      { name: 'description', label: tr('Wofür?'), required: true, value: e.description },
+      { name: 'description', label: tr('Wofür?'), required: true, value: e.description, hint: recHint(e) },
       { name: 'amount', label: tr('Betrag (€)'), type: 'decimal', required: true, value: e.amount != null ? decimalValue(e.amount) : '', placeholder: `49${DEC()}99`, half: true },
       { name: 'date', label: tr('Datum'), type: 'date', required: true, value: e.date || todayISO(), half: true },
       { name: 'category', label: tr('Kategorie'), value: e.category || '', chips: investmentCategories(),
         placeholder: tr('z. B. Werkzeug, Messe …'), hint: tr('Eigenen Namen eintippen oder einen Vorschlag antippen. Leer = „Sonstiges“.') },
+      ...(isNew ? [recRepeatField(), recEndField()] : []),
     ],
     onSubmit(v) {
       if (v.amount == null) return tr('Bitte einen Betrag angeben.');
       v.category = normalizeCategory(v.category);
-      if (isNew) data.investments.push({ id: uid(), projectId: e.projectId, ...v });
-      else Object.assign(e, v);
+      const { repeat, end, ...entry } = v;
+      if (repeat) { if (end && end < v.date) return tr('Das Ende liegt vor dem Start ({date}).', { date: fmtDate(v.date) }); createRecurring('inv', e.projectId, v); commit(); return; }
+      if (isNew) data.investments.push({ id: uid(), projectId: e.projectId, ...entry });
+      else Object.assign(e, entry);
       commit();
     },
   });
@@ -3888,17 +4035,20 @@ function incomeForm(e) {
   openForm({
     title: isNew ? tr('Einnahme erfassen') : tr('Einnahme bearbeiten'),
     fields: [
-      { name: 'description', label: tr('Woher?'), required: true, value: e.description, placeholder: tr('z. B. Verkauf auf dem Markt, Kundenauftrag …') },
+      { name: 'description', label: tr('Woher?'), required: true, value: e.description, placeholder: tr('z. B. Verkauf auf dem Markt, Kundenauftrag …'), hint: recHint(e) },
       { name: 'amount', label: tr('Betrag (€)'), type: 'decimal', required: true, value: e.amount != null ? decimalValue(e.amount) : '', placeholder: `120${DEC()}00`, half: true },
       { name: 'date', label: tr('Datum'), type: 'date', required: true, value: e.date || todayISO(), half: true },
       { name: 'category', label: tr('Kategorie'), value: e.category || '', chips: cats, placeholder: tr('Verkauf'), hint: tr('Eigenen Namen eintippen oder einen Vorschlag antippen. Leer = „Sonstiges“.') },
+      ...(isNew ? [{ ...recRepeatField(), hint: tr('z. B. Abo-Einnahmen, Miete – wird automatisch gebucht') }, recEndField()] : []),
     ],
     onSubmit(v) {
       if (v.amount == null) return tr('Bitte einen Betrag angeben.');
       v.category = (v.category || '').trim();
       data.incomes ||= [];
-      if (isNew) data.incomes.push({ id: uid(), projectId: e.projectId, ...v });
-      else Object.assign(e, v);
+      const { repeat, end, ...entry } = v;
+      if (repeat) { if (end && end < v.date) return tr('Das Ende liegt vor dem Start ({date}).', { date: fmtDate(v.date) }); createRecurring('income', e.projectId, v); commit(); return; }
+      if (isNew) data.incomes.push({ id: uid(), projectId: e.projectId, ...entry });
+      else Object.assign(e, entry);
       commit();
       if (isNew) toast(tr('💰 {amount} verbucht – stark!', { amount: fmtEUR(v.amount) }));
     },
