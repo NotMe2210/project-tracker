@@ -2,6 +2,86 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-18",
+      "date": "2026-11-22",
+      "de": [
+        "🏁 Meilensteine bedienst du jetzt wie Aufgaben: antippen zeigt große Knöpfe (bei eigener Reihenfolge mit ↑ ↓), doppelt antippen bearbeitet, wischen wie in iOS",
+        "🏁 Meilensteine: runder „+“-Knopf und kompakter Umschalter für die Reihenfolge (📅 nach Zieldatum · ⇅ eigene Reihenfolge) im Kartenkopf",
+        "⬇⬆ Aufgaben & Meilensteine als CSV exportieren und importieren – im ⋯-Menü des Projekts und unter Einstellungen › Datensicherung. Meilenstein-Zuordnung, Vorgänger, Unterpunkte, Status und Aufwand bleiben erhalten; Gleichnamiges wird auf Wunsch übersprungen"
+      ],
+      "en": [
+        "🏁 Milestones now work like tasks: tap shows large buttons (with ↑ ↓ for custom order), double-tap edits, swipe like in iOS",
+        "🏁 Milestones: round “+” button and a compact order switch (📅 by target date · ⇅ custom order) in the card header",
+        "⬇⬆ Export and import tasks & milestones as CSV – in the project’s ⋯ menu and under Settings › Backup. Milestone links, predecessors, subtasks, status and effort are kept; entries with the same title can be skipped"
+      ]
+    },
+    {
+      "version": "2026.11.22-17",
+      "date": "2026-11-22",
+      "de": [
+        "📱 Die Knöpfe einer ausgewählten Aufgabe (⏱️ 📎 ⚙️ 🗑) stehen jetzt mittig in der Karte",
+        "➕ Neue Aufgaben legst du über einen runden „+“-Knopf an statt über „+ Aufgabe“"
+      ],
+      "en": [
+        "📱 The buttons of a selected task (⏱️ 📎 ⚙️ 🗑) are now centred in the card",
+        "➕ New tasks are added with a round “+” button instead of “+ Task”"
+      ]
+    },
+    {
+      "version": "2026.11.22-16",
+      "date": "2026-11-22",
+      "de": [
+        "👆 Ausgewählte Aufgaben lassen sich nicht mehr wischen – ihre Knöpfe (⏱️ 📎 ⚙️ 🗑) stehen ja schon in der Zeile"
+      ],
+      "en": [
+        "👆 Selected tasks no longer react to swiping – their buttons (⏱️ 📎 ⚙️ 🗑) are already shown in the row"
+      ]
+    },
+    {
+      "version": "2026.11.22-15",
+      "date": "2026-11-22",
+      "de": [
+        "👆 Wischen über Aufgaben: Die Zeile ist beim Wischen eine deckende, einfarbige Fläche – auch bei ausgewählten Aufgaben – und endet am Rand der Karte"
+      ],
+      "en": [
+        "👆 Swiping tasks: while swiping, the row is a solid single-colour card – also for selected tasks – and ends at the card's edge"
+      ]
+    },
+    {
+      "version": "2026.11.22-14",
+      "date": "2026-11-22",
+      "de": [
+        "👆 Wischen über Aufgaben wie in iOS: Die Zeile wird zur abgerundeten Fläche, daneben wachsen runde Knöpfe. Nach links: ⋯ Optionen und 🗑 Löschen – loslassen hält die Zeile offen, ein langer Wisch löscht (mit Rückfrage). Nach rechts: ✓ Erledigt"
+      ],
+      "en": [
+        "👆 Swiping tasks like in iOS: the row becomes a rounded card with round buttons growing beside it. Left: ⋯ Options and 🗑 Delete – release keeps the row open, a long swipe deletes (with confirmation). Right: ✓ Done"
+      ]
+    },
+    {
+      "version": "2026.11.22-13",
+      "date": "2026-11-22",
+      "de": [
+        "👆 Wischen über Aufgaben: Die Farbfläche (✓ Erledigt bzw. ⋯ Optionen) füllt nur noch den frei werdenden Streifen und scheint nicht mehr durch die Aufgabe hindurch",
+        "🫧 Stil „Glas“ auf dem Smartphone: Über geöffneten Eingabefenstern schimmert der farbige Glas-Hintergrund statt eines dunklen Balkens"
+      ],
+      "en": [
+        "👆 Swiping tasks: the colour area (✓ Done or ⋯ Options) only fills the strip being revealed and no longer shows through the task",
+        "🫧 “Glass” style on smartphones: above open input windows the colourful glass background shows instead of a dark bar"
+      ]
+    },
+    {
+      "version": "2026.11.22-12",
+      "date": "2026-11-22",
+      "de": [
+        "🐞 Stil „Glas“: Hintergrund reicht jetzt bis zum unteren Fensterrand, auch auf kurzen Seiten",
+        "🐞 Stil „Glas“ auf dem Smartphone: Sicherungs-Hinweis nicht mehr unnötig hoch"
+      ],
+      "en": [
+        "🐞 “Glass” style: the background now reaches the bottom of the window, even on short pages",
+        "🐞 “Glass” style on smartphones: backup notice no longer needlessly tall"
+      ]
+    },
+    {
       "version": "2026.11.22-11",
       "date": "2026-11-22",
       "de": [
