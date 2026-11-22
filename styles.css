@@ -1488,3 +1488,149 @@ button.badge.kb-subs-toggle { border: 0; font: inherit; font-size: inherit; curs
 .kb-sub.done .kb-sub-text { text-decoration: line-through; color: var(--muted); }
 .kb-sub-text { overflow-wrap: anywhere; }
 .kb-sub.add { color: var(--muted); font-size: .8rem; }
+
+/* ==========================================================================
+   Stil „Glas“ (angelehnt an Apples Liquid Glass) – nur mit html.style-glass.
+   Transparenz über --lg-a* (aus Einstellungen › Darstellung, gesetzt in applyTheme).
+   ========================================================================== */
+html.style-glass {
+  --radius: 22px;
+  --lg-glass: rgb(255 255 255 / var(--lg-a, .56));
+  --lg-glass-strong: rgb(255 255 255 / var(--lg-as, .76));
+  --lg-glass-soft: rgb(255 255 255 / var(--lg-ao, .34));
+  --lg-edge: rgba(255, 255, 255, .75);
+  --lg-edge-dim: rgba(255, 255, 255, .3);
+  --lg-line: rgba(255, 255, 255, .55);
+  --lg-shadow: 0 10px 34px rgba(31, 38, 80, .14), 0 2px 6px rgba(31, 38, 80, .06);
+  --lg-sheen: linear-gradient(155deg, rgba(255, 255, 255, .55) 0%, rgba(255, 255, 255, .08) 32%, rgba(255, 255, 255, 0) 60%);
+  --lg-blur: blur(26px) saturate(185%);
+  --lg-page: #eef1f8;
+  --lg-bg:
+    radial-gradient(60vmax 50vmax at 8% 0%, rgba(var(--primary-rgb), .34), transparent 60%),
+    radial-gradient(55vmax 45vmax at 100% 10%, rgba(255, 170, 120, .45), transparent 62%),
+    radial-gradient(60vmax 55vmax at 85% 100%, rgba(80, 200, 220, .38), transparent 60%),
+    radial-gradient(50vmax 45vmax at 0% 100%, rgba(255, 120, 190, .3), transparent 60%);
+  --surface-2: rgb(255 255 255 / var(--lg-ao, .34));
+  --border: rgba(255, 255, 255, .6);
+  --shadow: var(--lg-shadow);
+}
+@media (prefers-color-scheme: dark) {
+  html.style-glass:not([data-theme="light"]) {
+    --lg-glass: rgb(34 38 52 / var(--lg-ad, .5));
+    --lg-glass-strong: rgb(40 45 62 / var(--lg-ads, .74));
+    --lg-glass-soft: rgb(255 255 255 / .06);
+    --lg-edge: rgba(255, 255, 255, .22); --lg-edge-dim: rgba(255, 255, 255, .07); --lg-line: rgba(255, 255, 255, .12);
+    --lg-shadow: 0 12px 38px rgba(0, 0, 0, .45), 0 2px 6px rgba(0, 0, 0, .3);
+    --lg-sheen: linear-gradient(155deg, rgba(255, 255, 255, .14) 0%, rgba(255, 255, 255, .03) 30%, rgba(255, 255, 255, 0) 60%);
+    --lg-page: #0b0d14;
+    --lg-bg:
+      radial-gradient(60vmax 50vmax at 8% 0%, rgba(var(--primary-rgb), .4), transparent 60%),
+      radial-gradient(55vmax 45vmax at 100% 15%, rgba(255, 120, 60, .28), transparent 62%),
+      radial-gradient(60vmax 55vmax at 85% 100%, rgba(30, 160, 200, .3), transparent 60%),
+      radial-gradient(50vmax 45vmax at 0% 100%, rgba(200, 60, 160, .25), transparent 60%);
+    --surface-2: rgba(255, 255, 255, .07); --border: rgba(255, 255, 255, .12);
+  }
+}
+html.style-glass[data-theme="dark"] {
+  --lg-glass: rgb(34 38 52 / var(--lg-ad, .5));
+  --lg-glass-strong: rgb(40 45 62 / var(--lg-ads, .74));
+  --lg-glass-soft: rgb(255 255 255 / .06);
+  --lg-edge: rgba(255, 255, 255, .22); --lg-edge-dim: rgba(255, 255, 255, .07); --lg-line: rgba(255, 255, 255, .12);
+  --lg-shadow: 0 12px 38px rgba(0, 0, 0, .45), 0 2px 6px rgba(0, 0, 0, .3);
+  --lg-sheen: linear-gradient(155deg, rgba(255, 255, 255, .14) 0%, rgba(255, 255, 255, .03) 30%, rgba(255, 255, 255, 0) 60%);
+  --lg-page: #0b0d14;
+  --lg-bg:
+    radial-gradient(60vmax 50vmax at 8% 0%, rgba(var(--primary-rgb), .4), transparent 60%),
+    radial-gradient(55vmax 45vmax at 100% 15%, rgba(255, 120, 60, .28), transparent 62%),
+    radial-gradient(60vmax 55vmax at 85% 100%, rgba(30, 160, 200, .3), transparent 60%),
+    radial-gradient(50vmax 45vmax at 0% 100%, rgba(200, 60, 160, .25), transparent 60%);
+  --surface-2: rgba(255, 255, 255, .07); --border: rgba(255, 255, 255, .12);
+}
+/* Gerät verlangt weniger Transparenz → deckendes Glas */
+@media (prefers-reduced-transparency: reduce) {
+  html.style-glass { --lg-a: .94 !important; --lg-as: .97 !important; --lg-ao: .7 !important; --lg-ad: .94 !important; --lg-ads: .97 !important; }
+}
+
+html.style-glass, html.style-glass body { background-color: var(--lg-page); }
+html.style-glass body { background: var(--lg-bg), var(--lg-page); background-attachment: fixed; }
+
+html.style-glass :is(.card, .stat, .project-card, .kb-card, .popover, dialog, .backup-bar, .toast, .timer-indicator, .segmented, .chip,
+  .btn:not(.primary):not(.ghost), .badge, .side-toggle, .cmd-btn, .mp-box, .mp-list, .form input, .form select, .form textarea, .inline-select, .layout-intro, .banner) {
+  background-color: var(--lg-glass);
+  background-image: var(--lg-sheen);
+  -webkit-backdrop-filter: var(--lg-blur);
+  backdrop-filter: var(--lg-blur);
+  border: 1px solid var(--lg-edge-dim);
+  box-shadow: inset 0 1px 0 var(--lg-edge), inset 0 -1px 0 var(--lg-edge-dim), var(--lg-shadow);
+}
+html.style-glass :is(.card, .stat, .project-card, .layout-intro, .banner) { border-radius: 26px; }
+html.style-glass .stat { padding: 16px 18px; }
+html.style-glass .kb-card { border-radius: 18px; box-shadow: inset 0 1px 0 var(--lg-edge), 0 4px 14px rgba(31, 38, 80, .1); }
+html.style-glass .kb-col { background: var(--lg-glass-soft); border: 1px solid var(--lg-edge-dim); border-radius: 26px; -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+html.style-glass .list > li { border-color: var(--lg-line); }
+html.style-glass .badge { border: 0; background-color: var(--lg-glass-soft); box-shadow: inset 0 1px 0 var(--lg-edge); }
+html.style-glass .badge.hoch, html.style-glass .badge.overdue { background-color: rgba(239, 68, 68, .16); }
+html.style-glass .badge.mittel { background-color: rgba(245, 158, 11, .16); }
+html.style-glass .badge.aktiv { background-color: rgba(34, 197, 94, .16); }
+html.style-glass .toast { color: var(--text); }
+
+html.style-glass :is(.btn, .chip, .seg-btn, .segmented label, .side-toggle) { border-radius: 999px; }
+html.style-glass .btn { padding-left: 16px; padding-right: 16px; }
+html.style-glass .btn.icon { padding-left: 8px; padding-right: 8px; }
+html.style-glass .btn.primary {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 82%, white) 0%, var(--primary) 55%, color-mix(in srgb, var(--primary) 88%, black) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary) 70%, white);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), 0 6px 18px rgba(var(--primary-rgb), .38);
+}
+html.style-glass .segmented { border-radius: 999px; padding: 4px; }
+html.style-glass :is(.seg-btn.active, .segmented label:has(input:checked)) {
+  background: var(--lg-glass-strong); color: var(--text);
+  box-shadow: inset 0 1px 0 var(--lg-edge), 0 3px 10px rgba(31, 38, 80, .16);
+}
+html.style-glass .chip.active { background: rgba(var(--primary-rgb), .85); color: var(--primary-contrast); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), 0 4px 12px rgba(var(--primary-rgb), .3); }
+
+html.style-glass .progress { height: 10px; background: var(--lg-glass-soft); box-shadow: inset 0 1px 2px rgba(0, 0, 0, .12); }
+html.style-glass .progress > span { background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 70%, white), var(--primary)); box-shadow: 0 0 10px rgba(var(--primary-rgb), .5); border-radius: 999px; }
+html.style-glass .progress.good > span { background: linear-gradient(180deg, #6ee7a0, #16a34a); box-shadow: 0 0 10px rgba(22, 163, 74, .45); }
+
+html.style-glass :is(.form input, .form select, .form textarea) { border-radius: 14px; }
+html.style-glass .form .mp .mp-input { background: transparent; box-shadow: none; border: 0; -webkit-backdrop-filter: none; backdrop-filter: none; }
+html.style-glass dialog { border-radius: 30px; background-color: var(--lg-glass-strong); }
+html.style-glass dialog::backdrop { background: rgba(20, 24, 40, .18); -webkit-backdrop-filter: blur(6px) saturate(140%); backdrop-filter: blur(6px) saturate(140%); }
+html.style-glass .popover { border-radius: 22px; background-color: var(--lg-glass-strong); }
+
+/* Kopf- bzw. Seitenleiste: Glas als eigene Ebene – ein backdrop-filter direkt auf der Leiste
+   würde die darin fixierten Elemente (Tab-Leiste, Timer) an die Leiste binden */
+html.style-glass .topbar { background: transparent; border: 0; box-shadow: none; isolation: isolate; }
+html.style-glass .topbar::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none;
+  background-color: var(--lg-glass); background-image: var(--lg-sheen);
+  -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur);
+  border: 1px solid var(--lg-edge-dim);
+  box-shadow: inset 0 1px 0 var(--lg-edge), inset 0 -1px 0 var(--lg-edge-dim), var(--lg-shadow);
+}
+@media (min-width: 1024px) {
+  html.style-glass body { padding-left: calc(var(--side-w) + 20px); }
+  html.style-glass .topbar { top: 14px; bottom: 14px; left: 14px; border-radius: 30px; }
+  html.style-glass .nav a { border-radius: 999px; }
+  html.style-glass .nav a.active { background: var(--lg-glass-strong); color: var(--text); box-shadow: inset 0 1px 0 var(--lg-edge), 0 4px 14px rgba(31, 38, 80, .14); }
+  html.style-glass .backup-bar { margin: 14px 14px 0 0; border-radius: 22px; }
+}
+@media (max-width: 640px) {
+  html.style-glass .topbar { margin: 8px 10px 0; border-radius: 26px; top: 8px; }
+  html.style-glass .nav {
+    left: 14px; right: 14px; bottom: calc(10px + env(safe-area-inset-bottom));
+    border-radius: 34px; padding: 6px;
+    background-color: var(--lg-glass-strong); background-image: var(--lg-sheen);
+    -webkit-backdrop-filter: blur(34px) saturate(190%); backdrop-filter: blur(34px) saturate(190%);
+    border: 1px solid var(--lg-edge-dim); box-shadow: inset 0 1px 0 var(--lg-edge), var(--lg-shadow);
+  }
+  html.style-glass .nav a { border-radius: 26px; }
+  html.style-glass .nav a.active { background: var(--lg-glass-strong); box-shadow: inset 0 1px 0 var(--lg-edge), 0 3px 10px rgba(31, 38, 80, .16); }
+  html.style-glass .timer-indicator { background-color: var(--lg-glass-strong); border-radius: 26px; -webkit-backdrop-filter: blur(34px) saturate(190%); backdrop-filter: blur(34px) saturate(190%); }
+  html.style-glass .backup-bar { margin: 8px 10px 0; border-radius: 20px; }
+  html.style-glass dialog { border-radius: 0; }
+}
+/* Einstellungen: Transparenz-Regler */
+.glass-range { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; max-width: 420px; }
+.glass-range input { width: 100%; accent-color: var(--primary); }

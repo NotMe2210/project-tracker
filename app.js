@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-5';
+const APP_VERSION = '2026.11.22-6';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -24,6 +24,8 @@ const DEFAULT_DATA = {
     reminderShowNext: true,
     theme: 'system', // 'system' | 'light' | 'dark'
     accent: '#4f46e5',
+    style: 'classic', // 'classic' | 'glass' (angelehnt an Apples Liquid Glass)
+    glassTransparency: 60, // 0 = deckend … 100 = sehr durchsichtig
     syncService: 'icloud', // Dienst für den Gerätewechsel (nur für Anleitung & Hinweise)
     bannerFx: 'both', // Animation im Motivationsbereich: both | flames | bar | off
     pomoWork: 25, // Minuten Fokus
@@ -356,6 +358,21 @@ function isDarkTheme(theme) {
 }
 
 /** Setzt Hell/Dunkel und leitet alle Akzent-Farbtöne aus der gewählten Farbe ab (lesbar in beiden Modi). */
+/** Stil „Glas“: Klasse setzen und die Deckkraft der Glasflächen aus dem Transparenz-Regler berechnen */
+function applyGlass(settings = data.settings) {
+  const root = document.documentElement;
+  const on = settings.style === 'glass';
+  root.classList.toggle('style-glass', on);
+  if (!on) return;
+  const t = Math.max(0, Math.min(100, Number(settings.glassTransparency ?? 60))) / 100;
+  const f = (v) => v.toFixed(3);
+  const a = 0.94 - 0.64 * t, ad = 0.92 - 0.6 * t; // hell / dunkel
+  root.style.setProperty('--lg-a', f(a));
+  root.style.setProperty('--lg-as', f(Math.min(0.97, a + 0.2)));
+  root.style.setProperty('--lg-ao', f(a * 0.62));
+  root.style.setProperty('--lg-ad', f(ad));
+  root.style.setProperty('--lg-ads', f(Math.min(0.97, ad + 0.22)));
+}
 function applyTheme(settings = data.settings) {
   const root = document.documentElement;
   const theme = settings.theme || 'system';
@@ -386,6 +403,7 @@ function applyTheme(settings = data.settings) {
     '--heat-4': dark ? mixColor(accent, '#ffffff', 0.45) : mixColor(accent, '#000000', 0.3),
   };
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+  applyGlass(settings);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#181c25' : primary);
 }
 darkQuery.addEventListener?.('change', () => applyTheme());
@@ -2294,6 +2312,7 @@ function projectNotes(p) {
 
 /* ---------------------------- Einstellungen ------------------------------ */
 
+const STYLES = () => [['classic', tr('Klassisch')], ['glass', tr('🪟 Glas')]];
 function renderAppearanceSettings() {
   const set = data.settings;
   const theme = set.theme || 'system';
@@ -2314,6 +2333,20 @@ function renderAppearanceSettings() {
           ${THEMES.map(([v, l]) => `<label><input type="radio" name="theme" value="${v}" data-theme-opt ${v === theme ? 'checked' : ''}>${tr(l)}</label>`).join('')}
         </div>
         <div class="hint" style="margin-top:6px">${tr('„Wie Gerät“ folgt automatisch dem Hell-/Dunkelmodus deines iPhones, iPads, Macs oder PCs.')}</div>
+      </div>
+      <div>
+        <div class="field-label">${tr('Stil')}</div>
+        <div class="segmented" role="radiogroup" aria-label="${tr('Stil')}">
+          ${STYLES().map(([v, l]) => `<label><input type="radio" name="style" value="${v}" data-style-opt ${v === (set.style || 'classic') ? 'checked' : ''}>${l}</label>`).join('')}
+        </div>
+        <div class="hint" style="margin-top:6px">${tr('„Glas“ zeigt durchscheinende, schwebende Flächen im Stil von Apples Liquid Glass.')}</div>
+        ${set.style === 'glass' ? `<div style="margin-top:12px">
+          <div class="field-label">${tr('Transparenz')}</div>
+          <div class="glass-range"><span class="small muted">${tr('deckend')}</span>
+            <input type="range" min="0" max="100" step="5" value="${Math.round(Number(set.glassTransparency ?? 60))}" data-glass-range aria-label="${tr('Transparenz')}">
+            <span class="small muted">${tr('durchsichtig')}</span></div>
+          <div class="hint" style="margin-top:6px">${tr('Weniger Transparenz verbessert die Lesbarkeit und schont ältere Geräte. Ist auf deinem Gerät „Transparenz reduzieren“ eingeschaltet, ist das Glas automatisch deckend.')}</div>
+        </div>` : ''}
       </div>
       <div>
         <div class="field-label">${tr('Akzentfarbe')}</div>
@@ -2586,7 +2619,7 @@ function renderSettings() {
     </div>
 
     ${settingsSection('darstellung', '🎨', tr('Darstellung'),
-      `🌐 ${esc(langName)} · ${esc(themeName)} · <span class="dot-color" style="background:${esc(accent)}"></span> ${esc(accentName)}`,
+      `🌐 ${esc(langName)} · ${esc(themeName)} · ${data.settings.style === 'glass' ? `${tr('🪟 Glas')} · ` : ''}<span class="dot-color" style="background:${esc(accent)}"></span> ${esc(accentName)}`,
       renderAppearanceSettings())}
 
     ${settingsSection('uebersicht', '🧩', tr('Übersicht & Projektansicht'),
@@ -4711,6 +4744,7 @@ function paletteCommands() {
   add('🗺️', tr('Roadmap'), () => actions.openRoadmap(), tr('Zeitleiste Gantt Projekte'));
   add('📝', tr('Wochenrückblick'), () => { location.hash = '#/woche'; }, tr('Woche planen Fokus Reflexion'));
   add('🧩', tr('Übersicht anpassen'), () => actions.customizeDashboard(), 'Layout');
+  STYLES().forEach(([v, l]) => add('🪟', tr('Stil: {name}', { name: l.replace(/^🪟 /, '') }), () => { data.settings.style = v; commit(); }, tr('Design Glas Liquid Klassisch')));
   THEMES.forEach(([v, l]) => add(l.split(' ')[0], tr('Darstellung: {theme}', { theme: tr(l).replace(/^\S+\s/, '') }), () => { data.settings.theme = v; commit(); }, tr('Theme Hell Dunkel')));
   LANGUAGES.forEach(([code, name]) => add('🌐', tr('Sprache: {lang}', { lang: name }), () => { data.settings.language = code; commit(); }, 'Language Sprache'));
   add('↔', tr('Seitenleiste ein-/ausklappen'), () => actions.toggleSidebar(), nav);
@@ -4935,6 +4969,15 @@ document.addEventListener('change', (e) => {
   if (!e.target.matches('[data-lang-opt]')) return;
   data.settings.language = e.target.value;
   commit();
+});
+
+// Stil (Klassisch / Glas) und Transparenz
+document.addEventListener('change', (e) => {
+  if (e.target.matches('[data-style-opt]')) { data.settings.style = e.target.value; commit(); }
+  if (e.target.matches('[data-glass-range]')) { data.settings.glassTransparency = Number(e.target.value); commit(); }
+});
+document.addEventListener('input', (e) => { // live beim Ziehen, gespeichert wird beim Loslassen
+  if (e.target.matches('[data-glass-range]')) applyGlass({ ...data.settings, glassTransparency: Number(e.target.value) });
 });
 
 // Animation im Motivationsbereich

@@ -49,6 +49,7 @@ Beim ersten Start kannst du **Beispieldaten** laden und alles ausprobieren. Unte
 **Sprache & Darstellung**
 - 🌐 **Deutsch und Englisch.** Die Sprache richtet sich automatisch nach der Gerätesprache. Ist die Gerätesprache nicht verfügbar, gilt Englisch. Unter *Einstellungen › Darstellung › Sprache* lässt sie sich fest einstellen. Datums-, Zahlen- und Währungsformate passen sich mit an.
 - Hintergrund **hell, dunkel oder wie das Gerät** (Einstellungen › Darstellung)
+- 🪟 **Stil „Klassisch“ oder „Glas“** (Einstellungen › Darstellung › Stil): „Glas“ ist an Apples Liquid Glass angelehnt – durchscheinende Flächen mit Unschärfe und Glanzkante auf farbigem Hintergrund, schwebende Seiten-, Kopf- und Tab-Leiste, Knöpfe in Kapselform. Die **Transparenz** lässt sich stufenlos von deckend bis durchsichtig einstellen; ist am Gerät „Transparenz reduzieren“ aktiv, wird das Glas automatisch deckend.
 - **Akzentfarbe** frei wählbar (Vorschläge oder eigene Farbe). Abgeleitete Töne werden automatisch angepasst und bleiben in beiden Modi lesbar.
 
 **Übersicht & Motivation**

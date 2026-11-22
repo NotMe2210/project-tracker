@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-6",
+      "date": "2026-11-22",
+      "de": [
+        "🪟 Neuer Stil „Glas“ im Stil von Apples Liquid Glass: durchscheinende, schwebende Flächen, Kapsel-Knöpfe und schwebende Leisten – unter Einstellungen › Darstellung › Stil",
+        "🎚 Transparenz des Glases stufenlos einstellbar; mit „Transparenz reduzieren“ am Gerät wird das Glas automatisch deckend"
+      ],
+      "en": [
+        "🪟 New “Glass” style inspired by Apple’s Liquid Glass: translucent floating surfaces, capsule buttons and floating bars – under Settings › Appearance › Style",
+        "🎚 Glass transparency is adjustable; with “Reduce transparency” on the device the glass becomes opaque automatically"
+      ]
+    },
+    {
       "version": "2026.11.22-5",
       "date": "2026-11-22",
       "de": [
