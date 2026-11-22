@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-20';
+const APP_VERSION = '2026.11.22-21';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2815,7 +2815,7 @@ function renderSettings() {
         <div><h5>${tr('Zeit & Investitionen · CSV')}</h5><div class="btn-row">
           <button class="btn small" data-action="exportCsv">⬇ ${tr('Exportieren')}</button><button class="btn small" data-action="importCsv">⬆ ${tr('Importieren')}</button></div></div>
         <div><h5>${tr('Termine · Kalender (.ics)')}</h5><div class="btn-row">
-          <button class="btn small" data-action="exportIcs">📅 ${tr('Exportieren')}</button><button class="btn small" data-action="importIcs">⬆ ${tr('Importieren')}</button></div></div>
+          <button class="btn small" data-action="exportIcs">⬇ ${tr('Exportieren')}</button><button class="btn small" data-action="importIcs">⬆ ${tr('Importieren')}</button></div></div>
       </div></details>
       ${renderFolderBackupSettings()}
       <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">

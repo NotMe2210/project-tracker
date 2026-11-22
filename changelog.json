@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-21",
+      "date": "2026-11-22",
+      "de": [
+        "💾 Einstellungen › Datensicherung: „Exportieren“ bei Termine zeigt jetzt wie alle anderen Exporte ⬇"
+      ],
+      "en": [
+        "💾 Settings › Backup: “Export” for dates now shows ⬇ like all other exports"
+      ]
+    },
+    {
       "version": "2026.11.22-20",
       "date": "2026-11-22",
       "de": [
