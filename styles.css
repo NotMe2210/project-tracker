@@ -1890,3 +1890,18 @@ html.style-glass.proj-tint {
 }
 /* „+“ zum Anlegen einer Aufgabe: runder Knopf ohne Text */
 .btn.add-icon { width: 34px; height: 34px; min-height: 34px; padding: 0; justify-content: center; border-radius: 999px; font-size: 1.25rem; font-weight: 600; line-height: 1; }
+
+/* Einstellungen › Datensicherung: Backup im Vordergrund, weitere Formate aufklappbar */
+.bk-hero { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 6px; }
+.bk-hero .btn { min-height: 52px; font-size: 1rem; justify-content: center; min-width: 0; }
+.bk-sub { display: flex; justify-content: center; margin-bottom: 12px; }
+.bk-more { border: 1px solid var(--border); border-radius: 16px; background: var(--surface-2); }
+.bk-more > summary { cursor: pointer; padding: 12px 14px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+.bk-more > summary::-webkit-details-marker { display: none; }
+.bk-more > summary::after { content: '›'; color: var(--muted); font-size: 1.2rem; transition: transform .2s; }
+.bk-more[open] > summary::after { transform: rotate(90deg); }
+.bk-more .bk-in { padding: 0 14px 14px; display: grid; gap: 12px; }
+.bk-more h5 { margin: 0 0 6px; font-size: .78rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.bk-more .btn-row .btn { flex: 1; justify-content: center; }
+@media (max-width: 640px) { .bk-hero { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .bk-more > summary::after { transition: none; } }

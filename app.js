@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-18';
+const APP_VERSION = '2026.11.22-19';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -2804,16 +2804,19 @@ function renderSettings() {
         <dt>${tr('Letzte Sicherung')}</dt><dd>${esc(fmtDateTime(meta.lastExport))}</dd>
         <dt>${tr('Letzte Änderung')}</dt><dd>${esc(fmtDateTime(meta.lastChange))} ${hasUnsavedChanges() ? `<span class="badge mittel">${tr('nicht gesichert')}</span>` : `<span class="badge aktiv">${tr('gesichert')}</span>`}</dd>
       </dl>
-      <div class="btn-row">
-        <button class="btn primary" data-action="exportData">⬇ ${tr('Backup exportieren (JSON)')}</button>
-        <button class="btn" data-action="exportEncrypted">🔒 ${tr('Verschlüsselt exportieren')}</button>
-        <button class="btn" data-action="exportCsv">⬇ ${tr('Zeit & Investitionen als CSV')}</button>
-        <button class="btn" data-action="exportIcs">📅 ${tr('Termine als Kalender-Datei (.ics)')}</button>
-        <button class="btn" data-action="importCsv">⬆ ${tr('Zeit & Investitionen aus CSV importieren')}</button>
-        <button class="btn" data-action="exportPlan">⬇ ${tr('Aufgaben & Meilensteine als CSV')}</button>
-        <button class="btn" data-action="importPlan">⬆ ${tr('Aufgaben & Meilensteine aus CSV importieren')}</button>
+      <div class="bk-hero">
+        <button class="btn primary" data-action="exportData" title="${tr('Backup exportieren (JSON)')}">⬇ ${tr('Backup exportieren')}</button>
         <button class="btn" data-action="importData">⬆ ${tr('Backup importieren')}</button>
       </div>
+      <div class="bk-sub"><button class="btn ghost small" data-action="exportEncrypted">🔒 ${tr('Backup verschlüsselt exportieren')}</button></div>
+      <details class="bk-more"><summary>${tr('Weitere Formate (CSV, Kalender)')}</summary><div class="bk-in">
+        <div><h5>${tr('Aufgaben & Meilensteine · CSV')}</h5><div class="btn-row">
+          <button class="btn small" data-action="exportPlan">⬇ ${tr('Exportieren')}</button><button class="btn small" data-action="importPlan">⬆ ${tr('Importieren')}</button></div></div>
+        <div><h5>${tr('Zeit & Investitionen · CSV')}</h5><div class="btn-row">
+          <button class="btn small" data-action="exportCsv">⬇ ${tr('Exportieren')}</button><button class="btn small" data-action="importCsv">⬆ ${tr('Importieren')}</button></div></div>
+        <div><h5>${tr('Termine · Kalender (.ics)')}</h5><div class="btn-row">
+          <button class="btn small" data-action="exportIcs">📅 ${tr('Exportieren')}</button><button class="btn small" data-action="importIcs">⬆ ${tr('Importieren')}</button></div></div>
+      </div></details>
       ${renderFolderBackupSettings()}
       <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
       <h3>${tr('Gefahrenzone')}</h3>
@@ -4911,6 +4914,7 @@ function paletteCommands() {
   add('💾', tr('Sicherung exportieren'), () => actions.exportData(), 'Backup');
   add('⬆', tr('Sicherung importieren'), () => actions.importData(), 'Backup');
   add('📅', tr('Termine als Kalender-Datei (.ics)'), () => actions.exportIcs(), tr('Kalender iCal Outlook Termine'));
+  add('📅', tr('Termine aus Kalender-Datei (.ics) importieren'), () => actions.importIcs(), tr('Kalender iCal Outlook Termine'));
   add('📄', tr('Zeit & Investitionen aus CSV importieren'), () => actions.importCsv(), 'CSV Excel Import');
   add('📄', tr('Aufgaben & Meilensteine aus CSV importieren'), () => actions.importPlan(), 'CSV Excel Import');
   add('📄', tr('Aufgaben & Meilensteine als CSV'), () => actions.exportPlan(), 'CSV Excel Export');
@@ -7675,7 +7679,128 @@ function buildIcs(projectId) {
     `X-WR-CALNAME:${icsText(projectId ? `Protrac · ${getProject(projectId)?.name}` : 'Protrac')}`, ...events.flat(), 'END:VCALENDAR'];
   return { text: lines.map(icsFold).join('\r\n') + '\r\n', count: events.length };
 }
+/* ---- Kalender-Import (.ics) ----
+   Eigene Protrac-Termine (UID task-…/ms-…/target-…@protrac) werden wiedererkannt: Ein im Kalender
+   verschobener Termin aktualisiert das Datum in Protrac. Fremde Termine werden zu Aufgaben oder
+   Meilensteinen im gewählten Projekt. Geplante Termine (plan-…) sind berechnet und werden übersprungen. */
+function parseIcs(text) {
+  const lines = String(text || '').replace(/\r\n?/g, '\n').replace(/\n[ \t]/g, '').split('\n');
+  const unesc = (s) => s.replace(/\\n/gi, '\n').replace(/\\([,;\\])/g, '$1');
+  const out = [];
+  let ev = null, depth = 0;
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') { ev = {}; depth = 0; continue; }
+    if (!ev) continue;
+    if (line.startsWith('BEGIN:')) { depth++; continue; } // z. B. VALARM
+    if (line.startsWith('END:') && line !== 'END:VEVENT') { depth--; continue; }
+    if (line === 'END:VEVENT') { if (ev.start && ev.summary) out.push(ev); ev = null; continue; }
+    if (depth) continue;
+    const i = line.indexOf(':'); if (i < 0) continue;
+    const [name, ...params] = line.slice(0, i).split(';');
+    const val = line.slice(i + 1);
+    const key = name.toUpperCase();
+    if (key === 'UID') ev.uid = val.trim();
+    else if (key === 'SUMMARY') ev.summary = unesc(val).trim();
+    else if (key === 'DESCRIPTION') ev.description = unesc(val).trim();
+    else if (key === 'DTSTART' || key === 'DTEND') {
+      const m = val.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?/);
+      if (!m) continue;
+      let iso = `${m[1]}-${m[2]}-${m[3]}`;
+      if (m[7]) iso = toISO(new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]))); // UTC → lokaler Tag
+      const allDay = params.some((p) => /VALUE=DATE$/i.test(p)) || !m[4];
+      if (key === 'DTSTART') ev.start = iso; else ev.end = allDay ? toISO(addDays(parseISO(iso), -1)) : iso; // Ganztags-Ende ist exklusiv
+    } else if (key === 'RRULE') ev.recurring = true;
+  }
+  return out;
+}
+/** Titel aus einem Protrac-Export bereinigen: „🏁 Titel · Projekt“ → „Titel“ */
+const icsCleanTitle = (s, project) => {
+  let t = String(s).replace(/^(?:🏁|✅|⚑|🗓|🔴)\uFE0F?\s*/u, '');
+  if (project && t.endsWith(` · ${project}`)) t = t.slice(0, -(project.length + 3));
+  return t.trim();
+};
+function openIcsImport(text, pid) {
+  const events = parseIcs(text);
+  if (!events.length) throw new Error(tr('Keine Termine in der Datei gefunden.'));
+  const own = events.filter((e) => /^(task|ms|target|plan)-.+@protrac$/.test(e.uid || ''));
+  const known = own.filter((e) => icsTarget(e));
+  const foreign = events.filter((e) => !own.includes(e));
+  const future = foreign.filter((e) => e.start >= todayISO()).length;
+  const projects = liveProjects().length ? liveProjects() : data.projects;
+  const fields = [];
+  if (known.length) fields.push({ name: 'sync', label: tr('Protrac-Termine'), type: 'select', value: 'update',
+    options: [{ value: 'update', label: tr('Datum übernehmen, wenn im Kalender verschoben') }, { value: 'skip', label: tr('Nicht verändern') }],
+    hint: tr('{n} Termine stammen aus Protrac und gehören zu vorhandenen Aufgaben, Meilensteinen oder Projekten.', { n: known.length }) });
+  if (foreign.length) fields.push(
+    { name: 'target', label: tr('In Projekt'), type: 'select', value: pid || projects[0]?.id, options: projects.map((p) => ({ value: p.id, label: p.name })),
+      hint: known.length ? tr('{n} weitere Termine, davon {f} ab heute.', { n: foreign.length, f: future }) : tr('{n} Termine, davon {f} ab heute.', { n: foreign.length, f: future }) },
+    { name: 'kind', label: tr('Anlegen als'), type: 'select', value: 'task',
+      options: [{ value: 'task', label: tr('Aufgaben (Termin = Fällig am)') }, { value: 'ms', label: tr('Meilensteine (Termin = Zieldatum)') }] },
+    { name: 'range', label: tr('Zeitraum'), type: 'select', value: future ? 'future' : 'all',
+      options: [{ value: 'future', label: tr('Nur Termine ab heute') }, { value: 'all', label: tr('Alle Termine') }] },
+    { name: 'dups', label: tr('Gleichnamige Einträge'), type: 'select', value: 'skip',
+      options: [{ value: 'skip', label: tr('Überspringen (nicht doppelt anlegen)') }, { value: 'add', label: tr('Trotzdem neu anlegen') }] });
+  if (!fields.length) throw new Error(tr('Die Termine gehören zu Einträgen, die es hier nicht gibt (z. B. gelöscht oder von einem anderen Gerät).'));
+  openForm({
+    title: tr('Termine importieren'),
+    submitLabel: tr('Importieren'),
+    fields,
+    onSubmit(v) {
+      const r = importIcsEvents({ known, foreign, ...v });
+      toast(tr('📅 Kalender importiert: {created} neu, {updated} aktualisiert{skipped}.', { created: r.created, updated: r.updated, skipped: r.skipped ? tr(' · {n} übersprungen', { n: r.skipped }) : '' }));
+    },
+  });
+}
+/** Zu welchem vorhandenen Eintrag gehört ein Protrac-Termin? */
+function icsTarget(e) {
+  const m = (e.uid || '').match(/^(task|ms|target)-(.+)@protrac$/);
+  if (!m) return null;
+  if (m[1] === 'task') { const t = data.tasks.find((x) => x.id === m[2]); return t && { kind: 'task', item: t }; }
+  if (m[1] === 'ms') { const x = data.milestones.find((y) => y.id === m[2]); return x && { kind: 'ms', item: x }; }
+  const p = getProject(m[2]); return p && { kind: 'target', item: p };
+}
+function importIcsEvents({ known, foreign, sync, target, kind, range, dups }) {
+  const r = { created: 0, updated: 0, skipped: 0 };
+  const same = (a, b) => String(a || '').trim().toLocaleLowerCase(LOCALE) === String(b || '').trim().toLocaleLowerCase(LOCALE);
+  for (const e of known) {
+    const t = icsTarget(e);
+    const field = t.kind === 'target' ? 'targetDate' : 'dueDate';
+    if (sync !== 'update' || t.item[field] === e.start) { r.skipped++; continue; }
+    t.item[field] = e.start; r.updated++;
+  }
+  const p = target && getProject(target);
+  for (const e of foreign) {
+    if (!p || (range === 'future' && e.start < todayISO())) { r.skipped++; continue; }
+    const title = icsCleanTitle(e.summary, p.name);
+    const list = kind === 'ms' ? data.milestones : data.tasks;
+    if (dups === 'skip' && list.some((x) => x.projectId === p.id && same(x.title, title))) { r.skipped++; continue; }
+    const now = new Date().toISOString();
+    if (kind === 'ms') {
+      const order = Math.max(-1, ...data.milestones.filter((x) => x.projectId === p.id).map((x) => x.order ?? -1)) + 1;
+      data.milestones.push({ id: uid(), projectId: p.id, createdAt: now, order, title, dueDate: e.start, description: e.description || '', done: false, doneAt: null, assignees: [] });
+    } else {
+      data.tasks.push({ id: uid(), projectId: p.id, createdAt: now, title, priority: 'mittel', status: 'open', dueDate: e.start, notes: e.description || '',
+        milestoneId: null, subtasks: [], dependsOn: [], assignees: [], repeat: null, estimate: null, duration: null, startAfter: null, done: false, doneAt: null });
+    }
+    r.created++;
+  }
+  if (r.created || r.updated) commit();
+  return r;
+}
 Object.assign(actions, {
+  importIcs({ id } = {}) {
+    if (!data.projects.length) return toast(tr('Lege zuerst ein Projekt an.'));
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.ics,text/calendar';
+    input.onchange = async () => {
+      const file = input.files[0];
+      if (!file) return;
+      try { openIcsImport(await file.text(), id && getProject(id) ? id : null); }
+      catch (e) { toast(tr('Import fehlgeschlagen: {msg}', { msg: e.message }), 'error'); }
+    };
+    input.click();
+  },
   exportIcs({ id } = {}) {
     const { text, count } = buildIcs(id && getProject(id) ? id : null);
     if (!count) return toast(tr('Keine offenen Termine gefunden – trage Fälligkeiten, Meilenstein-Zieldaten oder einen Zieltermin ein.'));
