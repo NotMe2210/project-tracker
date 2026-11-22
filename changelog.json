@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-15",
+      "date": "2026-11-22",
+      "de": [
+        "👆 Wischen über Aufgaben: Die Zeile ist beim Wischen eine deckende, einfarbige Fläche – auch bei ausgewählten Aufgaben – und endet am Rand der Karte"
+      ],
+      "en": [
+        "👆 Swiping tasks: while swiping, the row is a solid single-colour card – also for selected tasks – and ends at the card's edge"
+      ]
+    },
+    {
       "version": "2026.11.22-14",
       "date": "2026-11-22",
       "de": [
