@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-13",
+      "date": "2026-11-22",
+      "de": [
+        "👆 Wischen über Aufgaben: Die Farbfläche (✓ Erledigt bzw. ⋯ Optionen) füllt nur noch den frei werdenden Streifen und scheint nicht mehr durch die Aufgabe hindurch",
+        "🫧 Stil „Glas“ auf dem Smartphone: Über geöffneten Eingabefenstern schimmert der farbige Glas-Hintergrund statt eines dunklen Balkens"
+      ],
+      "en": [
+        "👆 Swiping tasks: the colour area (✓ Done or ⋯ Options) only fills the strip being revealed and no longer shows through the task",
+        "🫧 “Glass” style on smartphones: above open input windows the colourful glass background shows instead of a dark bar"
+      ]
+    },
+    {
       "version": "2026.11.22-12",
       "date": "2026-11-22",
       "de": [

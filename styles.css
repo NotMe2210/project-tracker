@@ -886,13 +886,13 @@ dialog:has(.palette) { width: min(620px, calc(100vw - 32px)); align-self: start;
 
 /* Wischgesten */
 @media (hover: none) { .list > li.task { touch-action: pan-y; } }
-li.task.swiping { position: relative; z-index: 1; background: var(--surface); }
+li.task.swiping { position: relative; z-index: 1; }
 .swipe-bg {
-  position: absolute; left: 0; right: 0; display: flex; align-items: center; padding: 0 16px;
-  font-weight: 600; font-size: .9rem; border-radius: 10px; pointer-events: none;
+  position: absolute; display: flex; align-items: center; justify-content: center; overflow: hidden; white-space: nowrap;
+  font-weight: 600; font-size: .9rem; border-radius: 14px; pointer-events: none; transition: background-color .15s, color .15s;
 }
-.swipe-bg.right { justify-content: flex-start; background: var(--good-soft); color: var(--good); }
-.swipe-bg.left { justify-content: flex-end; background: var(--surface-2); color: var(--text); }
+.swipe-bg.right { background: var(--good-soft); color: var(--good); }
+.swipe-bg.left { background: var(--primary-soft); color: var(--primary); }
 .swipe-bg.right.armed { background: var(--good); color: #fff; }
 .swipe-bg.left.armed { background: var(--primary); color: var(--primary-contrast); }
 
@@ -1862,4 +1862,12 @@ html.style-glass.proj-tint {
 @media (max-width: 640px) {
   /* Lange Menüs (z. B. Projekt-⋯) scrollen in sich, statt oben aus dem Bild zu ragen */
   .popover { max-height: calc(100dvh - var(--topbar-bottom, 64px) - 86px - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; }
+}
+@media (max-width: 640px) {
+  /* Glas: über dem Blatt schimmert der farbige Glas-Hintergrund statt einer dunklen Abdeckung */
+  html.style-glass #modal:has(> .form)::backdrop {
+    background: var(--lg-bg), color-mix(in srgb, var(--lg-page) 72%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%);
+  }
+  html.style-glass #modal:has(> .form) { box-shadow: inset 0 1px 0 var(--lg-edge), 0 -8px 30px rgba(0, 0, 0, .25); }
 }

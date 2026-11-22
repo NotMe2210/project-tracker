@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-12';
+const APP_VERSION = '2026.11.22-13';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -5015,6 +5015,9 @@ document.addEventListener('pointermove', (e) => {
   swipe.li.style.transform = `translateX(${swipe.dx}px)`;
   const done = swipe.li.classList.contains('done');
   swipe.bg.className = `swipe-bg ${swipe.dx > 0 ? 'right' : 'left'} ${Math.abs(swipe.dx) > 80 ? 'armed' : ''}`;
+  // Farbfläche füllt nur den frei werdenden Streifen neben der Aufgabe – nichts scheint durch die Aufgabe hindurch
+  const w = Math.max(0, Math.abs(swipe.dx) - 6);
+  Object.assign(swipe.bg.style, swipe.dx > 0 ? { left: `${swipe.li.offsetLeft}px`, right: 'auto', width: `${w}px` } : { left: 'auto', right: `${swipe.li.parentElement.clientWidth - swipe.li.offsetLeft - swipe.li.offsetWidth}px`, width: `${w}px` });
   swipe.bg.innerHTML = swipe.dx > 0 ? `<span>${done ? `↺ ${tr('Wieder öffnen')}` : `✓ ${tr('Erledigt')}`}</span>` : `<span>⋯ ${tr('Optionen')}</span>`;
 });
 function endSwipe() {
