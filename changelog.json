@@ -2,6 +2,24 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-10",
+      "date": "2026-11-22",
+      "de": [
+        "✨ Neuer Feinschliff: einheitliche Linien-Symbole statt Emojis in Navigation, Knöpfen und Überschriften – 🍅, 🔥 und Erfolge bleiben bunt",
+        "🎨 Projekte tragen ihre Farbe als sanften Verlauf im Projektkopf",
+        "📱 Smartphone: Reiter als eine wischbare Leiste, die beim Scrollen oben bleibt; große Titel wandern beim Scrollen in die Kopfleiste; Kennzahlen zweispaltig",
+        "📱 Projektkopf auf dem Smartphone aufgeräumt: „Bearbeiten“ und „Löschen“ stehen jetzt im ⋯-Menü",
+        "🫧 Sanfte Übergänge beim Wechseln der Ansicht und beim Öffnen von Fenstern (aus bei „Bewegung reduzieren“); leere Bereiche mit Symbol"
+      ],
+      "en": [
+        "✨ Polish: consistent line icons instead of emojis in navigation, buttons and headings – 🍅, 🔥 and achievements stay colourful",
+        "🎨 Projects show their colour as a soft gradient in the project header",
+        "📱 Smartphone: tabs as one swipeable bar that stays at the top while scrolling; large titles move into the top bar when scrolling; stats in two columns",
+        "📱 Tidier project header on smartphones: “Edit” and “Delete” are now in the ⋯ menu",
+        "🫧 Gentle transitions when switching views and opening windows (off with “Reduce motion”); empty areas with an icon"
+      ]
+    },
+    {
       "version": "2026.11.22-9",
       "date": "2026-11-22",
       "de": [

@@ -1762,3 +1762,98 @@ html.style-glass[data-theme="dark"] { --sh-bg: #1a1c25; --sh-group: rgba(255, 25
   html.style-glass .kb-seg-btn.on { background: var(--lg-glass-strong); box-shadow: inset 0 1px 0 var(--lg-edge), 0 3px 10px rgba(0, 0, 0, .2); }
 }
 @media (prefers-reduced-motion: reduce) { .kb-seg-btn { transition: none; } }
+
+/* ==== Feinschliff (Designstudie, Punkte 1, 2, 5–10) ==== */
+
+/* 5 · Linien-Symbole */
+.ic { width: 1.15em; height: 1.15em; flex: none; vertical-align: -0.2em; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ic.fill { fill: currentColor; stroke: none; }
+h1 .ic, h2 .ic, h3 .ic { color: var(--primary); margin-right: 2px; }
+.nav .ico { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
+.nav .ico .ic { width: 1.25em; height: 1.25em; color: var(--muted); }
+.nav a.active .ico .ic { color: var(--primary); }
+.btn .ic { vertical-align: -0.18em; }
+.task-bar-btn .ic { width: 1.3rem; height: 1.3rem; }
+.task-bar-btn.danger .ic, .btn.danger .ic, .pop-item.danger .ic { color: var(--bad); }
+.pop-item .ic { color: var(--muted); margin-right: 2px; }
+
+/* 6 · Projektfarbe als Akzent im Projektkopf */
+.proj-tint .page-head { position: relative; isolation: isolate; }
+.proj-tint .page-head::before {
+  content: ''; position: absolute; inset: -16px -16px -10px; z-index: -1; border-radius: 0 0 24px 24px; pointer-events: none;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--proj) 16%, transparent), transparent);
+}
+.proj-tint .project-title .dot-color { box-shadow: 0 0 0 4px color-mix(in srgb, var(--proj) 25%, transparent); }
+html.style-glass.proj-tint body {
+  background: radial-gradient(70vmax 55vmax at 50% -10%, color-mix(in srgb, var(--proj) 45%, transparent), transparent 60%), var(--lg-bg, transparent), var(--lg-page, transparent);
+  background-attachment: fixed;
+}
+
+/* 9 · Leere Bereiche mit Symbol */
+.empty.has-ico { display: grid; justify-items: center; gap: 10px; padding: 24px 12px; }
+.empty-ico { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary); }
+.empty-ico .ic { width: 26px; height: 26px; }
+
+/* 7 · Kompakter Titel in der Kopfleiste (nur Handy) */
+.compact-title { display: none; }
+
+@media (max-width: 640px) {
+  /* 7 · große Titel; aus dem Bild gescrollt → klein in der Kopfleiste */
+  h1 { font-size: 1.7rem; letter-spacing: -.02em; }
+  html.title-compact .topbar .brand { display: none; }
+  html.title-compact .compact-title { display: block; flex: 1; min-width: 0; font-weight: 700; font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 2 · Projektkopf: Bearbeiten & Löschen stehen im ⋯-Menü, „+ Zeit“ in der Kopfleiste */
+  .page-head [data-action="editProject"], .page-head [data-action="deleteProject"] { display: none; }
+  .page-head .btn-row:has(> [data-action="startTimer"], > [data-action="stopTimer"]) { flex-wrap: nowrap; }
+  .page-head .btn-row:has(> [data-action="startTimer"], > [data-action="stopTimer"]) > [data-action="addTime"] { display: none; }
+  .page-head .btn-row > .btn { flex: 1 1 auto; }
+  .page-head .btn-row > .qa-btn { flex: 0 0 auto; }
+
+  /* 1 · Reiter als einzeilige, wischbare Leiste, die unter der Kopfleiste haftet */
+  .tabs {
+    display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 4px; scrollbar-width: none;
+    position: sticky; top: var(--topbar-bottom, 64px); z-index: 6;
+    margin: 0 -6px 14px; padding: 5px; border: 0; border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 92%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .12);
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs a { flex: none; display: inline-flex; align-items: center; gap: 4px; margin: 0; padding: 8px 14px; border: 0; border-radius: 999px; font-size: .9rem; background: transparent; }
+  .tabs a.active { background: var(--primary); color: #fff; border: 0; }
+  .tabs a.active .count { background: rgba(255, 255, 255, .25); color: inherit; }
+  html.style-glass .tabs { background: var(--lg-glass-strong); -webkit-backdrop-filter: blur(30px) saturate(190%); backdrop-filter: blur(30px) saturate(190%);
+    border: 1px solid var(--lg-edge-dim); box-shadow: inset 0 1px 0 var(--lg-edge), var(--lg-shadow); }
+  html.style-glass .tabs a:not(.active) { background: transparent; box-shadow: none; border: 0; -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+  /* 10 · Kennzahlen zweispaltig */
+  .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stats .stat { padding: 12px 14px; min-width: 0; }
+  .stats .stat .value { font-size: 1.3rem; }
+
+  /* 6 · Verlauf auf dem Handy nicht über den Rand hinaus (sonst zoomt iOS heraus) */
+  .proj-tint .page-head::before { inset: -16px -16px -10px; }
+}
+
+/* 8 · Sanfte Übergänge – nur, wenn „Bewegung reduzieren“ aus ist */
+@media (prefers-reduced-motion: no-preference) {
+  #app.view-in { animation: viewIn .22s ease-out; }
+  @keyframes viewIn { from { opacity: 0; transform: translateY(6px); } }
+  #modal[open] { animation: dlgIn .18s ease-out; }
+  @keyframes dlgIn { from { opacity: 0; transform: scale(.97); } }
+  #modal[open]::backdrop { animation: poFade .2s ease-out; }
+  .popover:not([hidden]) { animation: popIn .14s ease-out; }
+  @keyframes popIn { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+  .tabs a, .nav a, .kb-seg-btn { transition: background-color .18s, color .18s; }
+  @media (max-width: 640px) {
+    #modal[open]:has(> .form) { animation: sheetIn .3s cubic-bezier(.2, .8, .2, 1); }
+    @keyframes sheetIn { from { transform: translateY(100%); } }
+    .kanban .kb-col.show { animation: poFade .18s ease-out; }
+    .popover:not([hidden]) { animation: popUp .22s cubic-bezier(.2, .8, .2, 1); }
+    @keyframes popUp { from { opacity: 0; transform: translateY(16px); } }
+  }
+}
+@media (max-width: 640px) {
+  /* Lange Menüs (z. B. Projekt-⋯) scrollen in sich, statt oben aus dem Bild zu ragen */
+  .popover { max-height: calc(100dvh - var(--topbar-bottom, 64px) - 86px - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior: contain; }
+}

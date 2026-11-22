@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-9';
+const APP_VERSION = '2026.11.22-10';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -722,6 +722,7 @@ function render() {
   else if (r.view === 'woche') html = renderWeekReview(r.id);
   else html = renderDashboard();
   app.innerHTML = html;
+  afterRender(r);
   // Zeitachse an die tatsächliche Breite anpassen (höchstens ein zusätzlicher Durchgang)
   if (measureCharts() && !render.refit) { render.refit = true; try { render(); } finally { render.refit = false; } return; }
   restoreGanttScroll();
@@ -733,6 +734,104 @@ function render() {
   });
   renderTimer();
 }
+
+/* Nach jedem Zeichnen: Projektfarbe als Akzent, Titel für die Kopfleiste, aktiver Reiter sichtbar,
+   beim Wechsel der Ansicht sanft einblenden (nicht bei jedem Speichern) */
+let lastRouteKey = '';
+function afterRender(r) {
+  const p = r.view === 'projekt' ? getProject(r.id) : null;
+  const root = document.documentElement;
+  root.classList.toggle('proj-tint', !!p);
+  if (p) root.style.setProperty('--proj', p.color || 'var(--primary)'); else root.style.removeProperty('--proj');
+  const ct = $('#compact-title');
+  if (ct) ct.textContent = $('#app h1')?.textContent.trim() || '';
+  const at = $('#app .tabs a.active');
+  if (at) { const tb = at.parentElement; tb.scrollLeft = at.offsetLeft - (tb.clientWidth - at.offsetWidth) / 2; }
+  const key = `${r.view}/${r.id || ''}/${r.tab}`;
+  if (key !== lastRouteKey) {
+    if (lastRouteKey) { const app = $('#app'); app.classList.remove('view-in'); void app.offsetWidth; app.classList.add('view-in'); }
+    lastRouteKey = key;
+  }
+  updateCompactTitle();
+}
+/* Handy: großer Titel – ist er aus dem Bild gescrollt, steht er klein in der Kopfleiste */
+function updateCompactTitle() {
+  const h1 = $('#app h1'), bar = document.querySelector('.topbar');
+  if (bar) document.documentElement.style.setProperty('--topbar-bottom', `${Math.round(bar.getBoundingClientRect().bottom)}px`);
+  const on = !!(h1 && bar && smallScreen() && h1.getBoundingClientRect().bottom < bar.getBoundingClientRect().bottom);
+  document.documentElement.classList.toggle('title-compact', on);
+}
+window.addEventListener('scroll', () => requestAnimationFrame(updateCompactTitle), { passive: true });
+window.addEventListener('resize', () => requestAnimationFrame(updateCompactTitle));
+$('#app').addEventListener('animationend', (e) => { if (e.target.id === 'app') e.target.classList.remove('view-in'); });
+
+/* Einheitliche Linien-Symbole statt Emojis in Navigation, Knöpfen, Reitern und Überschriften.
+   Emojis mit Gefühl (🍅, 🔥, 🏆, Erfolge, Motivation) bleiben bewusst erhalten. */
+const ICON_PATHS = {
+  chart: '<path d="M3 3v18h18"/><path d="M8 16v-5M13 16V7M18 16v-3"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  sliders: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  gear: '<path d="M12.2 2h-.4a2 2 0 0 0-2 2v.2a2 2 0 0 1-1 1.7l-.4.3a2 2 0 0 1-2 0l-.2-.1a2 2 0 0 0-2.7.7l-.2.4a2 2 0 0 0 .7 2.7l.2.1a2 2 0 0 1 1 1.7v.5a2 2 0 0 1-1 1.8l-.2.1a2 2 0 0 0-.7 2.7l.2.4a2 2 0 0 0 2.7.7l.2-.1a2 2 0 0 1 2 0l.4.3a2 2 0 0 1 1 1.7v.2a2 2 0 0 0 2 2h.4a2 2 0 0 0 2-2v-.2a2 2 0 0 1 1-1.7l.4-.3a2 2 0 0 1 2 0l.2.1a2 2 0 0 0 2.7-.7l.2-.4a2 2 0 0 0-.7-2.7l-.2-.1a2 2 0 0 1-1-1.8v-.5a2 2 0 0 1 1-1.7l.2-.1a2 2 0 0 0 .7-2.7l-.2-.4a2 2 0 0 0-2.7-.7l-.2.1a2 2 0 0 1-2 0l-.4-.3a2 2 0 0 1-1-1.7V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  bolt: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  save: '<path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3M7 21v-7h10v7"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M10 2h4"/>',
+  flag: '<path d="M5 22V4M5 4h12l-2 4 2 4H5"/>',
+  check: '<rect x="3" y="3" width="18" height="18" rx="5"/><path d="m8 12 3 3 5-6"/>',
+  clip: '<path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>',
+  trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/>',
+  note: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+  euro: '<circle cx="12" cy="12" r="9"/><path d="M15 9.2a4 4 0 1 0 0 5.6M7.5 11h6M7.5 13h6"/>',
+  wallet: '<path d="M3 7h15a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z"/><path d="M3 7l12-4v4M17 14h.01"/>',
+  cal: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 10h18"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  alert: '<path d="M12 3 22 21H2z"/><path d="M12 10v4M12 17.5h.01"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  msg: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/>',
+  play: '<path d="M8 5v14l11-7z"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  award: '<circle cx="12" cy="9" r="6"/><path d="M8.5 14 7 22l5-3 5 3-1.5-8"/>',
+  pause: '<path d="M8 5v14M16 5v14"/>',
+  inbox: '<path d="M3 13h5l1 3h6l1-3h5"/><path d="M5 5h14l2 8v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z"/>',
+  pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  layout: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 10h18M10 10v11"/>',
+  archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>',
+};
+const ICON_EMOJI = { '📊': 'chart', '🗂️': 'folder', '🗂': 'folder', '⚙️': 'gear', '⚙': 'gear', '🔎': 'search', '⚡': 'bolt', '💾': 'save', '⏱️': 'timer', '⏱': 'timer',
+  '🏁': 'flag', '✅': 'check', '📎': 'clip', '🗑️': 'trash', '🗑': 'trash', '📝': 'note', '💶': 'euro', '💰': 'wallet', '📅': 'cal', '🗓️': 'cal', '🗓': 'cal', '🎯': 'target',
+  '☀️': 'sun', '⚠️': 'alert', '👉': 'arrow', '🕘': 'clock', '💭': 'msg', '▶': 'play', '⏹️': 'stop', '■': 'stop', '🏅': 'award', '⏸': 'pause', '✏️': 'pencil', '✎': 'pencil',
+  '📋': 'note', '🧩': 'layout', '🗄️': 'archive' };
+const ICON_KEYS = Object.keys(ICON_EMOJI).sort((a, b) => b.length - a.length);
+const ICON_SEL = '.nav .ico, h1, h2, h3, .btn, .tabs a, .pop-item, .task-bar-btn, .cmd-btn, .w-label';
+const iconSVG = (k) => `<svg class="ic${k === 'play' || k === 'stop' ? ' fill' : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[k]}</svg>`;
+function iconizeEl(el) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let n;
+  while ((n = walker.nextNode())) {
+    if (!n.nodeValue.trim()) continue;
+    const t = n.nodeValue.replace(/^\s+/, '');
+    const k = ICON_KEYS.find((e) => t.startsWith(e));
+    if (!k) return;
+    let name = ICON_EMOJI[k];
+    if (name === 'gear' && el.matches('.nav .ico')) name = 'sliders';
+    const rest = t.slice(k.length).replace(/^\uFE0F/, '');
+    n.nodeValue = rest.replace(/^ /, '');
+    n.parentNode.insertBefore(document.createRange().createContextualFragment(iconSVG(name) + (rest.startsWith(' ') ? ' ' : '')), n);
+    return;
+  }
+}
+function iconize(root) {
+  if (!(root instanceof Element)) return;
+  const own = root.closest(ICON_SEL);
+  if (own) iconizeEl(own);
+  root.querySelectorAll(ICON_SEL).forEach(iconizeEl);
+  // 9 · leere Bereiche bekommen ein Symbol
+  root.querySelectorAll('.empty:not(.has-ico)').forEach((e) => { e.classList.add('has-ico'); e.insertAdjacentHTML('afterbegin', `<span class="empty-ico">${iconSVG('inbox')}</span>`); });
+}
+new MutationObserver((list) => { for (const m of list) iconize(m.target); }).observe(document.body, { childList: true, subtree: true });
+iconize(document.body);
 
 /* Hinweisleiste unter der Navigation: Import-Erinnerung beim Öffnen bzw. Export-Erinnerung bei ungesicherten Änderungen. */
 function renderBackupBar() {
@@ -4531,11 +4630,13 @@ function projectMenuHTML(p) {
     <button class="pop-item" data-action="addTask" data-id="${p.id}">✅ ${tr('Aufgabe anlegen')}</button>
     <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 ${tr('Notiz')}</button>
     <button class="pop-item" data-action="goProject" data-id="${p.id}">🗂️ ${tr('Projekt öffnen')}</button>
+    <button class="pop-item" data-action="editProject" data-id="${p.id}">✎ ${tr('Projekt bearbeiten')}</button>
     <div class="pop-sep"></div>
     <button class="pop-item" data-action="duplicateProject" data-id="${p.id}">⧉ ${tr('Projekt duplizieren')}</button>
     <button class="pop-item" data-action="saveTemplate" data-id="${p.id}">📋 ${tr('Als Vorlage speichern')}</button>
     ${p.archived ? `<button class="pop-item" data-action="unarchiveProject" data-id="${p.id}">♻️ ${tr('Wiederherstellen')}</button>`
       : `<button class="pop-item" data-action="archiveProject" data-id="${p.id}">🗄️ ${tr('Archivieren')}</button>`}
+    <button class="pop-item danger" data-action="deleteProject" data-id="${p.id}">🗑 ${tr('Projekt löschen')}</button>
     <div class="pop-sep"></div>
     <div class="pop-label">${tr('Status')}</div>
     <div class="pop-chips">${STATUS.map((st) => `<button class="chip ${p.status === st.value ? 'active' : ''}" data-action="setProjectStatus" data-id="${p.id}" data-status="${st.value}">${st.label}</button>`).join('')}</div>`;

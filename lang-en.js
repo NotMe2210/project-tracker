@@ -1473,4 +1473,5 @@ I18N.en = {
   "Design Glas Liquid Klassisch": "Design glass liquid classic",
   "Keine Aufgaben mit diesem Status.": "No tasks with this status.",
   "Karte antippen = Status ändern und Aktionen · doppelt antippen = bearbeiten.": "Tap a card = change status and actions · double-tap = edit.",
+  "Projekt löschen": "Delete project",
 };
