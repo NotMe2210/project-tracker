@@ -1926,12 +1926,12 @@ html.style-glass.proj-tint {
 .heat-wrap { container-type: inline-size; }
 .heatmap .hm-wd { display: none; font-style: normal; font-size: .68rem; color: var(--muted); text-align: center; line-height: 1; padding-bottom: 2px; }
 .heat-dir .seg-btn { min-width: 30px; padding: 4px 8px; font-size: .8rem; flex: none; }
-.heatmap.hm-rows { grid-auto-flow: row; grid-template-rows: none; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-columns: unset; overflow: visible; }
-.heatmap.hm-rows span { width: 100%; height: clamp(20px, 5.5cqi, 34px); aspect-ratio: auto; border-radius: 6px; }
+.heatmap.hm-rows { --hm: min(calc((100cqi - 48px) / 7), 42px); grid-auto-flow: row; grid-template-rows: none; grid-template-columns: repeat(7, var(--hm)); grid-auto-columns: unset; justify-content: space-between; row-gap: clamp(5px, 1cqi, 9px); overflow: visible; }
+.heatmap.hm-rows span { width: var(--hm); height: var(--hm); aspect-ratio: 1; border-radius: 6px; }
 .heatmap.hm-rows .hm-wd { display: block; }
 @container (max-width: 560px) {
-  .heatmap.hm-auto { grid-auto-flow: row; grid-template-rows: none; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-columns: unset; overflow: visible; }
-  .heatmap.hm-auto span { width: 100%; height: clamp(20px, 5.5cqi, 34px); aspect-ratio: auto; border-radius: 6px; }
+  .heatmap.hm-auto { --hm: min(calc((100cqi - 48px) / 7), 42px); grid-auto-flow: row; grid-template-rows: none; grid-template-columns: repeat(7, var(--hm)); grid-auto-columns: unset; justify-content: space-between; row-gap: clamp(5px, 1cqi, 9px); overflow: visible; }
+  .heatmap.hm-auto span { width: var(--hm); height: var(--hm); aspect-ratio: 1; border-radius: 6px; }
   .heatmap.hm-auto .hm-wd { display: block; }
 }
 .heat-dir { flex: none; flex-wrap: nowrap; white-space: nowrap; display: inline-flex; }

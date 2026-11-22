@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-25",
+      "date": "2026-11-22",
+      "de": [
+        "📈 Aktivität waagerecht: quadratische Felder, gleichmäßig über die Kachelbreite verteilt"
+      ],
+      "en": [
+        "📈 Activity horizontal: square cells, evenly spread across the tile width"
+      ]
+    },
+    {
       "version": "2026.11.22-24",
       "date": "2026-11-22",
       "de": [
