@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-21';
+const APP_VERSION = '2026.11.22-25';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -56,6 +56,7 @@ const DEFAULT_DATA = {
   weekFocus: {}, // Wochenfokus { 'YYYY-MM-DD' (Wochenbeginn): [Aufgaben-IDs] }
   templates: [], // eigene Projektvorlagen { id, name, icon, createdAt, bp }
   incomes: [], // Einnahmen { id, projectId, description, amount, date, category }
+  recurring: [], // Wiederkehrende Zahlungen { id, projectId, kind: 'inv'|'income', description, amount, category, interval, start, end, skip: [Datum] }
   people: [], // Personen { id, name, short, color, email, accountId (später: Login-Konto), createdAt }
   teams: [], // Teams { id, name, color, memberIds: [Personen-IDs], createdAt }
   timer: null,
@@ -713,6 +714,7 @@ function render() {
   if (typeof hideTip === 'function') hideTip();
   if (isLocked()) { renderLockScreen(); return; }
   document.body.classList.remove('locked');
+  if (generateRecurring()) save(); // fällige wiederkehrende Zahlungen buchen
   const r = parseRoute();
   const app = $('#app');
   let html;
@@ -1450,7 +1452,7 @@ function renderWidget(id, c, cfg) {
     }
 
     case 'activity':
-      return card(tr('📈 Aktivität (12 Wochen)'), heatmap(dayMap()));
+      return card(tr('📈 Aktivität (12 Wochen)'), heatmap(dayMap()), heatDirSwitch());
 
     case 'weekChart':
       return card(`📊 ${chartTitle()}`, stackedWeekBars(), periodSwitch());
@@ -1626,6 +1628,14 @@ function dayTip(iso, d, items) {
     + (items.length > max ? `<span class="tip-sub">${tr('… und {n} weitere', { n: items.length - max })}</span>` : '');
 }
 
+/* Aktivität: Wochen als Spalten (senkrecht) oder als Zeilen (waagerecht); „auto“ dreht in schmalen Kacheln */
+const HEAT_KEY = 'projekttracker.ui.heatDir';
+let heatDir = (() => { try { const v = localStorage.getItem(HEAT_KEY); return ['auto', 'cols', 'rows'].includes(v) ? v : 'auto'; } catch { return 'auto'; } })();
+const heatDirSwitch = () => `<span class="segmented heat-dir" role="group" aria-label="${tr('Ausrichtung der Wochen')}">${[
+  ['auto', 'A', tr('Automatisch – in schmalen Kacheln waagerecht')],
+  ['cols', '▥', tr('Wochen senkrecht (Spalten)')],
+  ['rows', '▤', tr('Wochen waagerecht (Zeilen)')]].map(([v, l, t]) =>
+  `<button type="button" class="seg-btn ${heatDir === v ? 'active' : ''}" data-action="setHeatDir" data-dir="${v}" title="${esc(t)}" aria-label="${esc(t)}" aria-pressed="${heatDir === v}">${l}</button>`).join('')}</span>`;
 function heatmap(map) {
   const today = todayISO();
   const start = addDays(startOfWeek(new Date()), -11 * 7);
@@ -1641,7 +1651,9 @@ function heatmap(map) {
     cells.push(`<span class="l${lvl}${iso === today ? ' today' : ''}" aria-label="${esc(label)}" tabindex="-1" data-detail="day:${iso}" data-tip="${esc(dayTip(iso, d, details[iso]))}"></span>`);
   }
   const active = Object.keys(map).filter((k) => k >= toISO(start) && k <= today).length;
-  return `<div class="heatmap">${cells.join('')}</div>
+  // Wochentage als Überschrift (nur sichtbar, wenn die Wochen waagerecht als Zeilen laufen)
+  const wd = Array.from({ length: 7 }, (_, i) => `<i class="hm-wd" aria-hidden="true">${esc(addDays(startOfWeek(new Date()), i).toLocaleDateString(LOCALE, { weekday: 'narrow' }))}</i>`).join('');
+  return `<div class="heat-wrap"><div class="heatmap hm-${heatDir}">${wd}${cells.join('')}</div></div>
     <div class="legend">${tr('weniger')} <span style="background:var(--heat-0)"></span><span style="background:var(--heat-1)"></span><span style="background:var(--heat-2)"></span><span style="background:var(--heat-3)"></span><span style="background:var(--heat-4)"></span> ${tr('mehr')}
     <span style="flex:1"></span>${tr('{n} aktive Tage', { n: active })}</div>
     <div class="small muted heat-hint">${matchMedia('(hover: none)').matches ? tr('Tipp: Tippe auf einen Tag, um seine Aktivitäten zu sehen.') : tr('Tipp: Fahre auf einen Tag, um seine Aktivitäten zu sehen.')}</div>`;
@@ -2372,6 +2384,7 @@ function projectInvestments(p) {
     ${tile(tr('Pro Stunde'), hours >= 0.5 ? fmtEUR(profit / hours) : '–', hours >= 0.5 ? tr('Ergebnis ÷ {h}', { h: fmtHours(hours * 60) }) : tr('noch zu wenig Zeit erfasst'), profit > 0 ? 'pos' : profit < 0 ? 'neg' : '')}
   </div>
   ${total && income < total && income > 0 ? `<div class="card"><div class="row-between small"><span>${tr('Bis zur Gewinnschwelle')}</span><span>${fmtEUR(total - income)}</span></div>${progressBar((income / total) * 100)}</div>` : ''}
+  ${recurringCard(p)}
   <div class="grid-2">
     <section class="card">
       <div class="card-head"><h2>💰 ${tr('Einnahmen')} · ${fmtEUR(income)}</h2><button class="btn primary small" data-action="addIncome" data-id="${p.id}">${tr('+ Einnahme')}</button></div>
@@ -2407,7 +2420,7 @@ function investmentMonths(pid, items, kind = 'inv') {
         <span class="amount">${fmtEUR(sum(list, (e) => e.amount))}</span></summary>
       <ul class="list">${list.map((e) => `
         <li>
-          <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || tr('Sonstiges'))}</span></div></div>
+          <div class="grow"><div class="title">${esc(e.description)}</div><div class="meta">${fmtDate(e.date)} <span class="badge">${esc(e.category || tr('Sonstiges'))}</span>${e.recurringId ? ` <span class="badge" title="${tr('Wiederkehrende Zahlung')}">🔁</span>` : ''}</div></div>
           <span class="amount ${inc ? 'pos' : ''}">${inc ? '+' : ''}${fmtEUR(e.amount)}</span>
           <div class="actions">
             <button class="btn ghost icon" data-action="${inc ? 'editIncome' : 'editInvestment'}" data-id="${e.id}" title="${tr('Bearbeiten')}">✎</button>
@@ -3331,7 +3344,7 @@ const actions = {
     const p = getProject(id);
     if (!confirm(tr('Projekt „{name}“ inklusive aller Zeiten, Investitionen, Aufgaben und Meilensteine löschen?', { name: p.name }))) return;
     data.projects = data.projects.filter((x) => x.id !== id);
-    for (const k of ['timeEntries', 'investments', 'incomes', 'milestones', 'tasks', 'notes', 'docs']) data[k] = (data[k] || []).filter((x) => x.projectId !== id);
+    for (const k of ['timeEntries', 'investments', 'incomes', 'recurring', 'milestones', 'tasks', 'notes', 'docs']) data[k] = (data[k] || []).filter((x) => x.projectId !== id);
     if (data.timer?.projectId === id) data.timer = null;
     save();
     location.hash = '#/projekte';
@@ -3540,12 +3553,14 @@ const actions = {
   editIncome({ id }) { incomeForm(data.incomes.find((e) => e.id === id)); },
   deleteIncome({ id }) {
     if (!confirm(tr('Einnahme löschen?'))) return;
+    recSkip(data.incomes.find((e) => e.id === id));
     data.incomes = data.incomes.filter((e) => e.id !== id);
     commit();
   },
   editInvestment({ id }) { investmentForm(data.investments.find((e) => e.id === id)); },
   deleteInvestment({ id }) {
     if (!confirm(tr('Investition löschen?'))) return;
+    recSkip(data.investments.find((e) => e.id === id));
     data.investments = data.investments.filter((e) => e.id !== id);
     commit();
   },
@@ -3861,22 +3876,154 @@ function timeForm(e, { fromTimer = false } = {}) {
   }
 }
 
+/* ---- Wiederkehrende Zahlungen (Abos, Lizenzen, Miete …) ----
+   Eine Regel bucht an jedem Fälligkeitstag eine normale Investition bzw. Einnahme – auch rückwirkend ab dem Start.
+   Die Buchungen haben feste IDs (rec-<Regel>-<Datum>): So entsteht beim Zusammenführen zweier Geräte nichts doppelt.
+   Gelöschte Buchungen merkt sich die Regel (skip) und legt sie nicht erneut an. */
+const REC_INTERVALS = [
+  { value: 'weekly', get label() { return tr('wöchentlich'); } },
+  { value: 'monthly', get label() { return tr('monatlich'); } },
+  { value: 'quarterly', get label() { return tr('vierteljährlich'); } },
+  { value: 'yearly', get label() { return tr('jährlich'); } },
+];
+const recIntervalLabel = (v) => REC_INTERVALS.find((x) => x.value === v)?.label || '';
+/** n-ter Termin einer Regel (immer vom Start aus gerechnet – so wandert der 31. nicht auf den 28.) */
+function recDate(rule, n) {
+  if (rule.interval === 'weekly') return toISO(addDays(parseISO(rule.start), 7 * n));
+  return addMonthsISO(rule.start, n * ({ monthly: 1, quarterly: 3, yearly: 12 }[rule.interval] || 1));
+}
+function recNextDate(rule, after = todayISO()) {
+  for (let n = 0; n < 2000; n++) { const d = recDate(rule, n); if (rule.end && d > rule.end) return null; if (d > after) return d; }
+  return null;
+}
+function generateRecurring() {
+  const rules = data.recurring || [];
+  if (!rules.length) return false;
+  const today = todayISO();
+  let changed = false;
+  for (const rule of rules) {
+    if (!getProject(rule.projectId) || !rule.start) continue;
+    const list = rule.kind === 'income' ? (data.incomes ||= []) : data.investments;
+    const have = new Set(list.filter((e) => e.recurringId === rule.id).map((e) => e.date));
+    const skip = new Set(rule.skip || []);
+    for (let n = 0; n < 2000; n++) {
+      const date = recDate(rule, n);
+      if (date > today || (rule.end && date > rule.end)) break;
+      if (have.has(date) || skip.has(date)) continue;
+      list.push({ id: `rec-${rule.id}-${date}`, projectId: rule.projectId, description: rule.description, amount: rule.amount, date, category: rule.category || '', recurringId: rule.id });
+      changed = true;
+    }
+  }
+  return changed;
+}
+const recRepeatField = (value = '') => ({ name: 'repeat', label: tr('Wiederholen'), type: 'select', value, half: true,
+  options: [{ value: '', label: tr('– einmalig –') }, ...REC_INTERVALS.map((x) => ({ value: x.value, label: x.label }))],
+  hint: tr('z. B. Abo oder Lizenz – wird automatisch gebucht') });
+const recEndField = (value = '') => ({ name: 'end', label: tr('Endet am'), type: 'date', value, half: true, hint: tr('optional – leer = läuft weiter') });
+/** Nach dem Speichern eines neuen Eintrags mit „Wiederholen“: Regel anlegen und bis heute buchen */
+function createRecurring(kind, projectId, v) {
+  data.recurring ||= [];
+  const rule = { id: uid(), projectId, kind, description: v.description, amount: v.amount, category: v.category || '', interval: v.repeat, start: v.date, end: v.end || null, skip: [] };
+  data.recurring.push(rule);
+  generateRecurring();
+  const n = (kind === 'income' ? data.incomes : data.investments).filter((e) => e.recurringId === rule.id).length;
+  const next = recNextDate(rule);
+  toast(tr('🔁 Wiederkehrend angelegt ({interval}) – {n} bis heute gebucht{next}.', { interval: recIntervalLabel(rule.interval), n, next: next ? tr(', nächste am {date}', { date: fmtDate(next) }) : '' }));
+}
+function recurringForm(rule) {
+  const inc = rule.kind === 'income';
+  openForm({
+    title: tr('Wiederkehrende Zahlung bearbeiten'),
+    fields: [
+      { name: 'description', label: inc ? tr('Woher?') : tr('Wofür?'), required: true, value: rule.description },
+      { name: 'amount', label: tr('Betrag (€)'), type: 'decimal', required: true, value: decimalValue(rule.amount), half: true },
+      { name: 'interval', label: tr('Wiederholen'), type: 'select', value: rule.interval, half: true, options: REC_INTERVALS.map((x) => ({ value: x.value, label: x.label })) },
+      { name: 'category', label: tr('Kategorie'), value: rule.category || '', chips: inc ? [] : investmentCategories() },
+      recEndField(rule.end || ''),
+    ],
+    onSubmit(v) {
+      if (v.amount == null) return tr('Bitte einen Betrag angeben.');
+      if (v.end && v.end < rule.start) return tr('Das Ende liegt vor dem Start ({date}).', { date: fmtDate(rule.start) });
+      Object.assign(rule, { description: v.description, amount: v.amount, interval: v.interval, category: inc ? (v.category || '').trim() : normalizeCategory(v.category), end: v.end || null });
+      commit();
+      toast(tr('🔁 Gespeichert – gilt für alle künftigen Buchungen.'));
+    },
+  });
+}
+function recurringCard(p) {
+  const rules = (data.recurring || []).filter((r) => r.projectId === p.id);
+  if (!rules.length) return '';
+  const today = todayISO();
+  const monthly = (r) => r.amount * ({ weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 }[r.interval] || 1);
+  const active = rules.filter((r) => !r.end || r.end >= today);
+  const perMonth = sum(active.filter((r) => r.kind !== 'income'), monthly) - sum(active.filter((r) => r.kind === 'income'), monthly);
+  return `<section class="card rec-card">
+    <div class="card-head"><h2>🔁 ${tr('Wiederkehrende Zahlungen')}</h2>
+      ${perMonth ? `<span class="small muted">${tr('≈ {amount} pro Monat', { amount: fmtEUR(Math.abs(perMonth)) })}${perMonth < 0 ? ` (${tr('Einnahmen')})` : ''}</span>` : ''}</div>
+    <ul class="list">${rules.map((r) => {
+      const next = recNextDate(r), ended = r.end && r.end < today;
+      return `<li class="${ended ? 'done' : ''}">
+        <div class="grow"><div class="title">${esc(r.description)}</div>
+          <div class="meta"><span class="badge">${r.kind === 'income' ? `💰 ${tr('Einnahme')}` : `💶 ${tr('Investition')}`}</span><span>🔁 ${esc(recIntervalLabel(r.interval))}</span>
+            ${ended ? `<span>${tr('beendet am {date}', { date: fmtDate(r.end) })}</span>` : next ? `<span>${tr('nächste am {date}', { date: fmtDate(next) })}</span>` : ''}
+            ${r.end && !ended ? `<span>${tr('bis {date}', { date: fmtDate(r.end) })}</span>` : ''}</div></div>
+        <span class="amount ${r.kind === 'income' ? 'pos' : ''}">${r.kind === 'income' ? '+' : ''}${fmtEUR(r.amount)}</span>
+        <div class="actions">
+          <button class="btn ghost icon" data-action="editRecurring" data-id="${r.id}" title="${tr('Bearbeiten')}">✎</button>
+          ${ended ? '' : `<button class="btn ghost icon" data-action="endRecurring" data-id="${r.id}" title="${tr('Ab heute beenden')}">⏹️</button>`}
+          <button class="btn ghost icon danger" data-action="deleteRecurring" data-id="${r.id}" title="${tr('Löschen')}">🗑</button>
+        </div></li>`;
+    }).join('')}</ul>
+  </section>`;
+}
+Object.assign(actions, {
+  setHeatDir({ dir }) {
+    heatDir = dir;
+    try { localStorage.setItem(HEAT_KEY, dir); } catch {}
+    document.querySelectorAll('.heatmap').forEach((h) => { h.classList.remove('hm-auto', 'hm-cols', 'hm-rows'); h.classList.add(`hm-${dir}`); });
+    document.querySelectorAll('.heat-dir .seg-btn').forEach((b) => { b.classList.toggle('active', b.dataset.dir === dir); b.setAttribute('aria-pressed', b.dataset.dir === dir); });
+  },
+});
+Object.assign(actions, {
+  editRecurring({ id }) { const r = (data.recurring || []).find((x) => x.id === id); if (r) recurringForm(r); },
+  endRecurring({ id }) {
+    const r = (data.recurring || []).find((x) => x.id === id);
+    if (!r || !confirm(tr('„{name}“ ab heute nicht mehr buchen? Bisherige Buchungen bleiben erhalten.', { name: r.description }))) return;
+    r.end = todayISO() < r.start ? r.start : todayISO();
+    commit();
+  },
+  deleteRecurring({ id }) {
+    const r = (data.recurring || []).find((x) => x.id === id);
+    if (!r || !confirm(tr('Wiederkehrende Zahlung „{name}“ löschen? Bisherige Buchungen bleiben als einzelne Einträge erhalten.', { name: r.description }))) return;
+    data.recurring = data.recurring.filter((x) => x.id !== id);
+    for (const list of [data.investments, data.incomes || []]) list.forEach((e) => { if (e.recurringId === id) delete e.recurringId; });
+    commit();
+  },
+});
+/** Buchung aus einer Regel gelöscht: nicht erneut anlegen */
+const recSkip = (e) => { const r = e?.recurringId && (data.recurring || []).find((x) => x.id === e.recurringId); if (r) (r.skip ||= []).push(e.date); };
+const recHint = (e) => (e?.recurringId && (data.recurring || []).some((x) => x.id === e.recurringId)
+  ? tr('🔁 Teil einer wiederkehrenden Zahlung – Änderungen gelten nur für diese Buchung. Die Regel selbst änderst du unter „Wiederkehrende Zahlungen“.') : '');
+
 function investmentForm(e) {
   const isNew = !e.id;
   openForm({
     title: isNew ? tr('Investition erfassen') : tr('Investition bearbeiten'),
     fields: [
-      { name: 'description', label: tr('Wofür?'), required: true, value: e.description },
+      { name: 'description', label: tr('Wofür?'), required: true, value: e.description, hint: recHint(e) },
       { name: 'amount', label: tr('Betrag (€)'), type: 'decimal', required: true, value: e.amount != null ? decimalValue(e.amount) : '', placeholder: `49${DEC()}99`, half: true },
       { name: 'date', label: tr('Datum'), type: 'date', required: true, value: e.date || todayISO(), half: true },
       { name: 'category', label: tr('Kategorie'), value: e.category || '', chips: investmentCategories(),
         placeholder: tr('z. B. Werkzeug, Messe …'), hint: tr('Eigenen Namen eintippen oder einen Vorschlag antippen. Leer = „Sonstiges“.') },
+      ...(isNew ? [recRepeatField(), recEndField()] : []),
     ],
     onSubmit(v) {
       if (v.amount == null) return tr('Bitte einen Betrag angeben.');
       v.category = normalizeCategory(v.category);
-      if (isNew) data.investments.push({ id: uid(), projectId: e.projectId, ...v });
-      else Object.assign(e, v);
+      const { repeat, end, ...entry } = v;
+      if (repeat) { if (end && end < v.date) return tr('Das Ende liegt vor dem Start ({date}).', { date: fmtDate(v.date) }); createRecurring('inv', e.projectId, v); commit(); return; }
+      if (isNew) data.investments.push({ id: uid(), projectId: e.projectId, ...entry });
+      else Object.assign(e, entry);
       commit();
     },
   });
@@ -3888,17 +4035,20 @@ function incomeForm(e) {
   openForm({
     title: isNew ? tr('Einnahme erfassen') : tr('Einnahme bearbeiten'),
     fields: [
-      { name: 'description', label: tr('Woher?'), required: true, value: e.description, placeholder: tr('z. B. Verkauf auf dem Markt, Kundenauftrag …') },
+      { name: 'description', label: tr('Woher?'), required: true, value: e.description, placeholder: tr('z. B. Verkauf auf dem Markt, Kundenauftrag …'), hint: recHint(e) },
       { name: 'amount', label: tr('Betrag (€)'), type: 'decimal', required: true, value: e.amount != null ? decimalValue(e.amount) : '', placeholder: `120${DEC()}00`, half: true },
       { name: 'date', label: tr('Datum'), type: 'date', required: true, value: e.date || todayISO(), half: true },
       { name: 'category', label: tr('Kategorie'), value: e.category || '', chips: cats, placeholder: tr('Verkauf'), hint: tr('Eigenen Namen eintippen oder einen Vorschlag antippen. Leer = „Sonstiges“.') },
+      ...(isNew ? [{ ...recRepeatField(), hint: tr('z. B. Abo-Einnahmen, Miete – wird automatisch gebucht') }, recEndField()] : []),
     ],
     onSubmit(v) {
       if (v.amount == null) return tr('Bitte einen Betrag angeben.');
       v.category = (v.category || '').trim();
       data.incomes ||= [];
-      if (isNew) data.incomes.push({ id: uid(), projectId: e.projectId, ...v });
-      else Object.assign(e, v);
+      const { repeat, end, ...entry } = v;
+      if (repeat) { if (end && end < v.date) return tr('Das Ende liegt vor dem Start ({date}).', { date: fmtDate(v.date) }); createRecurring('income', e.projectId, v); commit(); return; }
+      if (isNew) data.incomes.push({ id: uid(), projectId: e.projectId, ...entry });
+      else Object.assign(e, entry);
       commit();
       if (isNew) toast(tr('💰 {amount} verbucht – stark!', { amount: fmtEUR(v.amount) }));
     },
@@ -6003,7 +6153,7 @@ function analyzePlan(text, defaultPid) {
   let parsed;
   try { parsed = readPlanCsv(text); } catch (e) { return { error: e.message }; }
   const same = (a, b) => String(a || '').trim().toLocaleLowerCase(LOCALE) === String(b || '').trim().toLocaleLowerCase(LOCALE);
-  const res = { rows: [], newProjects: new Map(), issues: [], duplicates: 0 };
+  const res = { rows: [], newProjects: new Map(), issues: [], duplicates: 0, defaultPid };
   for (const r of parsed.rows) {
     let pid = null;
     if (r.project) {
@@ -6036,13 +6186,11 @@ function renderPlanPreview(el, r) {
     ${r.duplicates ? `<label class="check-row csv-create"><input type="checkbox" data-plan-skip checked>
       <span>${trp(r.duplicates, '{n} gleichnamigen Eintrag überspringen', '{n} gleichnamige Einträge überspringen')}
       <span class="small muted">${tr('Ohne Haken werden sie zusätzlich angelegt.')}</span></span></label>` : ''}
-    ${newList.length ? `<label class="check-row csv-create"><input type="checkbox" data-csv-create checked>
-      <span>${trp(newList.length, 'Neues Projekt anlegen: {names}', 'Neue Projekte anlegen: {names}', { names: esc(newList.join(', ')) })}
-      <span class="small muted">${tr('Ohne Haken werden diese Einträge übersprungen.')}</span></span></label>` : ''}
+    ${projectMapHTML(r.newProjects, newList.length ? csvProjectCounts(r.rows, 'pid') : new Map(), r.defaultPid)}
     ${sample.length ? `<div class="field-label">${tr('Vorschau')}</div>
     <div class="table-wrap"><table class="csv-preview">
       <thead><tr><th>${tr('Zeile')}</th><th>${tr('Projekt')}</th><th>${tr('Eintrag')}</th><th>${tr('Fällig am')}</th></tr></thead>
-      <tbody>${sample.map((x) => `<tr class="${x.dup ? 'muted' : ''}"><td class="muted">${x.line}</td><td>${esc(name(x.pid))}${x.pid.startsWith('new:') ? ` <span class="badge">${tr('neu')}</span>` : ''}</td>
+      <tbody>${sample.map((x) => `<tr class="${x.dup ? 'muted' : ''}"><td class="muted">${x.line}</td><td>${esc(name(x.pid))}${x.pid.startsWith('new:') ? ` <span class="badge mittel">${tr('prüfen')}</span>` : ''}</td>
         <td>${x.kind === 'ms' ? '🏁' : '✅'} ${esc(x.title)}${x.kind === 'task' && x.milestone ? ` <span class="small muted">· ${esc(x.milestone)}</span>` : ''}${x.dup ? ` <span class="badge">${tr('schon vorhanden')}</span>` : ''}</td>
         <td>${parseDateFlexible(x.due) ? fmtDate(parseDateFlexible(x.due)) : ''}</td></tr>`).join('')}</tbody>
     </table></div>
@@ -6117,22 +6265,13 @@ function openPlanImport(defaultProjectId) {
     label();
   });
   btn('import').addEventListener('click', () => {
-    const create = box.querySelector('[data-csv-create]')?.checked !== false;
+    if (projectMapMissing(box, err)) return;
     const skip = box.querySelector('[data-plan-skip]')?.checked !== false;
-    const ids = {};
-    const resolve = (r) => {
-      if (!r.pid.startsWith('new:')) return r.pid;
-      if (!create) return null;
-      if (!ids[r.pid]) {
-        const np = { id: uid(), createdAt: todayISO(), name: result.newProjects.get(r.pid.slice(4)), status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
-        data.projects.push(np);
-        ids[r.pid] = np.id;
-      }
-      return ids[r.pid];
-    };
-    const res = importPlanRows(result.rows, resolve, skip);
+    const before = data.projects.length;
+    const map = projectMapResolver(box, result.newProjects);
+    const res = importPlanRows(result.rows, (r) => map(r.pid), skip);
     close();
-    if (Object.keys(ids).length && !res.ms && !res.tasks) commit();
+    if (data.projects.length !== before && !res.ms && !res.tasks) commit();
     toast(tr('⬆ Importiert: {ms} Meilensteine, {tasks} Aufgaben{skipped}.', { ms: res.ms, tasks: res.tasks, skipped: res.skipped ? tr(' · {n} übersprungen', { n: res.skipped }) : '' }));
   });
   lockScroll();
@@ -6264,7 +6403,7 @@ function analyzeCsv(text, defaultProjectId) {
     ...data.investments.map((e) => `i|${e.projectId}|${e.date}|${Number(e.amount).toFixed(2)}|${String(e.description || '').trim().toLowerCase()}`),
   ]);
   const get = (r, k) => (col[k] === undefined ? '' : String(r[col[k]] ?? '').trim());
-  const out = { times: [], investments: [], duplicates: 0, issues: [], newProjects: new Map(), total: rows.length - 1 };
+  const out = { times: [], investments: [], duplicates: 0, issues: [], newProjects: new Map(), total: rows.length - 1, defaultPid: defaultProjectId, existing };
   const timeWords = ['zeit', 'time', 'zeiteintrag', 'timeentry', 'arbeitszeit'];
   const invWords = ['investition', 'investment', 'ausgabe', 'expense', 'kosten', 'cost'];
 
@@ -6312,6 +6451,82 @@ function analyzeCsv(text, defaultProjectId) {
     }
   });
   return out;
+}
+
+/* ---- Unbekannte Projektnamen beim Import: nachfragen statt still ein neues Projekt anzulegen ---- */
+const projKey = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ß/g, 'ss').replace(/[^a-z0-9]/g, '');
+function editDistance(a, b) {
+  if (Math.abs(a.length - b.length) > 3) return 99;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+/** Ähnlich geschriebenes vorhandenes Projekt (Leerzeichen, Bindestriche, Groß/klein, Umlaute, kleine Tippfehler) */
+function similarProject(name) {
+  const k = projKey(name);
+  if (!k) return null;
+  let best = null, bestScore = 99;
+  for (const p of data.projects) {
+    const pk = projKey(p.name);
+    if (!pk) continue;
+    let score = pk === k ? 0 : (pk.length >= 4 && k.length >= 4 && (pk.includes(k) || k.includes(pk))) ? 1 : editDistance(pk, k);
+    if (score <= Math.max(1, Math.floor(Math.min(pk.length, k.length) / 5)) && score < bestScore) { best = p; bestScore = score; }
+  }
+  return best;
+}
+/** Rückfrage je unbekanntem Projektnamen (counts: key → Anzahl Einträge) */
+function projectMapHTML(newProjects, counts, defaultPid) {
+  if (!newProjects.size) return '';
+  const cur = defaultPid ? getProject(defaultPid) : null;
+  const all = liveProjects().length ? liveProjects() : data.projects;
+  return `<div class="proj-map">
+    <div class="proj-map-head">⚠️ ${tr('Diese Projektnamen aus der Datei gibt es hier nicht. Bitte wähle, wohin die Einträge sollen:')}</div>
+    ${[...newProjects].map(([key, name]) => {
+      const sim = similarProject(name);
+      const pre = sim ? sim.id : ''; // ohne ähnlichen Namen: bewusst wählen lassen
+      const opt = (v, l) => `<option value="${esc(v)}" ${v === pre ? 'selected' : ''}>${esc(l)}</option>`;
+      const first = [sim, cur].filter((p, i, a) => p && a.findIndex((x) => x?.id === p.id) === i);
+      return `<label class="proj-map-row"><span class="proj-map-name">„${esc(name)}“ <span class="small muted">· ${trp(counts.get(key) || 0, '{n} Eintrag', '{n} Einträge')}</span>
+          ${sim ? `<span class="small proj-map-sim">${tr('Ähnlich: „{name}“', { name: esc(sim.name) })}</span>` : ''}</span>
+        <select data-proj-map="${esc(key)}" class="${pre ? '' : 'need'}">
+          ${pre ? '' : `<option value="" selected disabled>${tr('– bitte wählen –')}</option>`}
+          ${first.map((p) => opt(p.id, tr('Zu „{name}“ hinzufügen', { name: p.name }))).join('')}
+          ${opt('new', tr('Neues Projekt „{name}“ anlegen', { name }))}
+          <optgroup label="${esc(tr('Anderem Projekt zuordnen'))}">${all.filter((p) => !first.some((x) => x.id === p.id)).map((p) => opt(p.id, p.name)).join('')}</optgroup>
+          ${opt('skip', tr('Nicht importieren'))}
+        </select></label>`;
+    }).join('')}
+  </div>`;
+}
+/** Noch nicht beantwortete Rückfrage? Dann Hinweis zeigen und nicht importieren */
+function projectMapMissing(box, err) {
+  const open = [...box.querySelectorAll('[data-proj-map]')].filter((s) => !s.value);
+  open.forEach((s) => s.classList.add('need'));
+  if (open.length) { err.textContent = tr('Bitte wähle für jeden unbekannten Projektnamen, wohin die Einträge sollen.'); open[0].focus(); }
+  return open.length > 0;
+}
+document.addEventListener('change', (e) => { if (e.target.matches?.('[data-proj-map]')) e.target.classList.toggle('need', !e.target.value); });
+/** Gewählte Zuordnung lesen → Funktion, die „new:…“ in eine Projekt-ID (oder null = überspringen) auflöst */
+function projectMapResolver(box, newProjects) {
+  const choice = {};
+  box.querySelectorAll('[data-proj-map]').forEach((s) => { choice[s.dataset.projMap] = s.value; });
+  const created = {};
+  return (pid) => {
+    if (!pid || !pid.startsWith('new:')) return pid;
+    const key = pid.slice(4), c = choice[key] || 'new';
+    if (c === 'skip') return null;
+    if (c !== 'new') return c;
+    if (!created[key]) {
+      const np = { id: uid(), createdAt: todayISO(), name: newProjects.get(key), status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
+      data.projects.push(np);
+      created[key] = np.id;
+    }
+    return created[key];
+  };
 }
 
 /** Vorlage mit Überschriften und zwei Beispielzeilen */
@@ -6432,35 +6647,29 @@ function openCsvImport(defaultProjectId) {
     btn('import').textContent = n ? trp(n, '{n} Eintrag importieren', '{n} Einträge importieren') : tr('Nichts zu importieren');
   });
   btn('import').addEventListener('click', () => {
-    const create = box.querySelector('[data-csv-create]')?.checked !== false;
-    const ids = {};
-    let skipped = 0;
-    const resolve = (pid) => {
-      if (!pid.startsWith('new:')) return pid;
-      if (!create) return null;
-      if (!ids[pid]) {
-        const name = result.newProjects.get(pid.slice(4));
-        const np = { id: uid(), createdAt: todayISO(), name, status: 'aktiv', color: COLORS[data.projects.length % COLORS.length] };
-        data.projects.push(np);
-        ids[pid] = np.id;
-      }
-      return ids[pid];
-    };
+    if (projectMapMissing(box, err)) return;
+    const resolve = projectMapResolver(box, result.newProjects);
+    let skipped = 0, dups = 0;
+    // Einem vorhandenen Projekt zugeordnet: dort schon vorhandene Einträge nicht doppelt anlegen
+    const isDup = (e, pid, kind) => e.projectId.startsWith('new:') && result.existing.has(kind === 't'
+      ? `t|${pid}|${e.date}|${e.minutes}|${e.title.toLowerCase()}`
+      : `i|${pid}|${e.date}|${Number(e.amount).toFixed(2)}|${String(e.description || '').trim().toLowerCase()}`);
     let nt = 0, ni = 0;
-    result.times.forEach(({ line, ...e }) => { const pid = resolve(e.projectId); if (!pid) { skipped++; return; } data.timeEntries.push({ id: uid(), ...e, projectId: pid }); nt++; });
+    result.times.forEach(({ line, ...e }) => { const pid = resolve(e.projectId); if (!pid) { skipped++; return; } if (isDup(e, pid, 't')) { dups++; return; } data.timeEntries.push({ id: uid(), ...e, projectId: pid }); nt++; });
     result.investments.forEach(({ line, ...e }) => {
-      const pid = resolve(e.projectId); if (!pid) { skipped++; return; }
+      const pid = resolve(e.projectId); if (!pid) { skipped++; return; } if (isDup(e, pid, 'i')) { dups++; return; }
       data.investments.push({ id: uid(), ...e, projectId: pid, category: normalizeCategory(e.category) }); ni++;
     });
     close();
     commit();
-    toast(tr('✔ Importiert: {t} Zeiteinträge, {i} Investitionen', { t: nt, i: ni }) + (skipped ? ` · ${tr('{n} ohne Projekt übersprungen', { n: skipped })}` : ''));
+    toast(tr('✔ Importiert: {t} Zeiteinträge, {i} Investitionen', { t: nt, i: ni }) + (skipped ? ` · ${tr('{n} nicht importiert', { n: skipped })}` : '') + (dups ? ` · ${tr('{n} schon vorhanden', { n: dups })}` : ''));
   });
   lockScroll();
   dlg.showModal();
   if (!matchMedia('(hover: none)').matches) ta.focus();
 }
 
+const csvProjectCounts = (list, field) => { const m = new Map(); list.forEach((x) => { const v = x[field]; if (v?.startsWith('new:')) m.set(v.slice(4), (m.get(v.slice(4)) || 0) + 1); }); return m; };
 function renderCsvPreview(el, r) {
   const name = (pid) => (pid.startsWith('new:') ? r.newProjects.get(pid.slice(4)) : getProject(pid)?.name || '–');
   const sample = [...r.times.map((x) => ({ ...x, kind: 'time' })), ...r.investments.map((x) => ({ ...x, kind: 'inv' }))]
@@ -6474,13 +6683,11 @@ function renderCsvPreview(el, r) {
       ${r.issues.length ? `<li class="csv-warn">⚠️ ${trp(r.issues.length, '{n} Zeile kann nicht gelesen werden', '{n} Zeilen können nicht gelesen werden')}
         <ul class="small">${r.issues.slice(0, 6).map((m) => `<li>${esc(m)}</li>`).join('')}${r.issues.length > 6 ? `<li>${tr('… und {n} weitere', { n: r.issues.length - 6 })}</li>` : ''}</ul></li>` : ''}
     </ul>
-    ${newList.length ? `<label class="check-row csv-create"><input type="checkbox" data-csv-create checked>
-      <span>${trp(newList.length, 'Neues Projekt anlegen: {names}', 'Neue Projekte anlegen: {names}', { names: esc(newList.join(', ')) })}
-      <span class="small muted">${tr('Ohne Haken werden diese Einträge übersprungen.')}</span></span></label>` : ''}
+    ${projectMapHTML(r.newProjects, newList.length ? csvProjectCounts([...r.times, ...r.investments], 'projectId') : new Map(), r.defaultPid)}
     ${sample.length ? `<div class="field-label">${tr('Vorschau')}</div>
     <div class="table-wrap"><table class="csv-preview">
       <thead><tr><th>${tr('Zeile')}</th><th>${tr('Datum')}</th><th>${tr('Projekt')}</th><th>${tr('Eintrag')}</th><th class="num">${tr('Dauer / Betrag')}</th></tr></thead>
-      <tbody>${sample.map((x) => `<tr><td class="muted">${x.line}</td><td>${fmtDate(x.date)}</td><td>${esc(name(x.projectId))}${x.projectId.startsWith('new:') ? ` <span class="badge">${tr('neu')}</span>` : ''}</td>
+      <tbody>${sample.map((x) => `<tr><td class="muted">${x.line}</td><td>${fmtDate(x.date)}</td><td>${esc(name(x.projectId))}${x.projectId.startsWith('new:') ? ` <span class="badge mittel">${tr('prüfen')}</span>` : ''}</td>
         <td>${x.kind === 'time' ? `⏱️ ${esc(x.title)}` : `💶 ${esc(x.description)}${x.category ? ` <span class="badge">${esc(x.category)}</span>` : ''}`}</td>
         <td class="num">${x.kind === 'time' ? fmtDuration(x.minutes) : fmtEUR(x.amount)}</td></tr>`).join('')}</tbody>
     </table></div>

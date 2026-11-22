@@ -2,6 +2,52 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-25",
+      "date": "2026-11-22",
+      "de": [
+        "📈 Aktivität waagerecht: quadratische Felder, gleichmäßig über die Kachelbreite verteilt"
+      ],
+      "en": [
+        "📈 Activity horizontal: square cells, evenly spread across the tile width"
+      ]
+    },
+    {
+      "version": "2026.11.22-24",
+      "date": "2026-11-22",
+      "de": [
+        "📈 Aktivität waagerecht: Die sieben Tage nutzen jetzt die ganze Breite der Kachel, statt links mit viel Leerraum zu stehen"
+      ],
+      "en": [
+        "📈 Activity horizontal: the seven days now use the full width of the tile instead of sitting on the left with lots of empty space"
+      ]
+    },
+    {
+      "version": "2026.11.22-23",
+      "date": "2026-11-22",
+      "de": [
+        "🔁 Wiederkehrende Zahlungen: Bei einer neuen Investition oder Einnahme „Wiederholen“ wählen (wöchentlich, monatlich, vierteljährlich, jährlich) – Abos, Lizenzen oder Miete werden automatisch gebucht, auch rückwirkend ab dem Startdatum. Im Reiter Finanzen siehst du alle Regeln mit nächster Buchung und kannst sie ändern, beenden oder löschen",
+        "📈 Aktivität (12 Wochen): Umschalter für die Ausrichtung – A automatisch, ▥ Wochen senkrecht, ▤ Wochen waagerecht. Automatisch dreht die Kachel in schmalen Breiten (½, ¼, Smartphone) auf waagerecht, mit Wochentagen als Überschrift"
+      ],
+      "en": [
+        "🔁 Recurring payments: choose “Repeat” for a new investment or income (weekly, monthly, quarterly, yearly) – subscriptions, licences or rent are booked automatically, also retroactively from the start date. The Finances tab lists all rules with the next booking; edit, end or delete them there",
+        "📈 Activity (12 weeks): orientation switch – A automatic, ▥ weeks vertical, ▤ weeks horizontal. Automatic turns the tile horizontal in narrow widths (½, ¼, smartphone), with weekdays as headers"
+      ]
+    },
+    {
+      "version": "2026.11.22-22",
+      "date": "2026-11-22",
+      "de": [
+        "❓ CSV-Import: Steht in der Datei ein Projektname, den es nicht gibt, fragt Protrac jetzt nach – zum ähnlich geschriebenen Projekt hinzufügen (z. B. „Overland Guide“ → „Overlandguide“), einem anderen Projekt zuordnen, neues Projekt anlegen oder nicht importieren",
+        "🔁 Werden importierte Einträge einem vorhandenen Projekt zugeordnet, legt Protrac dort schon vorhandene Einträge nicht doppelt an",
+        "📱 Import-Fenster auf dem Smartphone: Knöpfe ragen nicht mehr über den Rand"
+      ],
+      "en": [
+        "❓ CSV import: if the file contains a project name that doesn’t exist, Protrac now asks – add to the similarly named project (e.g. “Overland Guide” → “Overlandguide”), assign to another project, create a new project or don’t import",
+        "🔁 When imported entries are assigned to an existing project, entries that already exist there are not created twice",
+        "📱 Import window on smartphones: buttons no longer run off the edge"
+      ]
+    },
+    {
       "version": "2026.11.22-21",
       "date": "2026-11-22",
       "de": [
