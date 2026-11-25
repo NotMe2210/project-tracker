@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-25';
+const APP_VERSION = '2026.11.22-28';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -768,7 +768,7 @@ window.addEventListener('resize', () => requestAnimationFrame(updateCompactTitle
 $('#app').addEventListener('animationend', (e) => { if (e.target.id === 'app') e.target.classList.remove('view-in'); });
 
 /* Einheitliche Linien-Symbole statt Emojis in Navigation, Knöpfen, Reitern und Überschriften.
-   Emojis mit Gefühl (🍅, 🔥, 🏆, Erfolge, Motivation) bleiben bewusst erhalten. */
+   Emojis mit Gefühl (🔥, 🏆, Erfolge, Motivation) bleiben bewusst erhalten. */
 const ICON_PATHS = {
   chart: '<path d="M3 3v18h18"/><path d="M8 16v-5M13 16V7M18 16v-3"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
@@ -800,11 +800,12 @@ const ICON_PATHS = {
   pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
   layout: '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 10h18M10 10v11"/>',
   archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>',
+  tomato: '<path d="M7.5 8.8C5.4 9.9 3.5 11.8 3.5 14.5c0 3.8 3.8 6.5 8.5 6.5s8.5-2.7 8.5-6.5c0-2.7-1.9-4.6-4-5.7"/><path d="M12 9 8.6 7M12 9l3.4-2M12 9l-2.6 2.6M12 9l2.6 2.6M12 9V4.5"/>',
 };
 const ICON_EMOJI = { '📊': 'chart', '🗂️': 'folder', '🗂': 'folder', '⚙️': 'gear', '⚙': 'gear', '🔎': 'search', '⚡': 'bolt', '💾': 'save', '⏱️': 'timer', '⏱': 'timer',
   '🏁': 'flag', '✅': 'check', '📎': 'clip', '🗑️': 'trash', '🗑': 'trash', '📝': 'note', '💶': 'euro', '💰': 'wallet', '📅': 'cal', '🗓️': 'cal', '🗓': 'cal', '🎯': 'target',
   '☀️': 'sun', '⚠️': 'alert', '👉': 'arrow', '🕘': 'clock', '💭': 'msg', '▶': 'play', '⏹️': 'stop', '■': 'stop', '🏅': 'award', '⏸': 'pause', '✏️': 'pencil', '✎': 'pencil',
-  '📋': 'note', '🧩': 'layout', '🗄️': 'archive' };
+  '📋': 'note', '🧩': 'layout', '🗄️': 'archive', '🍅': 'tomato' };
 const ICON_KEYS = Object.keys(ICON_EMOJI).sort((a, b) => b.length - a.length);
 const ICON_SEL = '.nav .ico, h1, h2, h3, .btn, .tabs a, .seg-btn, .pop-item, .task-bar-btn, .swipe-act, .cmd-btn, .w-label';
 const iconSVG = (k) => `<svg class="ic${k === 'play' || k === 'stop' ? ' fill' : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICON_PATHS[k]}</svg>`;
@@ -3264,6 +3265,25 @@ const actions = {
   },
   openPalette() { openPalette(); },
   quickAdd() { openQuickAdd(); },
+  /* Handy: ein „+“ neben der Tab-Leiste für alles Neue – im Projekt direkt für dieses Projekt */
+  openPlusMenu() {
+    const r = parseRoute();
+    const p = r.view === 'projekt' ? getProject(r.id) : null;
+    const it = (action, icon, label, extra = '') => `<button class="pop-item plus-item" data-action="${action}" ${extra}><span class="plus-ico">${icon}</span>${esc(label)}</button>`;
+    const pid = p ? `data-id="${p.id}"` : '';
+    const html = `<div class="pop-title">${p ? `<span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}` : tr('Neu')}</div>
+      <div class="plus-grid">
+        ${it('addTime', '⏱️', tr('Zeit erfassen'), pid)}
+        ${p ? it('addTask', '✅', tr('Aufgabe'), pid) : it('quickAdd', '✅', tr('Aufgabe'))}
+        ${p ? `${it('startPomodoro', '🍅', 'Pomodoro', pid)}${it('startTimer', '▶️', tr('Stoppuhr'), pid)}
+          ${it('addMilestone', '🏁', tr('Meilenstein'), pid)}${it('addNote', '📝', tr('Notiz'), pid)}
+          ${it('addInvestment', '💶', tr('Investition'), pid)}${it('addIncome', '💰', tr('Einnahme'), pid)}`
+        : it('newProject', '🗂️', tr('Neues Projekt'))}
+      </div>
+      ${it('quickAdd', '⚡', tr('Schnelleingabe'), 'data-wide')}`;
+    openPopover($('#fab-plus'), html);
+    popover.classList.add('plus-menu');
+  },
   customizeProject({ id }) { startEdit('project', id); },
   applyRecommendedLayout({ kind, id }) {
     if (kind === 'project') {
@@ -4780,6 +4800,7 @@ function openPopover(anchor, html) {
 function closePopover() {
   if (popover.hidden) return;
   popover.hidden = true;
+  popover.classList.remove('plus-menu');
   popoverAnchor = null;
 }
 document.addEventListener('click', (e) => {
@@ -4800,6 +4821,7 @@ function projectMenuHTML(p) {
     <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 ${tr('Notiz')}</button>
     <button class="pop-item" data-action="goProject" data-id="${p.id}">🗂️ ${tr('Projekt öffnen')}</button>
     <button class="pop-item" data-action="editProject" data-id="${p.id}">✎ ${tr('Projekt bearbeiten')}</button>
+    <button class="pop-item" data-action="customizeProject" data-id="${p.id}">🧩 ${tr('Übersicht anpassen')}</button>
     <div class="pop-sep"></div>
     <button class="pop-item" data-action="duplicateProject" data-id="${p.id}">⧉ ${tr('Projekt duplizieren')}</button>
     <button class="pop-item" data-action="saveTemplate" data-id="${p.id}">📋 ${tr('Als Vorlage speichern')}</button>

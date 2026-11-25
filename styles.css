@@ -1635,7 +1635,7 @@ html.style-glass .topbar::before {
 @media (max-width: 640px) {
   html.style-glass .topbar { margin: 8px 10px 0; border-radius: 26px; top: 8px; }
   html.style-glass .nav {
-    left: 14px; right: 14px; bottom: calc(10px + env(safe-area-inset-bottom));
+    left: 12px; right: 12px; bottom: var(--nav-gap);
     border-radius: 34px; padding: 6px;
     background-color: var(--lg-glass-strong); background-image: var(--lg-sheen);
     -webkit-backdrop-filter: blur(34px) saturate(190%); backdrop-filter: blur(34px) saturate(190%);
@@ -1655,9 +1655,9 @@ html.style-glass .topbar::before {
 
 /* Glas auf dem Handy: Timer mit Abstand über der schwebenden Tab-Leiste; Inhalt endet über beiden */
 @media (max-width: 640px) {
-  html.style-glass .timer-indicator { bottom: calc(var(--lg-nav-h, 76px) + 22px + env(safe-area-inset-bottom)); left: 14px; right: 14px; }
-  html.style-glass #app.container { padding-bottom: calc(var(--lg-nav-h, 76px) + 36px + env(safe-area-inset-bottom)); }
-  html.style-glass body:has(#timer-indicator:not([hidden])) #app.container { padding-bottom: calc(var(--lg-nav-h, 76px) + 110px + env(safe-area-inset-bottom)); }
+  html.style-glass .timer-indicator { bottom: calc(var(--lg-nav-h, 76px) + var(--nav-gap) + 12px); left: 12px; right: 12px; }
+  html.style-glass #app.container { padding-bottom: calc(var(--lg-nav-h, 76px) + var(--nav-gap) + 24px); }
+  html.style-glass body:has(#timer-indicator:not([hidden])) #app.container { padding-bottom: calc(var(--lg-nav-h, 76px) + var(--nav-gap) + 96px); }
 }
 .form input[type=range] { background: transparent; border: 0; padding: 0; box-shadow: none; min-height: 0; }
 
@@ -1938,3 +1938,75 @@ html.style-glass.proj-tint {
 
 /* Wiederkehrende Zahlungen */
 .rec-card .list .amount { white-space: nowrap; }
+
+/* ==== Smartphone aufgeräumt ==== */
+:root { --nav-gap: max(8px, calc(env(safe-area-inset-bottom) - 12px)); } /* Tab-Leiste dicht über dem Home-Balken, wie in iOS */
+@media (max-width: 640px) {
+  /* Kopfleiste im Glas-Stil: Kapsel beginnt unter der Statusleiste statt dahinter */
+  html.style-glass .topbar { top: calc(env(safe-area-inset-top) + 6px); margin: calc(env(safe-area-inset-top) + 6px) 10px 0; padding: 6px 6px 6px 16px; }
+  /* dicht genug, dass darunter scrollender Text nicht durchscheint (der Weichzeichner greift hier nicht) */
+  html.style-glass .topbar::before { background-color: color-mix(in srgb, var(--lg-page) 86%, transparent); }
+  /* Statusleiste: ruhiger Seitenhintergrund mit weichem Übergang statt verwischtem Inhalt */
+  html.style-glass body::before {
+    content: ''; position: fixed; left: 0; right: 0; top: 0; height: calc(env(safe-area-inset-top) + 30px); z-index: 9; pointer-events: none;
+    background: var(--lg-bg), var(--lg-page); background-attachment: fixed;
+    -webkit-mask-image: linear-gradient(#000 calc(100% - 8px), transparent); mask-image: linear-gradient(#000 calc(100% - 8px), transparent);
+  }
+  html.style-glass.proj-tint body::before { background: radial-gradient(70vmax 55vmax at 50% -10%, color-mix(in srgb, var(--proj) 45%, transparent), transparent 60%), var(--lg-bg), var(--lg-page); background-attachment: fixed; }
+  html:not(.style-glass) body::before { content: ''; position: fixed; left: 0; right: 0; top: 0; height: env(safe-area-inset-top); z-index: 11; background: var(--surface); pointer-events: none; }
+
+  /* Kopfleiste: Nebenknöpfe als schlichte Symbole statt umrandeter Kapseln */
+  .topbar-actions { gap: 2px; }
+  .topbar-actions > .btn:not(.primary), html.style-glass .topbar-actions > .btn:not(.primary) {
+    background: transparent; border-color: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none;
+    width: 40px; min-width: 40px; padding: 0; justify-content: center; font-size: 1.1rem;
+  }
+  .topbar-actions > .backup-btn.dirty, .topbar-actions > .backup-btn.sync-warn { color: var(--warn); }
+  .topbar-actions > .add-time { margin-left: 4px; }
+
+  /* Hinweis „Ungesicherte Änderungen“: steckt schon im 💾-Knopf (orange mit Punkt) – keine eigene Leiste */
+  #backup-bar.warn { display: none; }
+
+  /* Projekt-Übersicht: „Ansicht anpassen“ steht im ⋯-Menü, keine eigene Zeile */
+  .view-head:has([data-action="customizeProject"]) { display: none; }
+}
+
+/* ==== Smartphone: ein „+“ neben der Tab-Leiste statt vieler Knöpfe ==== */
+.fab-plus { display: none; }
+@media (max-width: 640px) {
+  .fab-plus {
+    display: grid; place-items: center; position: fixed; z-index: 21;
+    right: 12px; bottom: var(--nav-gap); width: 62px; height: 62px; border-radius: 50%; border: 0; padding: 0;
+    font-size: 2rem; font-weight: 300; line-height: 1; color: var(--primary-contrast, #fff); cursor: pointer;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 80%, white), var(--primary));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 8px 24px color-mix(in srgb, var(--primary) 45%, transparent);
+  }
+  .nav { right: calc(62px + 12px + 10px) !important; }
+  html:not(.style-glass) .nav { left: 12px; bottom: var(--nav-gap); border: 1px solid var(--border); border-radius: 31px; padding: 6px; box-shadow: var(--shadow); }
+  html:not(.style-glass) .nav a { border-radius: 24px; }
+  html:not(.style-glass) .container { padding-bottom: calc(96px + var(--nav-gap)); }
+  html:not(.style-glass) .timer-indicator { bottom: calc(76px + var(--nav-gap)); }
+  body.locked .fab-plus { display: none; }
+
+  /* Was das „+“ übernimmt bzw. was woanders steht, entfällt */
+  .topbar-actions .quick-btn, .topbar-actions .add-time { display: none !important; }
+  .page-head [data-action="startPomodoro"], .page-head [data-action="startTimer"], .page-head [data-action="stopTimer"] { display: none !important; }
+  #app .card-head .add-icon { display: none !important; }
+  #app [data-action="importPlan"], #app [data-action="importCsv"] { display: none !important; }
+  .list > li.task:not(.sel) > .grow > .add-sub { display: none !important; }
+  .g-hint, .heat-hint { display: none !important; }
+
+  /* Projektkopf: ⋯ oben rechts neben dem Titel, Status als schlichter Text */
+  .page-head { position: relative; }
+  .page-head .project-title { padding-right: 44px; }
+  .page-head > .btn-row:last-child { position: absolute; top: 2px; right: 0; margin: 0; }
+  .page-head .inline-select { border: 0; background-color: transparent; box-shadow: none; padding: 2px 18px 2px 0; font-size: .95rem; color: var(--muted); min-height: 0; width: auto; }
+
+  /* Menü des „+“ */
+  .popover.plus-menu { left: 12px !important; right: 12px; bottom: calc(var(--nav-gap) + 74px); padding: 10px; border-radius: 26px; }
+  .plus-menu .plus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 6px; }
+  .plus-menu .plus-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 12px 6px; border-radius: 18px; text-align: center; font-weight: 600; background: var(--surface-2); min-height: 76px; }
+  .plus-menu .plus-item[data-wide] { flex-direction: row; min-height: 50px; width: 100%; }
+  .plus-menu .plus-ico { font-size: 1.45rem; line-height: 1; }
+  html.style-glass .plus-menu .plus-item { background: var(--lg-glass-soft); box-shadow: inset 0 1px 0 var(--lg-edge-dim); }
+}

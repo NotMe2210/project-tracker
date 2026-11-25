@@ -1587,4 +1587,6 @@ I18N.en = {
   "Wochen senkrecht (Spalten)": "Weeks vertical (columns)",
   "Wochen waagerecht (Zeilen)": "Weeks horizontal (rows)",
   ", nächste am {date}": ", next on {date}",
+  "Neu": "New",
+  "Stoppuhr": "Stopwatch",
 };
