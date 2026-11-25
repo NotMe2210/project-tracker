@@ -2,6 +2,16 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-28",
+      "date": "2026-11-22",
+      "de": [
+        "🍅 Pomodoro hat jetzt ein Linien-Symbol (Tomate) passend zu den übrigen Symbolen statt des bunten Emojis"
+      ],
+      "en": [
+        "🍅 Pomodoro now has a line icon (tomato) matching the other icons instead of the colourful emoji"
+      ]
+    },
+    {
       "version": "2026.11.22-27",
       "date": "2026-11-22",
       "de": [
