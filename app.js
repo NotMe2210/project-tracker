@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-25';
+const APP_VERSION = '2026.11.22-26';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -4800,6 +4800,7 @@ function projectMenuHTML(p) {
     <button class="pop-item" data-action="addNote" data-id="${p.id}">📝 ${tr('Notiz')}</button>
     <button class="pop-item" data-action="goProject" data-id="${p.id}">🗂️ ${tr('Projekt öffnen')}</button>
     <button class="pop-item" data-action="editProject" data-id="${p.id}">✎ ${tr('Projekt bearbeiten')}</button>
+    <button class="pop-item" data-action="customizeProject" data-id="${p.id}">🧩 ${tr('Übersicht anpassen')}</button>
     <div class="pop-sep"></div>
     <button class="pop-item" data-action="duplicateProject" data-id="${p.id}">⧉ ${tr('Projekt duplizieren')}</button>
     <button class="pop-item" data-action="saveTemplate" data-id="${p.id}">📋 ${tr('Als Vorlage speichern')}</button>

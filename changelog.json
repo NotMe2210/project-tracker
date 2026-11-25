@@ -2,6 +2,20 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-26",
+      "date": "2026-11-22",
+      "de": [
+        "📱 Smartphone aufgeräumt: Die Leiste „Ungesicherte Änderungen“ entfällt – der 💾-Knopf zeigt den Hinweis (orange mit Punkt). „Ansicht anpassen“ steht im ⋯-Menü des Projekts. Die Knöpfe ⚡ und 💾 in der Kopfleiste sind schlichte Symbole",
+        "📱 Kopfleiste im Stil Glas: beginnt unter der Statusleiste, darüber ruhiger Hintergrund statt verwischtem Inhalt; die Kapsel ist dicht genug, dass nichts durchscheint",
+        "📱 Die Tab-Leiste unten sitzt jetzt dicht über dem Home-Balken"
+      ],
+      "en": [
+        "📱 Smartphone decluttered: the “Unsaved changes” bar is gone – the 💾 button shows it (orange with a dot). “Customise overview” is in the project’s ⋯ menu. The ⚡ and 💾 buttons in the top bar are plain icons",
+        "📱 Top bar in Glass style: starts below the status bar, with a calm background instead of blurred content above it; the capsule is dense enough that nothing shows through",
+        "📱 The tab bar at the bottom now sits close above the home indicator"
+      ]
+    },
+    {
       "version": "2026.11.22-25",
       "date": "2026-11-22",
       "de": [
