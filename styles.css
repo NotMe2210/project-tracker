@@ -1970,3 +1970,43 @@ html.style-glass.proj-tint {
   /* Projekt-Übersicht: „Ansicht anpassen“ steht im ⋯-Menü, keine eigene Zeile */
   .view-head:has([data-action="customizeProject"]) { display: none; }
 }
+
+/* ==== Smartphone: ein „+“ neben der Tab-Leiste statt vieler Knöpfe ==== */
+.fab-plus { display: none; }
+@media (max-width: 640px) {
+  .fab-plus {
+    display: grid; place-items: center; position: fixed; z-index: 21;
+    right: 12px; bottom: var(--nav-gap); width: 62px; height: 62px; border-radius: 50%; border: 0; padding: 0;
+    font-size: 2rem; font-weight: 300; line-height: 1; color: var(--primary-contrast, #fff); cursor: pointer;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 80%, white), var(--primary));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 8px 24px color-mix(in srgb, var(--primary) 45%, transparent);
+  }
+  .nav { right: calc(62px + 12px + 10px) !important; }
+  html:not(.style-glass) .nav { left: 12px; bottom: var(--nav-gap); border: 1px solid var(--border); border-radius: 31px; padding: 6px; box-shadow: var(--shadow); }
+  html:not(.style-glass) .nav a { border-radius: 24px; }
+  html:not(.style-glass) .container { padding-bottom: calc(96px + var(--nav-gap)); }
+  html:not(.style-glass) .timer-indicator { bottom: calc(76px + var(--nav-gap)); }
+  body.locked .fab-plus { display: none; }
+
+  /* Was das „+“ übernimmt bzw. was woanders steht, entfällt */
+  .topbar-actions .quick-btn, .topbar-actions .add-time { display: none !important; }
+  .page-head [data-action="startPomodoro"], .page-head [data-action="startTimer"], .page-head [data-action="stopTimer"] { display: none !important; }
+  #app .card-head .add-icon { display: none !important; }
+  #app [data-action="importPlan"], #app [data-action="importCsv"] { display: none !important; }
+  .list > li.task:not(.sel) > .grow > .add-sub { display: none !important; }
+  .g-hint, .heat-hint { display: none !important; }
+
+  /* Projektkopf: ⋯ oben rechts neben dem Titel, Status als schlichter Text */
+  .page-head { position: relative; }
+  .page-head .project-title { padding-right: 44px; }
+  .page-head > .btn-row:last-child { position: absolute; top: 2px; right: 0; margin: 0; }
+  .page-head .inline-select { border: 0; background-color: transparent; box-shadow: none; padding: 2px 18px 2px 0; font-size: .95rem; color: var(--muted); min-height: 0; width: auto; }
+
+  /* Menü des „+“ */
+  .popover.plus-menu { left: 12px !important; right: 12px; bottom: calc(var(--nav-gap) + 74px); padding: 10px; border-radius: 26px; }
+  .plus-menu .plus-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 4px 0 6px; }
+  .plus-menu .plus-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 12px 6px; border-radius: 18px; text-align: center; font-weight: 600; background: var(--surface-2); min-height: 76px; }
+  .plus-menu .plus-item[data-wide] { flex-direction: row; min-height: 50px; width: 100%; }
+  .plus-menu .plus-ico { font-size: 1.45rem; line-height: 1; }
+  html.style-glass .plus-menu .plus-item { background: var(--lg-glass-soft); box-shadow: inset 0 1px 0 var(--lg-edge-dim); }
+}

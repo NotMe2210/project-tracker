@@ -2,6 +2,18 @@
   "repo": "https://github.com/NotMe2210/project-tracker",
   "entries": [
     {
+      "version": "2026.11.22-27",
+      "date": "2026-11-22",
+      "de": [
+        "📱 Smartphone deutlich aufgeräumt: Ein runder „+“-Knopf neben der Tab-Leiste bündelt alles Neue – Zeit erfassen, Aufgabe, Pomodoro, Stoppuhr, Meilenstein, Notiz, Investition, Einnahme und Schnelleingabe. Im Projekt gilt er direkt für dieses Projekt",
+        "📱 Dafür entfallen auf dem Smartphone: ⚡ und „+ Zeit“ oben, Pomodoro/Stoppuhr im Projektkopf, die „+“- und „⬆ CSV“-Knöpfe in den Karten (CSV steht im ⋯-Menü), „+ Unterpunkt“ unter jeder Aufgabe (erscheint nach Antippen) und die Bedienhinweise. ⋯ steht oben rechts neben dem Projektnamen, der Status als schlichter Text"
+      ],
+      "en": [
+        "📱 Smartphone much tidier: one round “+” button next to the tab bar bundles everything new – log time, task, Pomodoro, stopwatch, milestone, note, investment, income and quick entry. In a project it applies to that project",
+        "📱 In return, on smartphones: ⚡ and “+ Time” at the top, Pomodoro/stopwatch in the project header, the “+” and “⬆ CSV” buttons in cards (CSV is in the ⋯ menu), “+ Subtask” under every task (appears after tapping) and the usage hints are gone. ⋯ sits top right next to the project name, the status as plain text"
+      ]
+    },
+    {
       "version": "2026.11.22-26",
       "date": "2026-11-22",
       "de": [

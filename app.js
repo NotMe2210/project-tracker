@@ -5,7 +5,7 @@
    ========================================================================= */
 
 // Bei jeder Veröffentlichung erhöhen (bump-version.sh) – steuert Cache-Umgehung und Update-Hinweis
-const APP_VERSION = '2026.11.22-26';
+const APP_VERSION = '2026.11.22-27';
 const STORAGE_KEY = 'projekttracker.v1';
 const META_KEY = 'projekttracker.meta';
 const SYNC_KEY = 'projekttracker.server';       // Server-Modus: Stand des Abgleichs
@@ -3264,6 +3264,25 @@ const actions = {
   },
   openPalette() { openPalette(); },
   quickAdd() { openQuickAdd(); },
+  /* Handy: ein „+“ neben der Tab-Leiste für alles Neue – im Projekt direkt für dieses Projekt */
+  openPlusMenu() {
+    const r = parseRoute();
+    const p = r.view === 'projekt' ? getProject(r.id) : null;
+    const it = (action, icon, label, extra = '') => `<button class="pop-item plus-item" data-action="${action}" ${extra}><span class="plus-ico">${icon}</span>${esc(label)}</button>`;
+    const pid = p ? `data-id="${p.id}"` : '';
+    const html = `<div class="pop-title">${p ? `<span class="dot-color" style="background:${esc(p.color)}"></span> ${esc(p.name)}` : tr('Neu')}</div>
+      <div class="plus-grid">
+        ${it('addTime', '⏱️', tr('Zeit erfassen'), pid)}
+        ${p ? it('addTask', '✅', tr('Aufgabe'), pid) : it('quickAdd', '✅', tr('Aufgabe'))}
+        ${p ? `${it('startPomodoro', '🍅', 'Pomodoro', pid)}${it('startTimer', '▶️', tr('Stoppuhr'), pid)}
+          ${it('addMilestone', '🏁', tr('Meilenstein'), pid)}${it('addNote', '📝', tr('Notiz'), pid)}
+          ${it('addInvestment', '💶', tr('Investition'), pid)}${it('addIncome', '💰', tr('Einnahme'), pid)}`
+        : it('newProject', '🗂️', tr('Neues Projekt'))}
+      </div>
+      ${it('quickAdd', '⚡', tr('Schnelleingabe'), 'data-wide')}`;
+    openPopover($('#fab-plus'), html);
+    popover.classList.add('plus-menu');
+  },
   customizeProject({ id }) { startEdit('project', id); },
   applyRecommendedLayout({ kind, id }) {
     if (kind === 'project') {
@@ -4780,6 +4799,7 @@ function openPopover(anchor, html) {
 function closePopover() {
   if (popover.hidden) return;
   popover.hidden = true;
+  popover.classList.remove('plus-menu');
   popoverAnchor = null;
 }
 document.addEventListener('click', (e) => {
